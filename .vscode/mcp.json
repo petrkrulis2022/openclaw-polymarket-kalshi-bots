@@ -1,0 +1,7 @@
+{
+  "servers": {
+    "wdk-docs": {
+      "url": "https://docs.wallet.tether.io/~gitbook/mcp"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+nohup.out
+/tmp/
+.DS_Store
+wdk-starter-react-native/

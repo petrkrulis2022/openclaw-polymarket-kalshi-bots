@@ -1,0 +1,29 @@
+{
+  "name": "wdk-treasury",
+  "version": "1.0.0",
+  "description": "WDK Core Treasury Service – manages Polygon wallets and USD₮ transfers for the OpenClaw multi-bot system",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc",
+    "start:prod": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tetherto/wdk": "latest",
+    "@tetherto/wdk-wallet-evm": "latest",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.16.0",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.0",
+    "tsx": "^4.15.7",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
