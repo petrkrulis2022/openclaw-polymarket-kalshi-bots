@@ -28,7 +28,23 @@ export function usePortfolio() {
     try {
       const res = await fetch("/api/orchestrator/portfolio/summary");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as Portfolio;
+      const raw = await res.json();
+      const data: Portfolio = {
+        totalEquity: parseFloat(raw.totalEquity) || 0,
+        totalPnl: parseFloat(raw.totalPnl) || 0,
+        bots: (raw.bots ?? []).map((b: Record<string, unknown>) => ({
+          id: b.id,
+          name: b.name,
+          strategy: b.strategy ?? "",
+          status: b.status ?? "idle",
+          equity: parseFloat(b.equity as string) || 0,
+          pnl: parseFloat(b.pnl as string) || 0,
+          allocationPct: parseFloat(b.allocationPct as string) || 0,
+          utilization:
+            b.utilization != null ? parseFloat(b.utilization as string) : 0,
+          openPositions: Number(b.openPositions) || 0,
+        })),
+      };
       setPortfolio(data);
       setError(null);
     } catch (e) {
@@ -40,7 +56,7 @@ export function usePortfolio() {
 
   useEffect(() => {
     fetch_();
-    timerRef.current = setInterval(fetch_, 30_000);
+    timerRef.current = setInterval(fetch_, 5_000);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };

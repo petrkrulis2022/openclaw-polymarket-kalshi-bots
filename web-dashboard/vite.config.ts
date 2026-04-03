@@ -17,6 +17,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/orchestrator/, ""),
       },
+      "/api/bot/1": {
+        target: "http://localhost:3003",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/bot\/1/, ""),
+      },
     },
   },
 });

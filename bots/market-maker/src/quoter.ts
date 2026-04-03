@@ -1,0 +1,173 @@
+import { config } from "./config.js";
+import { getActiveMarkets, type GammaMarket } from "./markets.js";
+import { getOrderBook, placeLimitOrder, cancelOrder } from "./clob.js";
+import { getSkew, recordFill } from "./inventory.js";
+
+export interface MarketState {
+  market: GammaMarket;
+  yesTokenId: string;
+  noTokenId: string;
+  mid: number;
+  spread: number;
+  ourBidId: string | null;
+  ourBidPrice: number;
+  ourAskId: string | null;
+  ourAskPrice: number;
+  openPositions: number;
+}
+
+const states = new Map<string, MarketState>();
+
+// Paper-mode simulated mids: each market gets a random-walk price
+const paperMids = new Map<string, number>();
+
+function getSimulatedMid(conditionId: string): number {
+  if (!paperMids.has(conditionId)) {
+    // Start anywhere between 0.2–0.8 (avoiding extremes)
+    paperMids.set(conditionId, 0.3 + Math.random() * 0.4);
+  }
+  const current = paperMids.get(conditionId)!;
+  // Random walk: ±0–6% each cycle, bounded to [0.05, 0.95]
+  const delta = (Math.random() - 0.5) * 0.12;
+  const next = Math.max(0.05, Math.min(0.95, current + delta));
+  paperMids.set(conditionId, next);
+  return next;
+}
+
+export function getStates(): MarketState[] {
+  return Array.from(states.values());
+}
+
+export async function quoteMarket(
+  market: GammaMarket,
+  equityPerMarket: number,
+): Promise<void> {
+  const yesTokenId = market.yesTokenId;
+  const noTokenId = market.noTokenId;
+  if (!yesTokenId || !noTokenId) return;
+
+  let mid: number;
+  let spread: number;
+
+  if (config.paperTrading) {
+    // In paper mode: use a simulated random-walk mid, ignore the real book
+    mid = getSimulatedMid(market.conditionId);
+    spread = config.quoting.quoteHalfWidth * 2;
+  } else {
+    const book = await getOrderBook(yesTokenId);
+    const bestBid = book.bids[0]?.price ?? 0;
+    const bestAsk = book.asks[0]?.price ?? 1;
+    if (bestBid <= 0 || bestAsk <= 0 || bestAsk <= bestBid) return;
+    mid = (bestBid + bestAsk) / 2;
+    spread = bestAsk - bestBid;
+  }
+
+  // Fixed half-width from config (e.g. 0.03 = 3 cents each side)
+  const halfWidth = config.quoting.quoteHalfWidth;
+
+  const existing = states.get(market.conditionId);
+
+  // Check if re-quote is needed
+  if (existing) {
+    const midMoved =
+      Math.abs(mid - existing.mid) >
+      config.quoting.reQuoteThreshold * existing.mid;
+    const bidStale =
+      existing.ourBidId &&
+      Math.abs(existing.ourBidPrice - (mid - halfWidth)) / mid >
+        config.quoting.orderStalenessThreshold;
+    const askStale =
+      existing.ourAskId &&
+      Math.abs(existing.ourAskPrice - (mid + halfWidth)) / mid >
+        config.quoting.orderStalenessThreshold;
+
+    const { yesRatio } = getSkew(yesTokenId, equityPerMarket);
+    const inventorySkewed =
+      yesRatio > config.quoting.maxInventorySkew ||
+      yesRatio < 1 - config.quoting.maxInventorySkew;
+
+    if (!midMoved && !bidStale && !askStale && !inventorySkewed) {
+      return; // nothing to do
+    }
+
+    // Cancel stale orders — simulate fills if paper mid moved into our quotes
+    if (existing.ourBidId) {
+      if (
+        config.paperTrading &&
+        mid < existing.ourBidPrice &&
+        Math.random() < 0.4
+      ) {
+        const fillSize = parseFloat(
+          (equityPerMarket / 2 / existing.ourBidPrice).toFixed(2),
+        );
+        recordFill(yesTokenId, "BUY", existing.ourBidPrice, fillSize);
+        console.log(
+          `[paper-fill] BUY filled @ ${existing.ourBidPrice.toFixed(4)} size=${fillSize} | ${market.question.slice(0, 40)}`,
+        );
+      }
+      await cancelOrder(existing.ourBidId);
+    }
+    if (existing.ourAskId) {
+      if (
+        config.paperTrading &&
+        mid > existing.ourAskPrice &&
+        Math.random() < 0.4
+      ) {
+        const fillSize = parseFloat(
+          (equityPerMarket / 2 / existing.ourAskPrice).toFixed(2),
+        );
+        recordFill(yesTokenId, "SELL", existing.ourAskPrice, fillSize);
+        console.log(
+          `[paper-fill] SELL filled @ ${existing.ourAskPrice.toFixed(4)} size=${fillSize} | ${market.question.slice(0, 40)}`,
+        );
+      }
+      await cancelOrder(existing.ourAskId);
+    }
+  }
+
+  // Compute quote prices
+  const { yesRatio } = getSkew(yesTokenId, equityPerMarket);
+  const skewFactor = 1 - Math.max(0, yesRatio - 0.5) * 2;
+
+  const orderSize = Math.max(0.01, equityPerMarket / 2 / mid);
+  const bidPrice = Math.max(0.01, Math.min(0.99, mid - halfWidth));
+  const askPrice = Math.max(0.01, Math.min(0.99, mid + halfWidth));
+  const bidSize = parseFloat((orderSize * skewFactor).toFixed(2));
+  const askSize = parseFloat(orderSize.toFixed(2));
+
+  if (bidPrice >= askPrice) return;
+
+  const [bidResult, askResult] = await Promise.all([
+    bidSize > 0
+      ? placeLimitOrder(yesTokenId, "BUY", bidPrice, bidSize, market.question)
+      : Promise.resolve(null),
+    placeLimitOrder(yesTokenId, "SELL", askPrice, askSize, market.question),
+  ]);
+
+  const openPositions = (bidResult ? 1 : 0) + (askResult ? 1 : 0);
+
+  states.set(market.conditionId, {
+    market,
+    yesTokenId,
+    noTokenId,
+    mid,
+    spread,
+    ourBidId: bidResult?.orderId ?? null,
+    ourBidPrice: bidPrice,
+    ourAskId: askResult?.orderId ?? null,
+    ourAskPrice: askPrice,
+    openPositions,
+  });
+}
+
+export async function runQuotingCycle(allocatedEquity: number): Promise<void> {
+  const markets = await getActiveMarkets();
+  if (markets.length === 0) {
+    console.warn("[quoter] No active markets available");
+    return;
+  }
+
+  const equityPerMarket = allocatedEquity / markets.length;
+
+  await Promise.allSettled(markets.map((m) => quoteMarket(m, equityPerMarket)));
+}

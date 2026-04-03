@@ -1,17 +1,18 @@
 import { Router, Request, Response } from "express";
 import { supabase } from "../db.js";
+import { inMemoryMetrics, type MetricRow } from "../store.js";
 
 export const metricsRouter = Router();
 
 interface MetricsBody {
   botId: number;
-  equity: string;
-  pnl?: string;
-  realizedPnl?: string;
-  unrealizedPnl?: string;
-  volatility?: string;
-  maxDrawdown?: string;
-  utilization?: string;
+  equity: string | number;
+  pnl?: string | number;
+  realizedPnl?: string | number;
+  unrealizedPnl?: string | number;
+  volatility?: string | number;
+  maxDrawdown?: string | number;
+  utilization?: string | number;
   openPositions?: number;
   extra?: Record<string, unknown>;
 }
@@ -36,22 +37,32 @@ metricsRouter.post("/", async (req: Request, res: Response) => {
   const row = {
     bot_id: botId,
     equity,
-    pnl: parseFloat(body.pnl ?? "0") || 0,
-    realized_pnl: parseFloat(body.realizedPnl ?? "0") || 0,
-    unrealized_pnl: parseFloat(body.unrealizedPnl ?? "0") || 0,
-    volatility: body.volatility != null ? parseFloat(body.volatility) : null,
+    pnl: parseFloat(String(body.pnl ?? "0")) || 0,
+    realized_pnl: parseFloat(String(body.realizedPnl ?? "0")) || 0,
+    unrealized_pnl: parseFloat(String(body.unrealizedPnl ?? "0")) || 0,
+    volatility:
+      body.volatility != null ? parseFloat(String(body.volatility)) : null,
     max_drawdown:
-      body.maxDrawdown != null ? parseFloat(body.maxDrawdown) : null,
-    utilization: body.utilization != null ? parseFloat(body.utilization) : null,
+      body.maxDrawdown != null ? parseFloat(String(body.maxDrawdown)) : null,
+    utilization:
+      body.utilization != null ? parseFloat(String(body.utilization)) : null,
     open_positions: body.openPositions ?? 0,
     extra: body.extra ?? null,
+    recorded_at: new Date().toISOString(),
   };
 
-  const { error } = await supabase.from("metrics").insert(row);
-  if (error) {
-    console.error("metrics insert error", error);
-    res.status(500).json({ error: "Failed to save metrics" });
-    return;
+  // Always store in memory so portfolio summary can reflect latest state
+  inMemoryMetrics.set(botId, row as MetricRow);
+
+  // Also try Supabase (best-effort)
+  try {
+    const { error } = await supabase.from("metrics").insert(row);
+    if (error) throw error;
+  } catch (dbErr) {
+    console.warn(
+      "[metrics] DB unavailable, in-memory only:",
+      (dbErr as Error).message,
+    );
   }
 
   res.status(201).json({ ok: true });

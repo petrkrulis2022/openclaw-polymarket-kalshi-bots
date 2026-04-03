@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { supabase, WDK_TREASURY_URL } from "../db.js";
+import { inMemoryMetrics } from "../store.js";
 
 export const portfolioRouter = Router();
 
@@ -29,16 +30,49 @@ async function latestMetrics() {
 // GET /portfolio/summary
 portfolioRouter.get("/summary", async (_req: Request, res: Response) => {
   try {
-    const rows = await latestMetrics();
+    let rows: Awaited<ReturnType<typeof latestMetrics>> = [];
+    let bots: { id: number; name: string }[] = [];
 
-    const { data: bots } = await supabase
-      .from("bots")
-      .select("id, name")
-      .order("id");
+    try {
+      rows = await latestMetrics();
+      const { data } = await supabase
+        .from("bots")
+        .select("id, name")
+        .order("id");
+      bots = data ?? [];
+    } catch (dbErr) {
+      console.warn(
+        "portfolio/summary: DB unavailable, using in-memory metrics",
+        (dbErr as Error).message,
+      );
+    }
+
+    // Merge in-memory metrics for any bots not covered by DB rows
+    if (inMemoryMetrics.size > 0) {
+      for (const [, mem] of inMemoryMetrics) {
+        const alreadyHave = rows.some((r) => r.bot_id === mem.bot_id);
+        if (!alreadyHave) rows.push(mem);
+        else {
+          // Replace with fresher in-memory data
+          const idx = rows.findIndex((r) => r.bot_id === mem.bot_id);
+          if (idx !== -1) rows[idx] = mem;
+        }
+      }
+    }
+
+    // Fall back to the 3 known bots if DB is empty/unreachable
+    if (bots.length === 0) {
+      bots = [
+        { id: 1, name: "Market Maker" },
+        { id: 2, name: "Arb Bot" },
+        { id: 3, name: "Copy Trader" },
+      ];
+    }
 
     const totalEquity = rows.reduce((s, r) => s + Number(r.equity), 0);
+    const totalPnl = rows.reduce((s, r) => s + Number(r.pnl ?? 0), 0);
 
-    const botSummaries = (bots ?? []).map((b) => {
+    const botSummaries = bots.map((b) => {
       const m = rows.find((r) => r.bot_id === b.id);
       const equity = m ? Number(m.equity) : 0;
       return {
@@ -57,6 +91,7 @@ portfolioRouter.get("/summary", async (_req: Request, res: Response) => {
 
     res.json({
       totalEquity: totalEquity.toFixed(6),
+      totalPnl: totalPnl.toFixed(6),
       bots: botSummaries,
     });
   } catch (err) {
