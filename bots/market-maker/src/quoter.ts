@@ -1,7 +1,7 @@
 import { config } from "./config.js";
 import { params } from "./runtime-config.js";
 import { getActiveMarkets, type GammaMarket } from "./markets.js";
-import { getOrderBook, placeLimitOrder, cancelOrder } from "./clob.js";
+import { getOrderBook, placeLimitOrder, cancelOrder, getLastTradeMid } from "./clob.js";
 import { getSkew, recordFill, getPosition } from "./inventory.js";
 
 export interface MarketState {
@@ -42,6 +42,7 @@ export function getStates(): MarketState[] {
 export async function quoteMarket(
   market: GammaMarket,
   equityPerMarket: number,
+  totalEquity: number,
 ): Promise<void> {
   const yesTokenId = market.yesTokenId;
   const noTokenId = market.noTokenId;
@@ -55,12 +56,24 @@ export async function quoteMarket(
     mid = getSimulatedMid(market.conditionId);
     spread = params.quoteHalfWidth * 2;
   } else {
+    const MAX_USABLE_SPREAD = 0.5;
     const book = await getOrderBook(yesTokenId);
     const bestBid = book.bids[0]?.price ?? 0;
     const bestAsk = book.asks[0]?.price ?? 1;
     if (bestBid <= 0 || bestAsk <= 0 || bestAsk <= bestBid) return;
-    mid = (bestBid + bestAsk) / 2;
     spread = bestAsk - bestBid;
+
+    if (spread > MAX_USABLE_SPREAD) {
+      // Order book is too sparse to trust. Fall back to last trade price as mid.
+      const lastMid = await getLastTradeMid(yesTokenId);
+      if (lastMid <= 0) {
+        console.warn(`[quoter] No usable price for ${market.question.slice(0, 40)}, skipping`);
+        return;
+      }
+      mid = lastMid;
+    } else {
+      mid = (bestBid + bestAsk) / 2;
+    }
   }
 
   // Fixed half-width from config (e.g. 0.03 = 3 cents each side)
@@ -136,7 +149,9 @@ export async function quoteMarket(
   if (bidPrice >= askPrice) return;
 
   // Affordability: can we fund the BUY with available equity?
-  const maxAffordableShares = (equityPerMarket * 0.95) / bidPrice;
+  // Use total equity for the threshold check (so MIN_ORDER_SIZE is achievable
+  // even when per-market allocation is small), but size from per-market budget.
+  const maxAffordableShares = (totalEquity * 0.95) / bidPrice;
   const canBuy = maxAffordableShares >= MIN_ORDER_SIZE;
   const rawBuySize = Math.min(equityPerMarket / 2 / mid, maxAffordableShares);
   const bidSize = canBuy
@@ -190,5 +205,5 @@ export async function runQuotingCycle(allocatedEquity: number): Promise<void> {
 
   const equityPerMarket = allocatedEquity / markets.length;
 
-  await Promise.allSettled(markets.map((m) => quoteMarket(m, equityPerMarket)));
+  await Promise.allSettled(markets.map((m) => quoteMarket(m, equityPerMarket, allocatedEquity)));
 }

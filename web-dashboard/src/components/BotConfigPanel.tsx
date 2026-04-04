@@ -184,6 +184,21 @@ export function BotConfigPanel({
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState(0);
 
+  // Countdown to next quoting cycle
+  const [countdown, setCountdown] = useState<number>(0);
+  useEffect(() => {
+    if (!params) return;
+    const intervalMs = params.pollIntervalMs ?? 5000;
+    // Sync to the cycle boundary using wall-clock time
+    const tick = () => {
+      const msLeft = intervalMs - (Date.now() % intervalMs);
+      setCountdown(Math.ceil(msLeft / 1000));
+    };
+    tick();
+    const timer = setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [params?.pollIntervalMs]);
+
   useEffect(() => {
     if (params && !draft) setDraft({ ...params });
   }, [params]);
@@ -263,9 +278,21 @@ export function BotConfigPanel({
             Strategy Configuration
           </div>
           <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            {paperTrading
-              ? "Paper trading mode — changes take effect immediately"
-              : "Live trading mode — changes take effect on next cycle"}
+            {paperTrading ? (
+              "Paper trading mode — changes take effect immediately"
+            ) : (
+              <>
+                Live trading mode — next cycle in{" "}
+                <span
+                  style={{
+                    color: "var(--primary)",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {countdown}s
+                </span>
+              </>
+            )}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>

@@ -17,14 +17,15 @@ export interface GammaMarket {
   noTokenId: string;
 }
 
-let cachedMarkets: GammaMarket[] = [];
+let cachedMarkets: GammaMarket[] = []; // full filtered+sorted list (not sliced)
 let lastFetch = 0;
 const REFRESH_MS = 10 * 60 * 1000; // 10 minutes
 
 export async function getActiveMarkets(): Promise<GammaMarket[]> {
   const now = Date.now();
   if (cachedMarkets.length > 0 && now - lastFetch < REFRESH_MS) {
-    return cachedMarkets;
+    // Slice by current numMarkets so dashboard changes take effect immediately
+    return cachedMarkets.slice(0, params.numMarkets);
   }
 
   try {
@@ -76,13 +77,14 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
       });
     }
 
-    // Sort by 24h volume descending, take top N
+    // Sort by 24h volume descending — store full list, slice on read
     markets.sort((a, b) => b.volume24hr - a.volume24hr);
-    cachedMarkets = markets.slice(0, params.numMarkets);
+    cachedMarkets = markets; // store all, not sliced
 
+    const selected = markets.slice(0, params.numMarkets);
     lastFetch = now;
-    console.log(`[markets] Selected ${cachedMarkets.length} markets:`);
-    cachedMarkets.forEach((m) =>
+    console.log(`[markets] Selected ${selected.length} markets:`);
+    selected.forEach((m) =>
       console.log(
         `  • ${m.question.slice(0, 60)} | vol24h=$${m.volume24hr.toFixed(0)} | yesToken=${m.yesTokenId.slice(0, 8)}...`,
       ),
@@ -92,5 +94,5 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
     // Keep stale cache on error
   }
 
-  return cachedMarkets;
+  return cachedMarkets.slice(0, params.numMarkets);
 }

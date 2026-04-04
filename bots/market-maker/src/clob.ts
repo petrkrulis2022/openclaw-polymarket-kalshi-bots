@@ -160,3 +160,53 @@ export async function getOpenOrders(): Promise<
     return [];
   }
 }
+
+export interface TradeRecord {
+  asset_id: string;
+  side: string;
+  size: string;
+  price: string;
+  status: string;
+}
+
+/** Fetch full trade history for our maker address to seed inventory on startup. */
+export async function fetchTradeHistory(): Promise<TradeRecord[]> {
+  if (config.paperTrading) return [];
+  try {
+    const c = await getSigningClient();
+    const result = await c.getTrades({
+      maker_address: config.polymarket.walletAddress,
+    });
+    const trades = Array.isArray(result)
+      ? result
+      : ((result as { data?: unknown[] }).data ?? []);
+    return trades.map((t: unknown) => {
+      const trade = t as Record<string, string>;
+      return {
+        asset_id: trade["asset_id"] ?? "",
+        side: trade["side"] ?? "BUY",
+        size: trade["size"] ?? "0",
+        price: trade["price"] ?? "0",
+        status: trade["status"] ?? "",
+      };
+    });
+  } catch (err) {
+    console.warn("[clob] fetchTradeHistory error:", (err as Error).message);
+    return [];
+  }
+}
+
+export async function getLastTradeMid(tokenId: string): Promise<number> {
+  try {
+    const c = getClient();
+    const result = (await c.getLastTradePrice(tokenId)) as
+      | { price?: string }
+      | null
+      | undefined;
+    if (!result || !result.price) return 0;
+    const p = parseFloat(result.price);
+    return Number.isFinite(p) && p > 0 && p < 1 ? p : 0;
+  } catch {
+    return 0;
+  }
+}

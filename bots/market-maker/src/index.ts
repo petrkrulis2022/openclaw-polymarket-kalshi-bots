@@ -10,10 +10,10 @@ import {
   type QuotingParams,
 } from "./runtime-config.js";
 import { getStates, runQuotingCycle } from "./quoter.js";
-import { getAllPositions, getTotalRealizedPnl } from "./inventory.js";
+import { getAllPositions, getTotalRealizedPnl, initFromTrades } from "./inventory.js";
 import { reportMetrics, getLastSnapshot } from "./metrics.js";
 import { getActiveMarkets } from "./markets.js";
-import { getCollateralBalance } from "./clob.js";
+import { getCollateralBalance, fetchTradeHistory } from "./clob.js";
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let allocatedEquity = 0; // updated from treasury at startup; bots don't move funds
@@ -71,6 +71,10 @@ async function mainLoop(): Promise<void> {
 
   // Pre-load markets
   await getActiveMarkets();
+
+  // Seed inventory from trade history so positions survive bot restarts
+  const tradeHistory = await fetchTradeHistory();
+  initFromTrades(tradeHistory);
 
   // Self-rescheduling quoting loop — picks up pollIntervalMs changes immediately
   async function scheduleQuoting(): Promise<void> {
