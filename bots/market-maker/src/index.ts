@@ -10,7 +10,11 @@ import {
   type QuotingParams,
 } from "./runtime-config.js";
 import { getStates, runQuotingCycle } from "./quoter.js";
-import { getAllPositions, getTotalRealizedPnl, initFromTrades } from "./inventory.js";
+import {
+  getAllPositions,
+  getTotalRealizedPnl,
+  initFromTrades,
+} from "./inventory.js";
 import { reportMetrics, getLastSnapshot } from "./metrics.js";
 import { getActiveMarkets } from "./markets.js";
 import { getCollateralBalance, fetchTradeHistory } from "./clob.js";

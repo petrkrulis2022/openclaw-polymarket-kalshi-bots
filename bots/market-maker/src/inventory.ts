@@ -71,18 +71,33 @@ export function getAllPositions(): InventoryPosition[] {
  * Replaces any existing in-memory state so we survive bot restarts.
  */
 export function initFromTrades(
-  trades: { asset_id: string; side: string; size: string; price: string; status: string }[],
+  trades: {
+    asset_id: string;
+    side: string;
+    size: string;
+    price: string;
+    status: string;
+  }[],
 ): void {
   inventory.clear();
   for (const t of trades) {
     if (t.status !== "CONFIRMED") continue;
-    recordFill(t.asset_id, t.side as "BUY" | "SELL", parseFloat(t.price), parseFloat(t.size));
+    recordFill(
+      t.asset_id,
+      t.side as "BUY" | "SELL",
+      parseFloat(t.price),
+      parseFloat(t.size),
+    );
   }
   const positions = Array.from(inventory.values()).filter((p) => p.netSize > 0);
   if (positions.length > 0) {
-    console.log(`[inventory] Seeded ${positions.length} position(s) from trade history:`);
+    console.log(
+      `[inventory] Seeded ${positions.length} position(s) from trade history:`,
+    );
     for (const p of positions) {
-      console.log(`  tokenId=${p.tokenId.slice(0, 16)}… netSize=${p.netSize} avgPrice=${p.avgPrice.toFixed(4)}`);
+      console.log(
+        `  tokenId=${p.tokenId.slice(0, 16)}… netSize=${p.netSize} avgPrice=${p.avgPrice.toFixed(4)}`,
+      );
     }
   } else {
     console.log("[inventory] No open positions found in trade history.");

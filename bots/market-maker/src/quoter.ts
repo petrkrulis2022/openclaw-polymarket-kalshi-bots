@@ -1,7 +1,12 @@
 import { config } from "./config.js";
 import { params } from "./runtime-config.js";
 import { getActiveMarkets, type GammaMarket } from "./markets.js";
-import { getOrderBook, placeLimitOrder, cancelOrder, getLastTradeMid } from "./clob.js";
+import {
+  getOrderBook,
+  placeLimitOrder,
+  cancelOrder,
+  getLastTradeMid,
+} from "./clob.js";
 import { getSkew, recordFill, getPosition } from "./inventory.js";
 
 export interface MarketState {
@@ -67,7 +72,9 @@ export async function quoteMarket(
       // Order book is too sparse to trust. Fall back to last trade price as mid.
       const lastMid = await getLastTradeMid(yesTokenId);
       if (lastMid <= 0) {
-        console.warn(`[quoter] No usable price for ${market.question.slice(0, 40)}, skipping`);
+        console.warn(
+          `[quoter] No usable price for ${market.question.slice(0, 40)}, skipping`,
+        );
         return;
       }
       mid = lastMid;
@@ -205,5 +212,7 @@ export async function runQuotingCycle(allocatedEquity: number): Promise<void> {
 
   const equityPerMarket = allocatedEquity / markets.length;
 
-  await Promise.allSettled(markets.map((m) => quoteMarket(m, equityPerMarket, allocatedEquity)));
+  await Promise.allSettled(
+    markets.map((m) => quoteMarket(m, equityPerMarket, allocatedEquity)),
+  );
 }
