@@ -36,9 +36,8 @@ function getClient(): ClobClient {
   return _client;
 }
 
-// For live order signing we use SignatureType.EOA — the MetaMask EOA key signs
-// directly as the maker. Funds (USDC) must be in the EOA wallet on Polygon,
-// approved via the Polymarket UI (Settings → Withdraw, then re-deposit to EOA).
+// EOA mode — MetaMask EOA (0xD7CA82...) is both signer and maker.
+// USDC.e is approved to CTF Exchange directly from the EOA wallet.
 async function getSigningClient(): Promise<ClobClient> {
   const { Wallet } = await import("ethers");
   const creds: ApiKeyCreds = {
@@ -107,9 +106,26 @@ export async function cancelOrder(orderId: string): Promise<void> {
     return;
   }
   try {
-    await getClient().cancelOrder({ orderID: orderId });
+    const c = await getSigningClient();
+    await c.cancelOrder({ orderID: orderId });
   } catch (err) {
     console.warn(`[clob] cancelOrder error:`, (err as Error).message);
+  }
+}
+
+/** Returns the CLOB collateral balance in USD (6-decimal USDC.e normalised). */
+export async function getCollateralBalance(): Promise<number> {
+  try {
+    const c = await getSigningClient();
+    const result = (await c.getBalanceAllowance({
+      asset_type: "COLLATERAL",
+    })) as {
+      balance?: string;
+    };
+    return parseFloat(result.balance ?? "0") / 1e6;
+  } catch (err) {
+    console.warn("[clob] getCollateralBalance error:", (err as Error).message);
+    return 0;
   }
 }
 
@@ -124,7 +140,8 @@ export async function getOpenOrders(): Promise<
 > {
   if (config.paperTrading) return [];
   try {
-    const result = await getClient().getOpenOrders();
+    const c = await getSigningClient();
+    const result = await c.getOpenOrders();
     const orders = Array.isArray(result)
       ? result
       : ((result as { data?: unknown[] }).data ?? []);

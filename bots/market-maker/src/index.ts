@@ -13,13 +13,14 @@ import { getStates, runQuotingCycle } from "./quoter.js";
 import { getAllPositions, getTotalRealizedPnl } from "./inventory.js";
 import { reportMetrics, getLastSnapshot } from "./metrics.js";
 import { getActiveMarkets } from "./markets.js";
+import { getCollateralBalance } from "./clob.js";
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let allocatedEquity = 0; // updated from treasury at startup; bots don't move funds
 let running = true;
 
 // ─── Treasury: read bot wallet info ──────────────────────────────────────────
-async function fetchAllocatedEquity(): Promise<number> {
+async function fetchTreasuryEquity(): Promise<number> {
   try {
     const res = await fetch(`${config.treasuryUrl}/wallets`);
     if (!res.ok) throw new Error(`Treasury ${res.status}`);
@@ -28,17 +29,29 @@ async function fetchAllocatedEquity(): Promise<number> {
     };
     const bot = data.bots.find((b) => b.id === config.botId);
     const balance = parseFloat(bot?.usdTBalance ?? "0");
-    console.log(
-      `[init] Bot ${config.botId} wallet balance: $${balance.toFixed(4)} USDT`,
-    );
-    return balance;
+    if (balance > 0) {
+      console.log(
+        `[init] Bot ${config.botId} wallet balance: $${balance.toFixed(4)} USDT`,
+      );
+      return balance;
+    }
+    // Treasury bot wallet is empty — fall through to CLOB balance
+    return 0;
   } catch (err) {
-    console.warn(
-      "[init] Treasury unreachable, using 0 equity:",
-      (err as Error).message,
-    );
+    console.warn("[init] Treasury unreachable:", (err as Error).message);
     return 0;
   }
+}
+
+async function fetchAllocatedEquity(): Promise<number> {
+  const treasuryBalance = await fetchTreasuryEquity();
+  if (treasuryBalance > 0) return treasuryBalance;
+  // Fall back to CLOB collateral balance (EOA mode)
+  const clobBalance = await getCollateralBalance();
+  if (clobBalance > 0) {
+    console.log(`[init] EOA CLOB balance: $${clobBalance.toFixed(4)} USDC.e`);
+  }
+  return clobBalance;
 }
 
 // ─── Main quoting loop ────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import { config } from "./config.js";
 import { params } from "./runtime-config.js";
 import { getActiveMarkets, type GammaMarket } from "./markets.js";
 import { getOrderBook, placeLimitOrder, cancelOrder } from "./clob.js";
-import { getSkew, recordFill } from "./inventory.js";
+import { getSkew, recordFill, getPosition } from "./inventory.js";
 
 export interface MarketState {
   market: GammaMarket;
@@ -129,19 +129,40 @@ export async function quoteMarket(
   const { yesRatio } = getSkew(yesTokenId, equityPerMarket);
   const skewFactor = 1 - Math.max(0, yesRatio - 0.5) * 2;
 
-  const orderSize = Math.max(0.01, equityPerMarket / 2 / mid);
+  const MIN_ORDER_SIZE = 5; // Polymarket minimum shares per order
   const bidPrice = Math.max(0.01, Math.min(0.99, mid - halfWidth));
   const askPrice = Math.max(0.01, Math.min(0.99, mid + halfWidth));
-  const bidSize = parseFloat((orderSize * skewFactor).toFixed(2));
-  const askSize = parseFloat(orderSize.toFixed(2));
 
   if (bidPrice >= askPrice) return;
 
+  // Affordability: can we fund the BUY with available equity?
+  const maxAffordableShares = (equityPerMarket * 0.95) / bidPrice;
+  const canBuy = maxAffordableShares >= MIN_ORDER_SIZE;
+  const rawBuySize = Math.min(equityPerMarket / 2 / mid, maxAffordableShares);
+  const bidSize = canBuy
+    ? parseFloat(Math.max(MIN_ORDER_SIZE, rawBuySize * skewFactor).toFixed(2))
+    : 0;
+
+  // Only SELL if we own the inventory (in-memory tracked fills)
+  const heldYes = getPosition(yesTokenId).netSize;
+  const askSize = parseFloat(
+    Math.max(MIN_ORDER_SIZE, equityPerMarket / 2 / mid).toFixed(2),
+  );
+  const canSell = heldYes >= MIN_ORDER_SIZE;
+
   const [bidResult, askResult] = await Promise.all([
-    bidSize > 0
+    canBuy && bidSize >= MIN_ORDER_SIZE
       ? placeLimitOrder(yesTokenId, "BUY", bidPrice, bidSize, market.question)
       : Promise.resolve(null),
-    placeLimitOrder(yesTokenId, "SELL", askPrice, askSize, market.question),
+    canSell
+      ? placeLimitOrder(
+          yesTokenId,
+          "SELL",
+          askPrice,
+          Math.min(askSize, heldYes),
+          market.question,
+        )
+      : Promise.resolve(null),
   ]);
 
   const openPositions = (bidResult ? 1 : 0) + (askResult ? 1 : 0);
