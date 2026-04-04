@@ -18,6 +18,8 @@ import {
   type InventoryPosition,
 } from "./hooks/use-bot-detail";
 import { USDT_ADDRESS, USDT_DECIMALS } from "./config/wagmi";
+import { BotConfigPanel } from "./components/BotConfigPanel";
+import { OpenClawChat } from "./components/OpenClawChat";
 import "./index.css";
 
 const ERC20_ABI = [
@@ -612,6 +614,12 @@ function BotDetailView({
             No active quotes yet — bot is warming up…
           </p>
         )}
+
+      {/* ── Strategy Configuration + OpenClaw Agent ── */}
+      <div style={{ marginTop: 32 }}>
+        <BotConfigPanel botId={Number(bot.id)} />
+        <OpenClawChat botId={Number(bot.id)} />
+      </div>
     </div>
   );
 }

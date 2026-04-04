@@ -1,6 +1,14 @@
 import "dotenv/config";
 import express from "express";
 import { config } from "./config.js";
+import {
+  params,
+  getParams,
+  getDefaults,
+  updateParams,
+  resetParams,
+  type QuotingParams,
+} from "./runtime-config.js";
 import { getStates, runQuotingCycle } from "./quoter.js";
 import { getAllPositions, getTotalRealizedPnl } from "./inventory.js";
 import { reportMetrics, getLastSnapshot } from "./metrics.js";
@@ -36,13 +44,13 @@ async function fetchAllocatedEquity(): Promise<number> {
 // ─── Main quoting loop ────────────────────────────────────────────────────────
 async function mainLoop(): Promise<void> {
   console.log(
-    `[main] Market Maker starting — paper=${config.paperTrading}, markets=${config.quoting.numMarkets}, pollInterval=${config.quoting.pollIntervalMs}ms`,
+    `[main] Market Maker starting — paper=${config.paperTrading}, markets=${params.numMarkets}, pollInterval=${params.pollIntervalMs}ms`,
   );
 
   allocatedEquity = await fetchAllocatedEquity();
   // In paper mode, fall back to a simulated paper equity if treasury has nothing
   if (config.paperTrading && allocatedEquity === 0) {
-    allocatedEquity = config.quoting.paperEquity;
+    allocatedEquity = params.paperEquity;
     console.log(
       `[init] Paper mode — using simulated equity: $${allocatedEquity}`,
     );
@@ -51,25 +59,27 @@ async function mainLoop(): Promise<void> {
   // Pre-load markets
   await getActiveMarkets();
 
-  // Quoting loop
-  const quotingTimer = setInterval(async () => {
+  // Self-rescheduling quoting loop — picks up pollIntervalMs changes immediately
+  async function scheduleQuoting(): Promise<void> {
     if (!running) return;
     try {
       await runQuotingCycle(allocatedEquity);
     } catch (err) {
       console.error("[quoter] Cycle error:", (err as Error).message);
     }
-  }, config.quoting.pollIntervalMs);
+    if (running) setTimeout(scheduleQuoting, params.pollIntervalMs);
+  }
 
-  // Metrics reporting loop
-  const metricsTimer = setInterval(async () => {
+  // Self-rescheduling metrics loop — picks up metricsIntervalMs changes immediately
+  async function scheduleMetrics(): Promise<void> {
     if (!running) return;
     try {
       await reportMetrics(allocatedEquity);
     } catch (err) {
       console.error("[metrics] Report error:", (err as Error).message);
     }
-  }, config.quoting.metricsIntervalMs);
+    if (running) setTimeout(scheduleMetrics, params.metricsIntervalMs);
+  }
 
   // Re-fetch balance periodically (treasury may have allocated/recalled)
   const balanceTimer = setInterval(async () => {
@@ -79,10 +89,12 @@ async function mainLoop(): Promise<void> {
     allocatedEquity = fetched;
   }, 60_000);
 
+  // Kick off loops
+  setTimeout(scheduleQuoting, params.pollIntervalMs);
+  setTimeout(scheduleMetrics, params.metricsIntervalMs);
+
   process.on("SIGTERM", () => {
     running = false;
-    clearInterval(quotingTimer);
-    clearInterval(metricsTimer);
     clearInterval(balanceTimer);
     console.log("[main] Shutting down");
     process.exit(0);
@@ -135,14 +147,29 @@ app.get("/positions", (_req, res) => {
   });
 });
 
+// ── Runtime config endpoints ──────────────────────────────────────────────────
+
 app.get("/config", (_req, res) => {
   res.json({
     paperTrading: config.paperTrading,
-    numMarkets: config.quoting.numMarkets,
-    widthMultiplier: config.quoting.widthMultiplier,
-    pollIntervalMs: config.quoting.pollIntervalMs,
-    metricsIntervalMs: config.quoting.metricsIntervalMs,
+    params: getParams(),
+    defaults: getDefaults(),
   });
+});
+
+app.put("/config", (req, res) => {
+  const patch = req.body as Partial<QuotingParams>;
+  if (!patch || typeof patch !== "object") {
+    res.status(400).json({ error: "Expected JSON body with param fields" });
+    return;
+  }
+  const updated = updateParams(patch);
+  res.json({ ok: true, params: updated });
+});
+
+app.post("/config/reset", (_req, res) => {
+  const reset = resetParams();
+  res.json({ ok: true, params: reset, defaults: getDefaults() });
 });
 
 app.listen(config.port, () => {

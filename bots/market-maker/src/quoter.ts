@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { params } from "./runtime-config.js";
 import { getActiveMarkets, type GammaMarket } from "./markets.js";
 import { getOrderBook, placeLimitOrder, cancelOrder } from "./clob.js";
 import { getSkew, recordFill } from "./inventory.js";
@@ -52,7 +53,7 @@ export async function quoteMarket(
   if (config.paperTrading) {
     // In paper mode: use a simulated random-walk mid, ignore the real book
     mid = getSimulatedMid(market.conditionId);
-    spread = config.quoting.quoteHalfWidth * 2;
+    spread = params.quoteHalfWidth * 2;
   } else {
     const book = await getOrderBook(yesTokenId);
     const bestBid = book.bids[0]?.price ?? 0;
@@ -63,28 +64,27 @@ export async function quoteMarket(
   }
 
   // Fixed half-width from config (e.g. 0.03 = 3 cents each side)
-  const halfWidth = config.quoting.quoteHalfWidth;
+  const halfWidth = params.quoteHalfWidth;
 
   const existing = states.get(market.conditionId);
 
   // Check if re-quote is needed
   if (existing) {
     const midMoved =
-      Math.abs(mid - existing.mid) >
-      config.quoting.reQuoteThreshold * existing.mid;
+      Math.abs(mid - existing.mid) > params.reQuoteThreshold * existing.mid;
     const bidStale =
       existing.ourBidId &&
       Math.abs(existing.ourBidPrice - (mid - halfWidth)) / mid >
-        config.quoting.orderStalenessThreshold;
+        params.orderStalenessThreshold;
     const askStale =
       existing.ourAskId &&
       Math.abs(existing.ourAskPrice - (mid + halfWidth)) / mid >
-        config.quoting.orderStalenessThreshold;
+        params.orderStalenessThreshold;
 
     const { yesRatio } = getSkew(yesTokenId, equityPerMarket);
     const inventorySkewed =
-      yesRatio > config.quoting.maxInventorySkew ||
-      yesRatio < 1 - config.quoting.maxInventorySkew;
+      yesRatio > params.maxInventorySkew ||
+      yesRatio < 1 - params.maxInventorySkew;
 
     if (!midMoved && !bidStale && !askStale && !inventorySkewed) {
       return; // nothing to do

@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { params } from "./runtime-config.js";
 
 export interface GammaMarket {
   conditionId: string;
@@ -31,10 +32,13 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
     const res = await fetch(url, {
       headers: { "User-Agent": "openclaw-market-maker/1.0" },
     });
-    if (!res.ok) throw new Error(`Gamma API ${res.status}: ${await res.text()}`);
+    if (!res.ok)
+      throw new Error(`Gamma API ${res.status}: ${await res.text()}`);
 
     const raw = (await res.json()) as Array<Record<string, unknown>>;
-    const cutoff48h = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString().slice(0, 10); // "YYYY-MM-DD"
+    const cutoff48h = new Date(Date.now() + 48 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10); // "YYYY-MM-DD"
 
     const markets: GammaMarket[] = [];
     for (const m of raw) {
@@ -46,7 +50,7 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
       if (endDate < cutoff48h) continue;
       // Volume filter
       const vol24 = parseFloat(String(m["volume24hr"] ?? "0"));
-      if (vol24 < config.quoting.minVolume24h) continue;
+      if (vol24 < params.minVolume24h) continue;
       // Must have exactly 2 CLOB token IDs
       let tokenIds: string[] = [];
       try {
@@ -74,7 +78,7 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
 
     // Sort by 24h volume descending, take top N
     markets.sort((a, b) => b.volume24hr - a.volume24hr);
-    cachedMarkets = markets.slice(0, config.quoting.numMarkets);
+    cachedMarkets = markets.slice(0, params.numMarkets);
 
     lastFetch = now;
     console.log(`[markets] Selected ${cachedMarkets.length} markets:`);
