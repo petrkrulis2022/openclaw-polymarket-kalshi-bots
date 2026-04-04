@@ -36,9 +36,9 @@ function getClient(): ClobClient {
   return _client;
 }
 
-// For live order signing we need an ethers Wallet signer (MetaMask EOA key).
-// The funderAddress is the Polymarket proxy wallet (0x4D265C9B...) that holds funds.
-// signatureType=POLY_PROXY (1): signer signs on behalf of the funded proxy.
+// For live order signing we use SignatureType.EOA — the MetaMask EOA key signs
+// directly as the maker. Funds (USDC) must be in the EOA wallet on Polygon,
+// approved via the Polymarket UI (Settings → Withdraw, then re-deposit to EOA).
 async function getSigningClient(): Promise<ClobClient> {
   const { Wallet } = await import("ethers");
   const creds: ApiKeyCreds = {
@@ -51,8 +51,7 @@ async function getSigningClient(): Promise<ClobClient> {
     Chain.POLYGON,
     new Wallet(config.polymarket.signerKey),
     creds,
-    SignatureType.POLY_PROXY,
-    config.polymarket.funderAddress,
+    SignatureType.EOA,
   );
 }
 
