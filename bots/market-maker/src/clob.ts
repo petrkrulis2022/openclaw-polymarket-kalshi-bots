@@ -1,4 +1,10 @@
-import { ClobClient, Chain, Side, type ApiKeyCreds } from "@polymarket/clob-client";
+import {
+  ClobClient,
+  Chain,
+  Side,
+  type ApiKeyCreds,
+} from "@polymarket/clob-client";
+import { SignatureType } from "@polymarket/order-utils";
 import { config } from "./config.js";
 
 export interface OrderBook {
@@ -30,7 +36,9 @@ function getClient(): ClobClient {
   return _client;
 }
 
-// For live order signing we need an ethers Wallet signer
+// For live order signing we need an ethers Wallet signer (MetaMask EOA key).
+// The funderAddress is the Polymarket proxy wallet (0x4D265C9B...) that holds funds.
+// signatureType=POLY_PROXY (1): signer signs on behalf of the funded proxy.
 async function getSigningClient(): Promise<ClobClient> {
   const { Wallet } = await import("ethers");
   const creds: ApiKeyCreds = {
@@ -41,8 +49,10 @@ async function getSigningClient(): Promise<ClobClient> {
   return new ClobClient(
     config.polymarket.host,
     Chain.POLYGON,
-    new Wallet(config.polymarket.privateKey),
+    new Wallet(config.polymarket.signerKey),
     creds,
+    SignatureType.POLY_PROXY,
+    config.polymarket.funderAddress,
   );
 }
 
@@ -105,12 +115,20 @@ export async function cancelOrder(orderId: string): Promise<void> {
 }
 
 export async function getOpenOrders(): Promise<
-  Array<{ id: string; tokenId: string; side: string; price: number; size: number }>
+  Array<{
+    id: string;
+    tokenId: string;
+    side: string;
+    price: number;
+    size: number;
+  }>
 > {
   if (config.paperTrading) return [];
   try {
     const result = await getClient().getOpenOrders();
-    const orders = Array.isArray(result) ? result : ((result as { data?: unknown[] }).data ?? []);
+    const orders = Array.isArray(result)
+      ? result
+      : ((result as { data?: unknown[] }).data ?? []);
     return orders.map((o: unknown) => {
       const order = o as Record<string, string>;
       return {

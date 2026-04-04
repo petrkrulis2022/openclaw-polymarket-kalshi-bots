@@ -9,15 +9,22 @@ function req(name: string): string {
 export const config = {
   port: parseInt(process.env["PORT"] ?? "3003", 10),
   botId: parseInt(process.env["BOT_ID"] ?? "1", 10),
+  // Live mode requires BOT_SIGNER_KEY (MetaMask EOA key).
+  // BOT_FUNDER_ADDRESS is the proxy wallet that holds funds (0x4D265C9B...).
+  // When both are set and PAPER_TRADING != "true", the bot trades live.
   paperTrading:
-    !process.env["BOT_PRIVATE_KEY"] || process.env["PAPER_TRADING"] === "true",
+    !process.env["BOT_SIGNER_KEY"] || process.env["PAPER_TRADING"] === "true",
 
   polymarket: {
+    // The proxy/trading wallet address (holds USDC, the "maker" on orders)
     walletAddress: req("POLYMARKET_WALLET_ADDRESS"),
     apiKey: req("POLYMARKET_API_KEY"),
     apiSecret: req("POLYMARKET_API_SECRET"),
     apiPassphrase: req("POLYMARKET_API_PASSPHRASE"),
-    privateKey: process.env["BOT_PRIVATE_KEY"] ?? "",
+    // EOA signer key (MetaMask 0xD7CA...) — signs orders on behalf of proxy
+    signerKey: process.env["BOT_SIGNER_KEY"] ?? "",
+    // Proxy/funder wallet (0x4D265C9B...) — where funds live
+    funderAddress: process.env["POLYMARKET_WALLET_ADDRESS"] ?? "",
     host: "https://clob.polymarket.com",
     gammaHost: "https://gamma-api.polymarket.com",
   },
