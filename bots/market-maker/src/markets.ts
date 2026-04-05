@@ -15,6 +15,12 @@ export interface GammaMarket {
   // Parsed convenience fields (added by us)
   yesTokenId: string;
   noTokenId: string;
+  /** YES token probability (0–1) from Gamma outcomePrices[0] */
+  yesPrice: number;
+  /** Best bid for YES token from Gamma API (may be 0 if unavailable) */
+  gammaBestBid: number;
+  /** Best ask for YES token from Gamma API (may be 1 if unavailable) */
+  gammaBestAsk: number;
 }
 
 let cachedMarkets: GammaMarket[] = []; // full filtered+sorted list (not sliced)
@@ -61,6 +67,22 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
       }
       if (tokenIds.length !== 2) continue;
 
+      // Parse YES price from outcomePrices[0]
+      let yesPrice = 0.5;
+      try {
+        const op = JSON.parse(m["outcomePrices"] as string) as string[];
+        yesPrice = parseFloat(op[0] ?? "0.5");
+      } catch {
+        /* keep default 0.5 */
+      }
+
+      // Skip near-resolved markets: YES > 90% (too expensive to buy min order)
+      // or YES < 10% (our halfWidth would be larger than the price itself)
+      if (yesPrice > 0.90 || yesPrice < 0.10) continue;
+
+      const gammaBestBid = parseFloat(String(m["bestBid"] ?? "0")) || 0;
+      const gammaBestAsk = parseFloat(String(m["bestAsk"] ?? "1")) || 1;
+
       markets.push({
         conditionId: m["conditionId"] as string,
         question: m["question"] as string,
@@ -74,6 +96,9 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
         enableOrderBook: true,
         yesTokenId: tokenIds[0]!,
         noTokenId: tokenIds[1]!,
+        yesPrice,
+        gammaBestBid,
+        gammaBestAsk,
       });
     }
 
@@ -86,7 +111,7 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
     console.log(`[markets] Selected ${selected.length} markets:`);
     selected.forEach((m) =>
       console.log(
-        `  • ${m.question.slice(0, 60)} | vol24h=$${m.volume24hr.toFixed(0)} | yesToken=${m.yesTokenId.slice(0, 8)}...`,
+        `  • YES=${m.yesPrice.toFixed(3)} ${m.question.slice(0, 55)} | vol24h=$${m.volume24hr.toFixed(0)}`,
       ),
     );
   } catch (err) {

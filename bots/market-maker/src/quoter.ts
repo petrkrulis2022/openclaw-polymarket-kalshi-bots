@@ -61,25 +61,38 @@ export async function quoteMarket(
     mid = getSimulatedMid(market.conditionId);
     spread = params.quoteHalfWidth * 2;
   } else {
-    const MAX_USABLE_SPREAD = 0.5;
-    const book = await getOrderBook(yesTokenId);
-    const bestBid = book.bids[0]?.price ?? 0;
-    const bestAsk = book.asks[0]?.price ?? 1;
-    if (bestBid <= 0 || bestAsk <= 0 || bestAsk <= bestBid) return;
-    spread = bestAsk - bestBid;
+    const MAX_USABLE_SPREAD = 0.3;
 
-    if (spread > MAX_USABLE_SPREAD) {
-      // Order book is too sparse to trust. Fall back to last trade price as mid.
-      const lastMid = await getLastTradeMid(yesTokenId);
-      if (lastMid <= 0) {
-        console.warn(
-          `[quoter] No usable price for ${market.question.slice(0, 40)}, skipping`,
-        );
-        return;
-      }
-      mid = lastMid;
+    // Prefer Gamma API prices (already fetched at market discovery, no extra
+    // API call). Fall back to CLOB order book only if Gamma prices are missing.
+    const gammaBid = market.gammaBestBid;
+    const gammaAsk = market.gammaBestAsk;
+    const gammaSpread = gammaAsk - gammaBid;
+
+    if (gammaBid > 0 && gammaAsk < 1 && gammaSpread <= MAX_USABLE_SPREAD) {
+      mid = (gammaBid + gammaAsk) / 2;
+      spread = gammaSpread;
     } else {
-      mid = (bestBid + bestAsk) / 2;
+      // Gamma prices stale/missing — query CLOB order book
+      const book = await getOrderBook(yesTokenId);
+      const clobBid = book.bids[0]?.price ?? 0;
+      const clobAsk = book.asks[0]?.price ?? 1;
+      if (clobBid <= 0 || clobAsk <= 0 || clobAsk <= clobBid) return;
+      spread = clobAsk - clobBid;
+
+      if (spread > MAX_USABLE_SPREAD) {
+        // CLOB also sparse — last resort: last trade price
+        const lastMid = await getLastTradeMid(yesTokenId);
+        if (lastMid <= 0) {
+          console.warn(
+            `[quoter] No usable price for ${market.question.slice(0, 40)}, skipping`,
+          );
+          return;
+        }
+        mid = lastMid;
+      } else {
+        mid = (clobBid + clobAsk) / 2;
+      }
     }
   }
 
