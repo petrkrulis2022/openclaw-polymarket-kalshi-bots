@@ -17,6 +17,12 @@ import {
   type MarketPosition,
   type InventoryPosition,
 } from "./hooks/use-bot-detail";
+import {
+  useCopyTrader,
+  type TrackedTrader as CopyTrader,
+  type PendingTrade,
+  type CopyInventoryPosition,
+} from "./hooks/use-copy-trader";
 import { USDT_ADDRESS, USDT_DECIMALS } from "./config/wagmi";
 import { BotConfigPanel } from "./components/BotConfigPanel";
 import { OpenClawChat } from "./components/OpenClawChat";
@@ -415,8 +421,7 @@ function BotDetailView({
             className={`balance-big ${pnlClass(strategyPnl ?? 0)}`}
             title="Realized profit from bid-ask spread fills"
           >
-            {(strategyPnl ?? 0) >= 0 ? "+" : ""}$
-            {(strategyPnl ?? 0).toFixed(4)}
+            {(strategyPnl ?? 0) >= 0 ? "+" : ""}${(strategyPnl ?? 0).toFixed(4)}
           </div>
         </div>
         <div className="card" style={{ textAlign: "center" }}>
@@ -425,13 +430,15 @@ function BotDetailView({
             className={`balance-big ${pnlClass(positionPnl ?? 0)}`}
             title="Unrealized PnL on shares held vs current market mid"
           >
-            {(positionPnl ?? 0) >= 0 ? "+" : ""}$
-            {(positionPnl ?? 0).toFixed(4)}
+            {(positionPnl ?? 0) >= 0 ? "+" : ""}${(positionPnl ?? 0).toFixed(4)}
           </div>
         </div>
         <div className="card" style={{ textAlign: "center" }}>
           <div className="balance-label">Locked in Polymarket</div>
-          <div className="balance-big" title="USDC.e reserved by open BUY orders">
+          <div
+            className="balance-big"
+            title="USDC.e reserved by open BUY orders"
+          >
             ${(lockedCollateral ?? 0).toFixed(2)}
           </div>
         </div>
@@ -567,20 +574,25 @@ function BotDetailView({
                     color: "var(--text-secondary)",
                   }}
                 >
-                  {["Token ID", "Net Size", "Avg Price", "Current Mid", "Strategy PnL", "Position PnL"].map(
-                    (h) => (
-                      <th
-                        key={h}
-                        style={{
-                          padding: "8px 10px",
-                          textAlign: "right",
-                          fontWeight: 500,
-                        }}
-                      >
-                        {h}
-                      </th>
-                    ),
-                  )}
+                  {[
+                    "Token ID",
+                    "Net Size",
+                    "Avg Price",
+                    "Current Mid",
+                    "Strategy PnL",
+                    "Position PnL",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -610,7 +622,13 @@ function BotDetailView({
                     <td style={{ padding: "8px 10px", textAlign: "right" }}>
                       {p.avgPrice != null ? p.avgPrice.toFixed(4) : "—"}
                     </td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", color: "var(--text-secondary)" }}>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
                       {p.currentMid != null ? p.currentMid.toFixed(4) : "—"}
                     </td>
                     <td
@@ -664,6 +682,754 @@ function BotDetailView({
       {/* ── Strategy Configuration + OpenClaw Agent ── */}
       <div style={{ marginTop: 32 }}>
         <BotConfigPanel botId={Number(bot.id)} />
+        <OpenClawChat botId={Number(bot.id)} />
+      </div>
+    </div>
+  );
+}
+
+// ── Copy Trader View ──────────────────────────────────────────────────────────
+function CopyTraderView({
+  bot,
+  onBack,
+}: {
+  bot: BotSummary;
+  onBack: () => void;
+}) {
+  const {
+    traders,
+    pending,
+    positions,
+    totalRealizedPnl,
+    online,
+    loading,
+    addTrader,
+    removeTrader,
+    updateTrader,
+    approveTrade,
+    rejectTrade,
+  } = useCopyTrader();
+
+  // Add trader form state
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [formAddress, setFormAddress] = useState("");
+  const [formLabel, setFormLabel] = useState("");
+  const [formAllocation, setFormAllocation] = useState("50");
+  const [formRatio, setFormRatio] = useState("1.0");
+  const [formMode, setFormMode] = useState<CopyTrader["mode"]>("manual");
+  const [formError, setFormError] = useState("");
+  const [formSubmitting, setFormSubmitting] = useState(false);
+
+  async function handleAddTrader(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError("");
+    setFormSubmitting(true);
+    const ok = await addTrader({
+      address: formAddress.trim().toLowerCase(),
+      label: formLabel.trim(),
+      allocationUsd: parseFloat(formAllocation),
+      copyRatio: parseFloat(formRatio),
+      mode: formMode,
+      enabled: true,
+    });
+    setFormSubmitting(false);
+    if (!ok) {
+      setFormError("Failed to add trader. Check the address and try again.");
+      return;
+    }
+    setFormAddress("");
+    setFormLabel("");
+    setFormAllocation("50");
+    setFormRatio("1.0");
+    setFormMode("manual");
+    setShowAddForm(false);
+  }
+
+  const pendingCount = pending.filter((t) => t.status === "pending").length;
+  const openPositions = positions.filter((p) => p.netSize > 0.001).length;
+
+  const cellStyle: React.CSSProperties = {
+    padding: "8px 10px",
+    textAlign: "right",
+  };
+  const leftCell: React.CSSProperties = { ...cellStyle, textAlign: "left" };
+  const thStyle: React.CSSProperties = { ...cellStyle, fontWeight: 500 };
+  const thLeft: React.CSSProperties = { ...thStyle, textAlign: "left" };
+
+  return (
+    <div>
+      {/* Back + header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            color: "var(--text)",
+            cursor: "pointer",
+            padding: "6px 14px",
+            fontSize: 13,
+          }}
+        >
+          ← Back
+        </button>
+        <div style={{ fontSize: 20, fontWeight: 700 }}>{bot.name}</div>
+        <span className="badge">{bot.strategy}</span>
+        <div
+          className="status-dot"
+          style={{ background: online ? "#4caf50" : "#ff3b30", marginLeft: 4 }}
+        />
+        {!online && (
+          <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+            ⚠ Bot offline — start copy-trader on :3004
+          </span>
+        )}
+      </div>
+
+      {/* Summary cards */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Traders Tracked</div>
+          <div className="balance-big">
+            {traders.filter((t) => t.enabled).length}
+          </div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Pending Approvals</div>
+          <div
+            className="balance-big"
+            style={{ color: pendingCount > 0 ? "#ff9500" : "inherit" }}
+          >
+            {pendingCount}
+          </div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Realized PnL</div>
+          <div className={`balance-big ${pnlClass(totalRealizedPnl)}`}>
+            {totalRealizedPnl >= 0 ? "+" : ""}${totalRealizedPnl.toFixed(4)}
+          </div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Open Positions</div>
+          <div className="balance-big">{openPositions}</div>
+        </div>
+      </div>
+
+      {loading && <p className="offline">Loading copy-trader data…</p>}
+
+      {/* ── Pending Approvals ── */}
+      {pending.filter((t) => t.status === "pending").length > 0 && (
+        <div style={{ marginBottom: 32 }}>
+          <div
+            className="section-label"
+            style={{ marginBottom: 10, color: "#ff9500" }}
+          >
+            ⏳ Pending Approvals ({pendingCount})
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 12,
+                background: "var(--card)",
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: "var(--background)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {[
+                    "Trader",
+                    "Market",
+                    "Outcome",
+                    "Side",
+                    "Our Size",
+                    "~USD",
+                    "Price",
+                    "Actions",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={
+                        h === "Trader" || h === "Market" ? thLeft : thStyle
+                      }
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pending
+                  .filter((t) => t.status === "pending")
+                  .map((t: PendingTrade) => (
+                    <tr
+                      key={t.id}
+                      style={{ borderTop: "1px solid var(--border)" }}
+                    >
+                      <td style={leftCell}>{t.traderLabel}</td>
+                      <td
+                        style={{
+                          ...leftCell,
+                          maxWidth: 200,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={t.marketTitle}
+                      >
+                        {t.marketTitle}
+                      </td>
+                      <td style={cellStyle}>{t.outcome}</td>
+                      <td
+                        style={{
+                          ...cellStyle,
+                          color: t.side === "BUY" ? "#4caf50" : "#ff6b6b",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {t.side}
+                      </td>
+                      <td style={cellStyle}>{t.ourTargetShares.toFixed(2)}</td>
+                      <td style={cellStyle}>${t.ourTargetUsd.toFixed(2)}</td>
+                      <td style={cellStyle}>{t.suggestedPrice.toFixed(4)}</td>
+                      <td style={{ ...cellStyle, display: "flex", gap: 6 }}>
+                        <button
+                          className="btn-primary"
+                          style={{ padding: "3px 10px", fontSize: 11 }}
+                          onClick={() => void approveTrade(t.id)}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          style={{
+                            padding: "3px 10px",
+                            fontSize: 11,
+                            background: "transparent",
+                            border: "1px solid var(--border)",
+                            borderRadius: 6,
+                            color: "var(--text)",
+                            cursor: "pointer",
+                          }}
+                          onClick={() => void rejectTrade(t.id)}
+                        >
+                          Reject
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Recent trade history (last 20 non-pending) ── */}
+      {pending.filter((t) => t.status !== "pending").length > 0 && (
+        <div style={{ marginBottom: 32 }}>
+          <div className="section-label" style={{ marginBottom: 10 }}>
+            Recent Copy Trades
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 11,
+                background: "var(--card)",
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: "var(--background)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {[
+                    "Trader",
+                    "Market",
+                    "Side",
+                    "Size",
+                    "Price",
+                    "Status",
+                    "Time",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={
+                        h === "Trader" || h === "Market" ? thLeft : thStyle
+                      }
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pending
+                  .filter((t) => t.status !== "pending")
+                  .slice(0, 20)
+                  .map((t: PendingTrade) => (
+                    <tr
+                      key={t.id}
+                      style={{ borderTop: "1px solid var(--border)" }}
+                    >
+                      <td style={leftCell}>{t.traderLabel}</td>
+                      <td
+                        style={{
+                          ...leftCell,
+                          maxWidth: 180,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={t.marketTitle}
+                      >
+                        {t.marketTitle}
+                      </td>
+                      <td
+                        style={{
+                          ...cellStyle,
+                          color: t.side === "BUY" ? "#4caf50" : "#ff6b6b",
+                        }}
+                      >
+                        {t.side}
+                      </td>
+                      <td style={cellStyle}>
+                        {(t.executedSize ?? t.ourTargetShares).toFixed(2)}
+                      </td>
+                      <td style={cellStyle}>
+                        {t.executionPrice != null
+                          ? t.executionPrice.toFixed(4)
+                          : t.suggestedPrice.toFixed(4)}
+                      </td>
+                      <td
+                        style={{
+                          ...cellStyle,
+                          color:
+                            t.status === "executed"
+                              ? "#4caf50"
+                              : t.status === "failed"
+                                ? "#ff3b30"
+                                : "var(--text-secondary)",
+                        }}
+                      >
+                        {t.status}
+                      </td>
+                      <td
+                        style={{ ...cellStyle, color: "var(--text-secondary)" }}
+                      >
+                        {new Date(t.detectedAt).toLocaleTimeString()}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Our Positions ── */}
+      {positions.filter((p) => p.netSize > 0.001).length > 0 && (
+        <div style={{ marginBottom: 32 }}>
+          <div className="section-label" style={{ marginBottom: 10 }}>
+            Our Copy Positions
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 12,
+                background: "var(--card)",
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: "var(--background)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {[
+                    "Token ID",
+                    "Source Trader",
+                    "Net Size",
+                    "Avg Price",
+                    "Realized PnL",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={
+                        h === "Token ID" || h === "Source Trader"
+                          ? thLeft
+                          : thStyle
+                      }
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {positions
+                  .filter((p) => p.netSize > 0.001)
+                  .map((p: CopyInventoryPosition) => (
+                    <tr
+                      key={p.tokenId}
+                      style={{ borderTop: "1px solid var(--border)" }}
+                    >
+                      <td
+                        style={{
+                          ...leftCell,
+                          fontFamily: "monospace",
+                          fontSize: 11,
+                        }}
+                        title={p.tokenId}
+                      >
+                        {p.tokenId.slice(0, 14)}…
+                      </td>
+                      <td style={leftCell}>{p.sourceTrader}</td>
+                      <td style={cellStyle}>{p.netSize.toFixed(4)}</td>
+                      <td style={cellStyle}>{p.avgPrice.toFixed(4)}</td>
+                      <td
+                        style={{
+                          ...cellStyle,
+                          color: p.realizedPnl >= 0 ? "#4caf50" : "#ff6b6b",
+                        }}
+                      >
+                        {p.realizedPnl >= 0 ? "+" : ""}$
+                        {p.realizedPnl.toFixed(4)}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Traders Management ── */}
+      <div style={{ marginBottom: 32 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 10,
+          }}
+        >
+          <div className="section-label">Tracked Traders</div>
+          <button
+            className="btn-primary"
+            style={{ fontSize: 12, padding: "5px 14px" }}
+            onClick={() => setShowAddForm((v) => !v)}
+          >
+            {showAddForm ? "Cancel" : "+ Add Trader"}
+          </button>
+        </div>
+
+        {showAddForm && (
+          <form
+            onSubmit={(e) => void handleAddTrader(e)}
+            style={{
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              padding: 16,
+              marginBottom: 16,
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 12,
+            }}
+          >
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                Polymarket Proxy Wallet Address
+                <br />
+                <span style={{ fontSize: 11, opacity: 0.7 }}>
+                  Paste the address from polymarket.com/profile/0x…
+                </span>
+              </label>
+              <input
+                required
+                value={formAddress}
+                onChange={(e) => setFormAddress(e.target.value)}
+                placeholder="0x..."
+                style={{
+                  display: "block",
+                  width: "100%",
+                  marginTop: 4,
+                  padding: "6px 10px",
+                  background: "var(--background)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  color: "var(--text)",
+                  fontSize: 12,
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                Label
+              </label>
+              <input
+                required
+                value={formLabel}
+                onChange={(e) => setFormLabel(e.target.value)}
+                placeholder="e.g. Top Trader"
+                style={{
+                  display: "block",
+                  width: "100%",
+                  marginTop: 4,
+                  padding: "6px 10px",
+                  background: "var(--background)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  color: "var(--text)",
+                  fontSize: 12,
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                Allocation (USD)
+              </label>
+              <input
+                required
+                type="number"
+                min="1"
+                step="1"
+                value={formAllocation}
+                onChange={(e) => setFormAllocation(e.target.value)}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  marginTop: 4,
+                  padding: "6px 10px",
+                  background: "var(--background)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  color: "var(--text)",
+                  fontSize: 12,
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                Copy Ratio (0.01 – 1.0)
+              </label>
+              <input
+                required
+                type="number"
+                min="0.01"
+                max="1"
+                step="0.01"
+                value={formRatio}
+                onChange={(e) => setFormRatio(e.target.value)}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  marginTop: 4,
+                  padding: "6px 10px",
+                  background: "var(--background)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  color: "var(--text)",
+                  fontSize: 12,
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                Approval Mode
+              </label>
+              <select
+                value={formMode}
+                onChange={(e) =>
+                  setFormMode(e.target.value as CopyTrader["mode"])
+                }
+                style={{
+                  display: "block",
+                  width: "100%",
+                  marginTop: 4,
+                  padding: "6px 10px",
+                  background: "var(--background)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  color: "var(--text)",
+                  fontSize: 12,
+                  boxSizing: "border-box",
+                }}
+              >
+                <option value="manual">Manual (dashboard approval)</option>
+                <option value="auto">Auto (instant execution)</option>
+                <option value="orchestrator">Orchestrator (AI decides)</option>
+              </select>
+            </div>
+            {formError && (
+              <div
+                style={{ gridColumn: "1 / -1", color: "#ff3b30", fontSize: 12 }}
+              >
+                {formError}
+              </div>
+            )}
+            <div style={{ gridColumn: "1 / -1" }}>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={formSubmitting}
+                style={{ fontSize: 13, padding: "7px 20px" }}
+              >
+                {formSubmitting ? "Adding…" : "Add Trader"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {traders.length === 0 ? (
+          <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+            No traders tracked yet. Add a Polymarket profile to start copying.
+          </p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 12,
+                background: "var(--card)",
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: "var(--background)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {[
+                    "Label",
+                    "Address",
+                    "Allocation",
+                    "Ratio",
+                    "Mode",
+                    "Status",
+                    "Actions",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={
+                        h === "Label" || h === "Address" ? thLeft : thStyle
+                      }
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {traders.map((t: CopyTrader) => (
+                  <tr
+                    key={t.address}
+                    style={{ borderTop: "1px solid var(--border)" }}
+                  >
+                    <td style={leftCell}>{t.label}</td>
+                    <td
+                      style={{
+                        ...leftCell,
+                        fontFamily: "monospace",
+                        fontSize: 11,
+                      }}
+                      title={t.address}
+                    >
+                      {t.address.slice(0, 10)}…{t.address.slice(-6)}
+                    </td>
+                    <td style={cellStyle}>${t.allocationUsd.toFixed(0)}</td>
+                    <td style={cellStyle}>{(t.copyRatio * 100).toFixed(0)}%</td>
+                    <td style={cellStyle}>{t.mode}</td>
+                    <td
+                      style={{
+                        ...cellStyle,
+                        color: t.enabled ? "#4caf50" : "var(--text-secondary)",
+                      }}
+                    >
+                      {t.enabled ? "active" : "paused"}
+                    </td>
+                    <td style={{ ...cellStyle, display: "flex", gap: 6 }}>
+                      <button
+                        style={{
+                          padding: "3px 8px",
+                          fontSize: 11,
+                          background: "transparent",
+                          border: "1px solid var(--border)",
+                          borderRadius: 6,
+                          color: "var(--text)",
+                          cursor: "pointer",
+                        }}
+                        onClick={() =>
+                          void updateTrader(t.address, { enabled: !t.enabled })
+                        }
+                      >
+                        {t.enabled ? "Pause" : "Resume"}
+                      </button>
+                      <button
+                        style={{
+                          padding: "3px 8px",
+                          fontSize: 11,
+                          background: "transparent",
+                          border: "1px solid #ff3b30",
+                          borderRadius: 6,
+                          color: "#ff3b30",
+                          cursor: "pointer",
+                        }}
+                        onClick={() => void removeTrader(t.address)}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Chat */}
+      <div style={{ marginTop: 32 }}>
         <OpenClawChat botId={Number(bot.id)} />
       </div>
     </div>
@@ -741,7 +1507,17 @@ export default function App() {
       </div>
 
       {selectedBot ? (
-        <BotDetailView bot={selectedBot} onBack={() => setSelectedBot(null)} />
+        selectedBot.id === "3" ? (
+          <CopyTraderView
+            bot={selectedBot}
+            onBack={() => setSelectedBot(null)}
+          />
+        ) : (
+          <BotDetailView
+            bot={selectedBot}
+            onBack={() => setSelectedBot(null)}
+          />
+        )
       ) : (
         <>
           <WalletSection />

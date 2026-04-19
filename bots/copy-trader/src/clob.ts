@@ -1,7 +1,13 @@
+/**
+ * clob.ts — thin wrapper around @polymarket/clob-client for the copy-trader bot.
+ * Mirrors the market-maker clob.ts exactly.
+ */
+
 import {
   ClobClient,
   Chain,
   Side,
+  AssetType,
   type ApiKeyCreds,
 } from "@polymarket/clob-client";
 import { SignatureType } from "@polymarket/order-utils";
@@ -17,7 +23,8 @@ export interface OrderResult {
   paper: boolean;
 }
 
-// Lazy-init client — L1 creds only (no private key needed for reads)
+// ── Client singletons ─────────────────────────────────────────────────────────
+
 let _client: ClobClient | null = null;
 
 function getClient(): ClobClient {
@@ -36,8 +43,6 @@ function getClient(): ClobClient {
   return _client;
 }
 
-// EOA mode — MetaMask EOA (0xD7CA82...) is both signer and maker.
-// USDC.e is approved to CTF Exchange directly from the EOA wallet.
 async function getSigningClient(): Promise<ClobClient> {
   const { Wallet } = await import("ethers");
   const creds: ApiKeyCreds = {
@@ -53,6 +58,8 @@ async function getSigningClient(): Promise<ClobClient> {
     SignatureType.EOA,
   );
 }
+
+// ── Orderbook ─────────────────────────────────────────────────────────────────
 
 export async function getOrderBook(tokenId: string): Promise<OrderBook> {
   try {
@@ -73,7 +80,23 @@ export async function getOrderBook(tokenId: string): Promise<OrderBook> {
   }
 }
 
-let paperOrderCounter = 0;
+/** Best ask price (what we pay when BUYing) */
+export async function getBestAsk(tokenId: string): Promise<number> {
+  const { asks } = await getOrderBook(tokenId);
+  if (!asks.length) return 0.99;
+  return asks[0].price;
+}
+
+/** Best bid price (what we receive when SELLing) */
+export async function getBestBid(tokenId: string): Promise<number> {
+  const { bids } = await getOrderBook(tokenId);
+  if (!bids.length) return 0.01;
+  return bids[0].price;
+}
+
+// ── Order placement ────────────────────────────────────────────────────────────
+
+let _paperOrderCounter = 0;
 
 export async function placeLimitOrder(
   tokenId: string,
@@ -83,12 +106,13 @@ export async function placeLimitOrder(
   marketQuestion: string,
 ): Promise<OrderResult> {
   if (config.paperTrading) {
-    const orderId = `paper-${++paperOrderCounter}`;
+    const orderId = `PAPER-COPY-${++_paperOrderCounter}`;
     console.log(
       `[paper] ${side} ${size.toFixed(2)} @ ${price.toFixed(4)} | ${marketQuestion.slice(0, 50)} | id=${orderId}`,
     );
     return { orderId, paper: true };
   }
+
   const c = await getSigningClient();
   const order = await c.createAndPostOrder({
     tokenID: tokenId,
@@ -101,7 +125,7 @@ export async function placeLimitOrder(
 }
 
 export async function cancelOrder(orderId: string): Promise<void> {
-  if (config.paperTrading || orderId.startsWith("paper-")) {
+  if (config.paperTrading || orderId.startsWith("PAPER")) {
     console.log(`[paper] CANCEL ${orderId}`);
     return;
   }
@@ -109,16 +133,17 @@ export async function cancelOrder(orderId: string): Promise<void> {
     const c = await getSigningClient();
     await c.cancelOrder({ orderID: orderId });
   } catch (err) {
-    console.warn(`[clob] cancelOrder error:`, (err as Error).message);
+    console.warn("[clob] cancelOrder error:", (err as Error).message);
   }
 }
 
-/** Returns the CLOB collateral balance in USD (6-decimal USDC.e normalised). */
+// ── Balance & fills ────────────────────────────────────────────────────────────
+
 export async function getCollateralBalance(): Promise<number> {
   try {
     const c = await getSigningClient();
     const result = (await c.getBalanceAllowance({
-      asset_type: "COLLATERAL",
+      asset_type: AssetType.COLLATERAL,
     })) as {
       balance?: string;
     };
@@ -129,47 +154,15 @@ export async function getCollateralBalance(): Promise<number> {
   }
 }
 
-export async function getOpenOrders(): Promise<
-  Array<{
-    id: string;
-    tokenId: string;
-    side: string;
-    price: number;
-    size: number;
-  }>
-> {
-  if (config.paperTrading) return [];
-  try {
-    const c = await getSigningClient();
-    const result = await c.getOpenOrders();
-    const orders = Array.isArray(result)
-      ? result
-      : ((result as { data?: unknown[] }).data ?? []);
-    return orders.map((o: unknown) => {
-      const order = o as Record<string, string>;
-      return {
-        id: order["id"] ?? "",
-        tokenId: order["asset_id"] ?? "",
-        side: order["side"] ?? "",
-        price: parseFloat(order["price"] ?? "0"),
-        size: parseFloat(order["original_size"] ?? "0"),
-      };
-    });
-  } catch (err) {
-    console.error("[clob] getOpenOrders error:", (err as Error).message);
-    return [];
-  }
-}
-
 export interface TradeRecord {
   asset_id: string;
   side: string;
   size: string;
   price: string;
   status: string;
+  maker_address: string;
 }
 
-/** Fetch full trade history for our maker address to seed inventory on startup. */
 export async function fetchTradeHistory(): Promise<TradeRecord[]> {
   if (config.paperTrading) return [];
   try {
@@ -194,25 +187,11 @@ export async function fetchTradeHistory(): Promise<TradeRecord[]> {
           size: trade["size"] ?? "0",
           price: trade["price"] ?? "0",
           status: trade["status"] ?? "",
+          maker_address: trade["maker_address"] ?? "",
         };
       });
   } catch (err) {
     console.warn("[clob] fetchTradeHistory error:", (err as Error).message);
     return [];
-  }
-}
-
-export async function getLastTradeMid(tokenId: string): Promise<number> {
-  try {
-    const c = getClient();
-    const result = (await c.getLastTradePrice(tokenId)) as
-      | { price?: string }
-      | null
-      | undefined;
-    if (!result || !result.price) return 0;
-    const p = parseFloat(result.price);
-    return Number.isFinite(p) && p > 0 && p < 1 ? p : 0;
-  } catch {
-    return 0;
   }
 }

@@ -17,7 +17,11 @@ import {
 } from "./inventory.js";
 import { reportMetrics, getLastSnapshot } from "./metrics.js";
 import { getActiveMarkets } from "./markets.js";
-import { getCollateralBalance, fetchTradeHistory, getOpenOrders } from "./clob.js";
+import {
+  getCollateralBalance,
+  fetchTradeHistory,
+  getOpenOrders,
+} from "./clob.js";
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let allocatedEquity = 0; // updated from treasury at startup; bots don't move funds
@@ -158,7 +162,9 @@ app.get("/positions", async (_req, res) => {
     for (const o of openOrders) {
       if (o.side === "BUY") lockedCollateral += o.price * o.size;
     }
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 
   const inventoryWithPnl = inventory.map((p) => {
     const currentMid = midByToken.get(p.tokenId) ?? null;

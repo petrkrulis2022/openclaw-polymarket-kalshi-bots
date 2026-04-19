@@ -78,7 +78,7 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
 
       // Skip near-resolved markets: YES > 90% (too expensive to buy min order)
       // or YES < 10% (our halfWidth would be larger than the price itself)
-      if (yesPrice > 0.90 || yesPrice < 0.10) continue;
+      if (yesPrice > 0.9 || yesPrice < 0.1) continue;
 
       const gammaBestBid = parseFloat(String(m["bestBid"] ?? "0")) || 0;
       const gammaBestAsk = parseFloat(String(m["bestAsk"] ?? "1")) || 1;

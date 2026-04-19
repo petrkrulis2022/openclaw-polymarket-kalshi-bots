@@ -354,6 +354,7 @@ export function BotConfigPanel({
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         {sectionFields.map((field) => {
           const stored = draft[field.key];
+          if (stored == null) return null;
           const displayVal = toDisplayValue(field, stored);
           const defDisplayVal = toDisplayValue(field, defaults[field.key]);
           const isDiff = stored !== params[field.key];
@@ -390,7 +391,7 @@ export function BotConfigPanel({
                   }}
                 >
                   {field.label}
-                  {!isDefault && (
+                  {!isDefault && defaults[field.key] != null && (
                     <span
                       style={{
                         marginLeft: 8,
