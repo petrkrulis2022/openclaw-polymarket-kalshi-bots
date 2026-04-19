@@ -11,9 +11,7 @@ function makeId(): string {
   return `lag-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export async function enterPosition(
-  opp: ResolutionOpportunity,
-): Promise<void> {
+export async function enterPosition(opp: ResolutionOpportunity): Promise<void> {
   const sizeShares =
     opp.currentAsk > 0 ? config.maxPositionUsd / opp.currentAsk : 0;
   if (sizeShares < 0.01) return;
@@ -35,10 +33,7 @@ export async function enterPosition(
     );
     orderId = result.orderId;
   } catch (err) {
-    console.error(
-      `[executor] Order failed for ${id}:`,
-      (err as Error).message,
-    );
+    console.error(`[executor] Order failed for ${id}:`, (err as Error).message);
     return;
   }
 

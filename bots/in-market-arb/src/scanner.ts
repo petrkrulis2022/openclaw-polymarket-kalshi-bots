@@ -44,12 +44,8 @@ export async function scanActiveMarkets(): Promise<BinaryMarket[]> {
     for (const m of markets) {
       if (!m.active || m.closed) continue;
       const tokens = m.tokens ?? [];
-      const yes = tokens.find(
-        (t) => t.outcome?.toLowerCase() === "yes",
-      );
-      const no = tokens.find(
-        (t) => t.outcome?.toLowerCase() === "no",
-      );
+      const yes = tokens.find((t) => t.outcome?.toLowerCase() === "yes");
+      const no = tokens.find((t) => t.outcome?.toLowerCase() === "no");
       if (!yes || !no) continue;
       binary.push({
         id: m.id,

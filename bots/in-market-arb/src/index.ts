@@ -152,7 +152,9 @@ app.get("/config", (_req: Request, res: Response) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(config.port, () => {
-  console.log(`[arb] In-Market Arb Bot (id=${config.botId}) listening on :${config.port}`);
+  console.log(
+    `[arb] In-Market Arb Bot (id=${config.botId}) listening on :${config.port}`,
+  );
   scheduleScan();
   scheduleMetrics();
 });

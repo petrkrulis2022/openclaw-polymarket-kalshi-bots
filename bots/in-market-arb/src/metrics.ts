@@ -53,9 +53,7 @@ export async function reportMetrics(allocatedEquity: number): Promise<void> {
       signal: AbortSignal.timeout(5_000),
     });
     if (!res.ok) {
-      console.warn(
-        `[metrics] Orchestrator returned ${res.status}`,
-      );
+      console.warn(`[metrics] Orchestrator returned ${res.status}`);
     }
   } catch {
     // Orchestrator offline — metrics buffered in lastSnapshot

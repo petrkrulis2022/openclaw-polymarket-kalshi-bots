@@ -27,7 +27,10 @@ export function addPosition(pos: LagPosition): void {
   positions.set(pos.id, pos);
 }
 
-export function updatePosition(id: string, updates: Partial<LagPosition>): void {
+export function updatePosition(
+  id: string,
+  updates: Partial<LagPosition>,
+): void {
   const existing = positions.get(id);
   if (existing) positions.set(id, { ...existing, ...updates });
 }

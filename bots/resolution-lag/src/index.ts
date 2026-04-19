@@ -9,7 +9,10 @@
 import express, { type Request, type Response } from "express";
 import { config } from "./config.js";
 import { fetchClosedUnresolvedMarkets } from "./monitor.js";
-import { findResolutionOpportunities, type ResolutionOpportunity } from "./oracle.js";
+import {
+  findResolutionOpportunities,
+  type ResolutionOpportunity,
+} from "./oracle.js";
 import { enterPosition } from "./executor.js";
 import {
   getAllPositions,

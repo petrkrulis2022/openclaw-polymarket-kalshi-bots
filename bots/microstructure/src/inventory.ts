@@ -33,7 +33,11 @@ export function upsertPosition(
 ): void {
   const existing = positions.get(marketId);
   if (existing) {
-    positions.set(marketId, { ...existing, ...update, lastUpdated: new Date().toISOString() });
+    positions.set(marketId, {
+      ...existing,
+      ...update,
+      lastUpdated: new Date().toISOString(),
+    });
   } else {
     positions.set(marketId, {
       marketQuestion: "",
@@ -62,7 +66,11 @@ export function getAllPositions(): MicroPosition[] {
   return Array.from(positions.values());
 }
 
-export function recordFill(marketId: string, fillPrice: number, fillSize: number): void {
+export function recordFill(
+  marketId: string,
+  fillPrice: number,
+  fillSize: number,
+): void {
   const pos = positions.get(marketId);
   if (!pos) return;
   const cost = fillPrice * fillSize;
@@ -75,7 +83,11 @@ export function recordFill(marketId: string, fillPrice: number, fillSize: number
   });
 }
 
-export function recordSell(marketId: string, sellPrice: number, sellSize: number): void {
+export function recordSell(
+  marketId: string,
+  sellPrice: number,
+  sellSize: number,
+): void {
   const pos = positions.get(marketId);
   if (!pos) return;
   const revenue = sellPrice * sellSize;

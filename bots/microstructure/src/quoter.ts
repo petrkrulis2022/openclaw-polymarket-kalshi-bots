@@ -4,7 +4,12 @@
  * Cancels all quotes near expiry.
  */
 
-import { getBestBid, getBestAsk, placeLimitOrder, cancelOrder } from "./clob.js";
+import {
+  getBestBid,
+  getBestAsk,
+  placeLimitOrder,
+  cancelOrder,
+} from "./clob.js";
 import { getPosition, upsertPosition } from "./inventory.js";
 import type { ScreenedMarket } from "./screener.js";
 import { config } from "./config.js";
@@ -34,7 +39,8 @@ export async function refreshQuote(market: ScreenedMarket): Promise<void> {
 
   // If we hold shares and don't have an ask up, post one
   if (pos && pos.heldShares > 0.001 && !pos.askOrderId) {
-    const avgEntry = pos.heldShares > 0 ? pos.totalCost / pos.heldShares : pos.bidPrice;
+    const avgEntry =
+      pos.heldShares > 0 ? pos.totalCost / pos.heldShares : pos.bidPrice;
     const askPrice = Math.min(0.99, avgEntry * 2);
     try {
       const result = await placeLimitOrder(

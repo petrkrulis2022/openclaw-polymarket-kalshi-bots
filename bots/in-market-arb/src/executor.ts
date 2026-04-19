@@ -4,11 +4,7 @@
  */
 
 import { placeLimitOrder, cancelOrder } from "./clob.js";
-import {
-  addPair,
-  cancelPair,
-  type ArbPair,
-} from "./inventory.js";
+import { addPair, cancelPair, type ArbPair } from "./inventory.js";
 import type { ArbSignal } from "./orderbook.js";
 import { config } from "./config.js";
 
@@ -52,18 +48,8 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
 
   try {
     const [yesResult, noResult] = await Promise.all([
-      placeLimitOrder(
-        signal.yesTokenId,
-        "BUY",
-        signal.yesEntryPrice,
-        size,
-      ),
-      placeLimitOrder(
-        signal.noTokenId,
-        "BUY",
-        signal.noEntryPrice,
-        size,
-      ),
+      placeLimitOrder(signal.yesTokenId, "BUY", signal.yesEntryPrice, size),
+      placeLimitOrder(signal.noTokenId, "BUY", signal.noEntryPrice, size),
     ]);
     yesOrderId = yesResult.orderId;
     noOrderId = noResult.orderId;
@@ -99,9 +85,7 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
     const { getPair } = await import("./inventory.js");
     const current = getPair(id);
     if (!current || current.status !== "pending") return;
-    console.warn(
-      `[executor] Pair ${id} timed out — cancelling both legs`,
-    );
+    console.warn(`[executor] Pair ${id} timed out — cancelling both legs`);
     await Promise.all([cancelOrder(yesOrderId), cancelOrder(noOrderId)]);
     cancelPair(id);
   }, config.pairTimeoutMs);
