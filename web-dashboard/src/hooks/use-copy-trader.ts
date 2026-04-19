@@ -51,11 +51,25 @@ export interface CopyInventoryPosition {
   realizedPnl: number;
 }
 
+/** Shape returned by GET /traders/:address/snapshot (mirrors DataApiPosition in bot) */
+export interface TraderDataPosition {
+  market: string;
+  asset: string; // tokenId
+  size: string;
+  avgPrice: string;
+  currentValue: string;
+  curPrice: string;
+  title: string;
+  outcome: string;
+}
+
 export interface CopyTraderState {
   traders: TrackedTrader[];
   pending: PendingTrade[];
   positions: CopyInventoryPosition[];
   totalRealizedPnl: number;
+  /** keyed by trader address → their live Data API positions */
+  traderSnapshots: Record<string, TraderDataPosition[]>;
   online: boolean;
   loading: boolean;
 }
@@ -71,6 +85,7 @@ export function useCopyTrader() {
     pending: [],
     positions: [],
     totalRealizedPnl: 0,
+    traderSnapshots: {},
     online: false,
     loading: true,
   });
@@ -95,11 +110,29 @@ export function useCopyTrader() {
         totalRealizedPnl: number;
       };
 
+      // Fetch each trader's live Data API snapshot in parallel
+      const snapshotEntries = await Promise.all(
+        traders.map(async (t) => {
+          try {
+            const r = await fetch(
+              `${BASE}/traders/${encodeURIComponent(t.address)}/snapshot`,
+            );
+            if (!r.ok) return [t.address, []] as [string, TraderDataPosition[]];
+            const data = (await r.json()) as TraderDataPosition[];
+            return [t.address, data] as [string, TraderDataPosition[]];
+          } catch {
+            return [t.address, []] as [string, TraderDataPosition[]];
+          }
+        }),
+      );
+      const traderSnapshots = Object.fromEntries(snapshotEntries);
+
       setState({
         traders,
         pending,
         positions: posData.positions,
         totalRealizedPnl: posData.totalRealizedPnl,
+        traderSnapshots,
         online: true,
         loading: false,
       });

@@ -22,6 +22,7 @@ import {
   type TrackedTrader as CopyTrader,
   type PendingTrade,
   type CopyInventoryPosition,
+  type TraderDataPosition,
 } from "./hooks/use-copy-trader";
 import { USDT_ADDRESS, USDT_DECIMALS } from "./config/wagmi";
 import { BotConfigPanel } from "./components/BotConfigPanel";
@@ -701,6 +702,7 @@ function CopyTraderView({
     pending,
     positions,
     totalRealizedPnl,
+    traderSnapshots,
     online,
     loading,
     addTrader,
@@ -1069,77 +1071,210 @@ function CopyTraderView({
             Our Copy Positions
           </div>
           <div style={{ overflowX: "auto" }}>
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: 12,
-                background: "var(--card)",
-                borderRadius: 10,
-                overflow: "hidden",
-              }}
-            >
-              <thead>
-                <tr
+            {(() => {
+              // Build label → address map for snapshot lookups
+              const traderByLabel = Object.fromEntries(
+                traders.map((t) => [t.label, t]),
+              );
+
+              return (
+                <table
                   style={{
-                    background: "var(--background)",
-                    color: "var(--text-secondary)",
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: 12,
+                    background: "var(--card)",
+                    borderRadius: 10,
+                    overflow: "hidden",
                   }}
                 >
-                  {[
-                    "Token ID",
-                    "Source Trader",
-                    "Net Size",
-                    "Avg Price",
-                    "Realized PnL",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      style={
-                        h === "Token ID" || h === "Source Trader"
-                          ? thLeft
-                          : thStyle
-                      }
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {positions
-                  .filter((p) => p.netSize > 0.001)
-                  .map((p: CopyInventoryPosition) => (
+                  <thead>
                     <tr
-                      key={p.tokenId}
-                      style={{ borderTop: "1px solid var(--border)" }}
+                      style={{
+                        background: "var(--background)",
+                        color: "var(--text-secondary)",
+                      }}
                     >
-                      <td
+                      <th style={thLeft} rowSpan={2}>
+                        Market / Outcome
+                      </th>
+                      <th
                         style={{
-                          ...leftCell,
-                          fontFamily: "monospace",
-                          fontSize: 11,
+                          ...thStyle,
+                          borderBottom: "1px solid var(--border)",
                         }}
-                        title={p.tokenId}
+                        colSpan={4}
                       >
-                        {p.tokenId.slice(0, 14)}…
-                      </td>
-                      <td style={leftCell}>{p.sourceTrader}</td>
-                      <td style={cellStyle}>{p.netSize.toFixed(4)}</td>
-                      <td style={cellStyle}>{p.avgPrice.toFixed(4)}</td>
-                      <td
+                        Ours
+                      </th>
+                      <th
                         style={{
-                          ...cellStyle,
-                          color: p.realizedPnl >= 0 ? "#4caf50" : "#ff6b6b",
+                          ...thStyle,
+                          borderBottom: "1px solid var(--border)",
+                          borderLeft: "2px solid var(--border)",
                         }}
+                        colSpan={3}
                       >
-                        {p.realizedPnl >= 0 ? "+" : ""}$
-                        {p.realizedPnl.toFixed(4)}
-                      </td>
+                        Trader
+                      </th>
                     </tr>
-                  ))}
-              </tbody>
-            </table>
+                    <tr
+                      style={{
+                        background: "var(--background)",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {["Size", "Capital", "Unreal PnL", "Real PnL"].map(
+                        (h) => (
+                          <th key={h} style={thStyle}>
+                            {h}
+                          </th>
+                        ),
+                      )}
+                      {["Size", "Capital", "Unreal PnL"].map((h, i) => (
+                        <th
+                          key={h}
+                          style={{
+                            ...thStyle,
+                            ...(i === 0
+                              ? { borderLeft: "2px solid var(--border)" }
+                              : {}),
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {positions
+                      .filter((p) => p.netSize > 0.001)
+                      .map((p: CopyInventoryPosition) => {
+                        // Find this trader's snapshot for this tokenId
+                        const trader = traderByLabel[p.sourceTrader];
+                        const snapshot: TraderDataPosition | undefined = trader
+                          ? (traderSnapshots[trader.address] ?? []).find(
+                              (s) => s.asset === p.tokenId,
+                            )
+                          : undefined;
+
+                        const ourCapital = p.netSize * p.avgPrice;
+                        const curPrice = snapshot
+                          ? parseFloat(snapshot.curPrice)
+                          : null;
+                        const ourUnrealPnl =
+                          curPrice != null
+                            ? p.netSize * (curPrice - p.avgPrice)
+                            : null;
+
+                        const traderSize = snapshot
+                          ? parseFloat(snapshot.size)
+                          : null;
+                        const traderAvgPrice = snapshot
+                          ? parseFloat(snapshot.avgPrice)
+                          : null;
+                        const traderCapital =
+                          traderSize != null && traderAvgPrice != null
+                            ? traderSize * traderAvgPrice
+                            : null;
+                        const traderUnrealPnl =
+                          curPrice != null &&
+                          traderSize != null &&
+                          traderAvgPrice != null
+                            ? traderSize * (curPrice - traderAvgPrice)
+                            : null;
+
+                        const marketTitle =
+                          snapshot?.title ?? `…${p.tokenId.slice(-8)}`;
+                        const outcome = snapshot?.outcome ?? "—";
+
+                        const pnlColor = (v: number | null) =>
+                          v == null
+                            ? "inherit"
+                            : v >= 0
+                              ? "#4caf50"
+                              : "#ff6b6b";
+
+                        return (
+                          <tr
+                            key={p.tokenId}
+                            style={{ borderTop: "1px solid var(--border)" }}
+                          >
+                            <td style={leftCell}>
+                              <div
+                                title={p.tokenId}
+                                style={{
+                                  fontWeight: 600,
+                                  maxWidth: 220,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {marketTitle}
+                              </div>
+                              <div
+                                style={{
+                                  color: "var(--text-secondary)",
+                                  fontSize: 11,
+                                }}
+                              >
+                                {outcome} · {p.sourceTrader}
+                              </div>
+                            </td>
+                            {/* Ours */}
+                            <td style={cellStyle}>{p.netSize.toFixed(2)}</td>
+                            <td style={cellStyle}>${ourCapital.toFixed(2)}</td>
+                            <td
+                              style={{
+                                ...cellStyle,
+                                color: pnlColor(ourUnrealPnl),
+                              }}
+                            >
+                              {ourUnrealPnl != null
+                                ? `${ourUnrealPnl >= 0 ? "+" : ""}$${ourUnrealPnl.toFixed(2)}`
+                                : "—"}
+                            </td>
+                            <td
+                              style={{
+                                ...cellStyle,
+                                color: pnlColor(p.realizedPnl),
+                              }}
+                            >
+                              {p.realizedPnl >= 0 ? "+" : ""}$
+                              {p.realizedPnl.toFixed(2)}
+                            </td>
+                            {/* Trader */}
+                            <td
+                              style={{
+                                ...cellStyle,
+                                borderLeft: "2px solid var(--border)",
+                              }}
+                            >
+                              {traderSize != null ? traderSize.toFixed(2) : "—"}
+                            </td>
+                            <td style={cellStyle}>
+                              {traderCapital != null
+                                ? `$${traderCapital.toFixed(2)}`
+                                : "—"}
+                            </td>
+                            <td
+                              style={{
+                                ...cellStyle,
+                                color: pnlColor(traderUnrealPnl),
+                              }}
+                            >
+                              {traderUnrealPnl != null
+                                ? `${traderUnrealPnl >= 0 ? "+" : ""}$${traderUnrealPnl.toFixed(2)}`
+                                : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              );
+            })()}
           </div>
         </div>
       )}
