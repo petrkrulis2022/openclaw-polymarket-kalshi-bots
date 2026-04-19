@@ -33,7 +33,7 @@ export function usePortfolio() {
         totalEquity: parseFloat(raw.totalEquity) || 0,
         totalPnl: parseFloat(raw.totalPnl) || 0,
         bots: (raw.bots ?? []).map((b: Record<string, unknown>) => ({
-          id: b.id,
+          id: String(b.id),
           name: b.name,
           strategy: b.strategy ?? "",
           status: b.status ?? "idle",
