@@ -31,13 +31,13 @@ async function latestMetrics() {
 portfolioRouter.get("/summary", async (_req: Request, res: Response) => {
   try {
     let rows: Awaited<ReturnType<typeof latestMetrics>> = [];
-    let bots: { id: number; name: string }[] = [];
+    let bots: { id: number; name: string; strategy?: string }[] = [];
 
     try {
       rows = await latestMetrics();
       const { data } = await supabase
         .from("bots")
-        .select("id, name")
+        .select("id, name, strategy")
         .order("id");
       bots = data ?? [];
     } catch (dbErr) {
@@ -60,12 +60,16 @@ portfolioRouter.get("/summary", async (_req: Request, res: Response) => {
       }
     }
 
-    // Fall back to the 3 known bots if DB is empty/unreachable
+    // Fall back to the known bots if DB is empty/unreachable
     if (bots.length === 0) {
       bots = [
-        { id: 1, name: "Market Maker" },
-        { id: 2, name: "Arb Bot" },
-        { id: 3, name: "Copy Trader" },
+        { id: 1, name: "Market Maker",   strategy: "Liquidity Provision" },
+        { id: 2, name: "Arb Bot",        strategy: "Cross-Market Arb" },
+        { id: 3, name: "Copy Trader",    strategy: "Trader Mirroring" },
+        { id: 4, name: "In-Market Arb",  strategy: "YES+NO Arb" },
+        { id: 5, name: "Resolution Lag", strategy: "Oracle Delay" },
+        { id: 6, name: "Microstructure", strategy: "Low-Price MM" },
+        { id: 7, name: "BTC Lag",        strategy: "CEX Candle Lag" },
       ];
     }
 
@@ -78,6 +82,7 @@ portfolioRouter.get("/summary", async (_req: Request, res: Response) => {
       return {
         id: b.id,
         name: b.name,
+        strategy: b.strategy ?? "",
         equity: equity.toFixed(6),
         allocationPct:
           totalEquity > 0 ? ((equity / totalEquity) * 100).toFixed(2) : "0.00",
@@ -103,8 +108,8 @@ portfolioRouter.get("/summary", async (_req: Request, res: Response) => {
 // GET /portfolio/bot/:id
 portfolioRouter.get("/bot/:id", async (req: Request, res: Response) => {
   const botId = parseInt(req.params["id"] ?? "", 10);
-  if (![1, 2, 3].includes(botId)) {
-    res.status(400).json({ error: "botId must be 1, 2, or 3" });
+  if (![1, 2, 3, 4, 5, 6, 7].includes(botId)) {
+    res.status(400).json({ error: "botId must be 1–7" });
     return;
   }
 

@@ -27,6 +27,26 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/bot\/3/, ""),
       },
+      "/api/bot/4": {
+        target: "http://localhost:3005",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/bot\/4/, ""),
+      },
+      "/api/bot/5": {
+        target: "http://localhost:3006",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/bot\/5/, ""),
+      },
+      "/api/bot/6": {
+        target: "http://localhost:3007",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/bot\/6/, ""),
+      },
+      "/api/bot/7": {
+        target: "http://localhost:3008",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/bot\/7/, ""),
+      },
     },
   },
 });
