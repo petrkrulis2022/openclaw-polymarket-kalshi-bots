@@ -180,16 +180,24 @@ export async function fetchTradeHistory(): Promise<TradeRecord[]> {
     const trades = Array.isArray(result)
       ? result
       : ((result as { data?: unknown[] }).data ?? []);
-    return trades.map((t: unknown) => {
-      const trade = t as Record<string, string>;
-      return {
-        asset_id: trade["asset_id"] ?? "",
-        side: trade["side"] ?? "BUY",
-        size: trade["size"] ?? "0",
-        price: trade["price"] ?? "0",
-        status: trade["status"] ?? "",
-      };
-    });
+    const ourAddress = config.polymarket.walletAddress.toLowerCase();
+    return trades
+      .filter((t: unknown) => {
+        const trade = t as Record<string, string>;
+        return (
+          (trade["maker_address"] ?? "").toLowerCase() === ourAddress
+        );
+      })
+      .map((t: unknown) => {
+        const trade = t as Record<string, string>;
+        return {
+          asset_id: trade["asset_id"] ?? "",
+          side: trade["side"] ?? "BUY",
+          size: trade["size"] ?? "0",
+          price: trade["price"] ?? "0",
+          status: trade["status"] ?? "",
+        };
+      });
   } catch (err) {
     console.warn("[clob] fetchTradeHistory error:", (err as Error).message);
     return [];
