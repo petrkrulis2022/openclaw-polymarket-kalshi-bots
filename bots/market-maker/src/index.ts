@@ -17,7 +17,7 @@ import {
 } from "./inventory.js";
 import { reportMetrics, getLastSnapshot } from "./metrics.js";
 import { getActiveMarkets } from "./markets.js";
-import { getCollateralBalance, fetchTradeHistory } from "./clob.js";
+import { getCollateralBalance, fetchTradeHistory, getOpenOrders } from "./clob.js";
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let allocatedEquity = 0; // updated from treasury at startup; bots don't move funds
@@ -140,9 +140,46 @@ app.get("/metrics", (_req, res) => {
   res.json(getLastSnapshot());
 });
 
-app.get("/positions", (_req, res) => {
+app.get("/positions", async (_req, res) => {
   const states = getStates();
   const inventory = getAllPositions();
+
+  // Map yesTokenId / noTokenId -> current mid for unrealized PnL calculation
+  const midByToken = new Map<string, number>();
+  for (const st of states) {
+    if (st.yesTokenId) midByToken.set(st.yesTokenId, st.mid);
+    if (st.noTokenId) midByToken.set(st.noTokenId, 1 - st.mid);
+  }
+
+  // Locked collateral = USDC.e reserved by open BUY limit orders
+  let lockedCollateral = 0;
+  try {
+    const openOrders = await getOpenOrders();
+    for (const o of openOrders) {
+      if (o.side === "BUY") lockedCollateral += o.price * o.size;
+    }
+  } catch { /* non-fatal */ }
+
+  const inventoryWithPnl = inventory.map((p) => {
+    const currentMid = midByToken.get(p.tokenId) ?? null;
+    const unrealizedPnl =
+      currentMid != null ? (currentMid - p.avgPrice) * p.netSize : null;
+    return {
+      tokenId: p.tokenId,
+      netSize: p.netSize,
+      avgPrice: p.avgPrice,
+      currentMid,
+      realizedPnl: p.realizedPnl,
+      unrealizedPnl,
+    };
+  });
+
+  const strategyPnl = getTotalRealizedPnl();
+  const positionPnl = inventoryWithPnl.reduce(
+    (s, p) => s + (p.unrealizedPnl ?? 0),
+    0,
+  );
+
   res.json({
     markets: states.map((s) => ({
       conditionId: s.market.conditionId,
@@ -157,13 +194,11 @@ app.get("/positions", (_req, res) => {
       ourAskId: s.ourAskId,
       openPositions: s.openPositions,
     })),
-    inventory: inventory.map((p) => ({
-      tokenId: p.tokenId,
-      netSize: p.netSize,
-      avgPrice: p.avgPrice,
-      realizedPnl: p.realizedPnl,
-    })),
-    totalRealizedPnl: getTotalRealizedPnl(),
+    inventory: inventoryWithPnl,
+    totalRealizedPnl: strategyPnl,
+    strategyPnl,
+    positionPnl,
+    lockedCollateral: parseFloat(lockedCollateral.toFixed(6)),
     allocatedEquity,
   });
 });

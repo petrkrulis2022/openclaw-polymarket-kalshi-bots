@@ -357,6 +357,9 @@ function BotDetailView({
   const markets = detail?.markets ?? null;
   const inventory = detail?.inventory ?? null;
   const totalRealizedPnl = detail?.totalRealizedPnl ?? null;
+  const strategyPnl = detail?.strategyPnl ?? null;
+  const positionPnl = detail?.positionPnl ?? null;
+  const lockedCollateral = detail?.lockedCollateral ?? null;
   const allocatedEquity = detail?.allocatedEquity ?? null;
 
   return (
@@ -392,7 +395,14 @@ function BotDetailView({
       </div>
 
       {/* summary cards */}
-      <div className="grid-2" style={{ marginBottom: 24 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
         <div className="card" style={{ textAlign: "center" }}>
           <div className="balance-label">Allocated Equity</div>
           <div className="balance-big">
@@ -400,12 +410,29 @@ function BotDetailView({
           </div>
         </div>
         <div className="card" style={{ textAlign: "center" }}>
-          <div className="balance-label">Realized PnL</div>
+          <div className="balance-label">Strategy PnL</div>
           <div
-            className={`balance-big ${pnlClass(totalRealizedPnl ?? bot.pnl)}`}
+            className={`balance-big ${pnlClass(strategyPnl ?? 0)}`}
+            title="Realized profit from bid-ask spread fills"
           >
-            {(totalRealizedPnl ?? bot.pnl) >= 0 ? "+" : ""}$
-            {(totalRealizedPnl ?? bot.pnl).toFixed(4)}
+            {(strategyPnl ?? 0) >= 0 ? "+" : ""}$
+            {(strategyPnl ?? 0).toFixed(4)}
+          </div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Position PnL</div>
+          <div
+            className={`balance-big ${pnlClass(positionPnl ?? 0)}`}
+            title="Unrealized PnL on shares held vs current market mid"
+          >
+            {(positionPnl ?? 0) >= 0 ? "+" : ""}$
+            {(positionPnl ?? 0).toFixed(4)}
+          </div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Locked in Polymarket</div>
+          <div className="balance-big" title="USDC.e reserved by open BUY orders">
+            ${(lockedCollateral ?? 0).toFixed(2)}
           </div>
         </div>
       </div>
@@ -540,7 +567,7 @@ function BotDetailView({
                     color: "var(--text-secondary)",
                   }}
                 >
-                  {["Token ID", "Net Size", "Avg Price", "Realized PnL"].map(
+                  {["Token ID", "Net Size", "Avg Price", "Current Mid", "Strategy PnL", "Position PnL"].map(
                     (h) => (
                       <th
                         key={h}
@@ -583,6 +610,9 @@ function BotDetailView({
                     <td style={{ padding: "8px 10px", textAlign: "right" }}>
                       {p.avgPrice != null ? p.avgPrice.toFixed(4) : "—"}
                     </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", color: "var(--text-secondary)" }}>
+                      {p.currentMid != null ? p.currentMid.toFixed(4) : "—"}
+                    </td>
                     <td
                       style={{
                         padding: "8px 10px",
@@ -591,6 +621,22 @@ function BotDetailView({
                       }}
                     >
                       {p.realizedPnl >= 0 ? "+" : ""}${p.realizedPnl.toFixed(4)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color:
+                          p.unrealizedPnl == null
+                            ? "var(--text-secondary)"
+                            : p.unrealizedPnl >= 0
+                              ? "#4caf50"
+                              : "#ff6b6b",
+                      }}
+                    >
+                      {p.unrealizedPnl == null
+                        ? "—"
+                        : `${p.unrealizedPnl >= 0 ? "+" : ""}$${p.unrealizedPnl.toFixed(4)}`}
                     </td>
                   </tr>
                 ))}

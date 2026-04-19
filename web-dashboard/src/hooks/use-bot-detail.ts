@@ -18,13 +18,18 @@ export interface InventoryPosition {
   tokenId: string;
   netSize: number;
   avgPrice: number;
+  currentMid: number | null;
   realizedPnl: number;
+  unrealizedPnl: number | null;
 }
 
 export interface BotDetail {
   markets: MarketPosition[];
   inventory: InventoryPosition[];
   totalRealizedPnl: number;
+  strategyPnl: number;
+  positionPnl: number;
+  lockedCollateral: number;
   allocatedEquity: number;
 }
 
@@ -55,6 +60,9 @@ export function useBotDetail(botId: number | null) {
         markets: raw.markets ?? [],
         inventory: raw.inventory ?? [],
         totalRealizedPnl: Number(raw.totalRealizedPnl) || 0,
+        strategyPnl: Number(raw.strategyPnl) || 0,
+        positionPnl: Number(raw.positionPnl) || 0,
+        lockedCollateral: Number(raw.lockedCollateral) || 0,
         allocatedEquity: Number(raw.allocatedEquity) || 0,
       });
       setError(null);
