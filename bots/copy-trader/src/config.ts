@@ -9,8 +9,6 @@ function req(name: string): string {
 export const config = {
   port: parseInt(process.env["PORT"] ?? "3004", 10),
   botId: parseInt(process.env["BOT_ID"] ?? "3", 10),
-  paperTrading:
-    !process.env["BOT_SIGNER_KEY"] || process.env["PAPER_TRADING"] === "true",
   polymarket: {
     walletAddress: req("POLYMARKET_WALLET_ADDRESS"),
     apiKey: req("POLYMARKET_API_KEY"),

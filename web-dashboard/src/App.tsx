@@ -720,12 +720,21 @@ function CopyTraderView({
   const [formError, setFormError] = useState("");
   const [formSubmitting, setFormSubmitting] = useState(false);
 
+  /** Accept raw 0x address OR full Polymarket profile URL */
+  function parsePolymarketAddress(raw: string): string {
+    const trimmed = raw.trim();
+    // e.g. https://polymarket.com/profile/0xABC... or polymarket.com/profile/0xABC...
+    const urlMatch = trimmed.match(/\/profile\/(0x[0-9a-fA-F]+)/i);
+    if (urlMatch) return urlMatch[1].toLowerCase();
+    return trimmed.toLowerCase();
+  }
+
   async function handleAddTrader(e: React.FormEvent) {
     e.preventDefault();
     setFormError("");
     setFormSubmitting(true);
     const ok = await addTrader({
-      address: formAddress.trim().toLowerCase(),
+      address: parsePolymarketAddress(formAddress),
       label: formLabel.trim(),
       allocationUsd: parseFloat(formAllocation),
       copyRatio: parseFloat(formRatio),
@@ -1171,17 +1180,18 @@ function CopyTraderView({
           >
             <div style={{ gridColumn: "1 / -1" }}>
               <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                Polymarket Proxy Wallet Address
+                Polymarket Profile URL or Wallet Address
                 <br />
                 <span style={{ fontSize: 11, opacity: 0.7 }}>
-                  Paste the address from polymarket.com/profile/0x…
+                  Go to polymarket.com → find a trader → copy the profile URL
+                  (e.g. polymarket.com/profile/0x…) or paste just the 0x address
                 </span>
               </label>
               <input
                 required
                 value={formAddress}
                 onChange={(e) => setFormAddress(e.target.value)}
-                placeholder="0x..."
+                placeholder="https://polymarket.com/profile/0x… or 0x…"
                 style={{
                   display: "block",
                   width: "100%",

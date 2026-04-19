@@ -56,8 +56,6 @@ async function fetchAllocatedEquity(): Promise<number> {
     // Treasury offline — fall back to CLOB balance
   }
 
-  if (config.paperTrading) return params.paperEquity;
-
   try {
     return await getCollateralBalance();
   } catch {
@@ -161,7 +159,7 @@ app.use(express.json());
 
 // Health
 app.get("/health", (_req: Request, res: Response) => {
-  res.json({ ok: true, botId: config.botId, paper: config.paperTrading });
+  res.json({ ok: true, botId: config.botId });
 });
 
 // Metrics snapshot
@@ -369,7 +367,7 @@ app.post("/config/reset", (_req: Request, res: Response) => {
 
 async function main(): Promise<void> {
   console.log(
-    `[copy-trader] Starting (bot ${config.botId}, port ${config.port}, paper=${config.paperTrading})`,
+    `[copy-trader] Starting (bot ${config.botId}, port ${config.port})`,
   );
 
   // Restore inventory from trade history

@@ -31,8 +31,6 @@ export interface CopyTradingParams {
   pendingExpiryMs: number;
   /** Minimum signal size in USD — ignore smaller moves */
   minSignalUsd: number;
-  /** Simulated equity for paper-trading mode */
-  paperEquity: number;
 }
 
 const DEFAULTS: Readonly<CopyTradingParams> = Object.freeze({
@@ -40,7 +38,6 @@ const DEFAULTS: Readonly<CopyTradingParams> = Object.freeze({
   metricsIntervalMs: 30_000,
   pendingExpiryMs: 5 * 60 * 1_000,
   minSignalUsd: 3.0,
-  paperEquity: 1_000,
 });
 
 // ── Mutable singletons ───────────────────────────────────────────────────────

@@ -20,7 +20,6 @@ export interface OrderBook {
 
 export interface OrderResult {
   orderId: string;
-  paper: boolean;
 }
 
 // ── Client singletons ─────────────────────────────────────────────────────────
@@ -96,23 +95,13 @@ export async function getBestBid(tokenId: string): Promise<number> {
 
 // ── Order placement ────────────────────────────────────────────────────────────
 
-let _paperOrderCounter = 0;
-
 export async function placeLimitOrder(
   tokenId: string,
   side: "BUY" | "SELL",
   price: number,
   size: number,
-  marketQuestion: string,
+  _marketQuestion: string,
 ): Promise<OrderResult> {
-  if (config.paperTrading) {
-    const orderId = `PAPER-COPY-${++_paperOrderCounter}`;
-    console.log(
-      `[paper] ${side} ${size.toFixed(2)} @ ${price.toFixed(4)} | ${marketQuestion.slice(0, 50)} | id=${orderId}`,
-    );
-    return { orderId, paper: true };
-  }
-
   const c = await getSigningClient();
   const order = await c.createAndPostOrder({
     tokenID: tokenId,
@@ -121,14 +110,10 @@ export async function placeLimitOrder(
     size,
   });
   const orderId = (order as { orderID?: string }).orderID ?? "unknown";
-  return { orderId, paper: false };
+  return { orderId };
 }
 
 export async function cancelOrder(orderId: string): Promise<void> {
-  if (config.paperTrading || orderId.startsWith("PAPER")) {
-    console.log(`[paper] CANCEL ${orderId}`);
-    return;
-  }
   try {
     const c = await getSigningClient();
     await c.cancelOrder({ orderID: orderId });
@@ -164,7 +149,6 @@ export interface TradeRecord {
 }
 
 export async function fetchTradeHistory(): Promise<TradeRecord[]> {
-  if (config.paperTrading) return [];
   try {
     const c = await getSigningClient();
     const result = await c.getTrades({
