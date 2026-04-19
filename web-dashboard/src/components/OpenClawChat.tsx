@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { processAgentMessage } from "../utils/openclaw-agent";
 import { useBotConfig, type QuotingParams } from "../hooks/use-bot-config";
 
+const ORCHESTRATOR_URL = "http://localhost:3002";
+
 interface Message {
   id: number;
   from: "user" | "agent";
@@ -27,6 +29,77 @@ function renderMarkdown(text: string) {
   });
 }
 
+/** Returns true if the message looks like a config command (handled locally). */
+function isConfigCommand(msg: string): boolean {
+  const m = msg.toLowerCase().trim();
+  return (
+    /\breset\b/.test(m) ||
+    /\b(help|what can you|how do i|commands?)\b/.test(m) ||
+    (/\b(show|current|list|display|get|status)\b/.test(m) &&
+      /\b(setting|config|param|spread|market|volume|interval|skew|equity)\b/.test(
+        m,
+      )) ||
+    /\b(aggressive|conservative|balanced|default)\b/.test(m) ||
+    /\b(spread|half.?width|quote width|width)\b/.test(m) ||
+    /\b(market|num market|number of market|how many market)\b/.test(m) ||
+    /\b(volume|vol|min vol|minimum vol)\b/.test(m) ||
+    /\b(poll|cycle|interval|frequency|every|requote every|quote every)\b/.test(
+      m,
+    ) ||
+    /\b(skew|inventory|imbalance|one.?side)\b/.test(m) ||
+    /\b(re.?quote threshold|drift threshold|move threshold)\b/.test(m) ||
+    /\b(equity|paper equity|capital|budget)\b/.test(m)
+  );
+}
+
+/** Stream a Claude response from the orchestrator /chat endpoint. */
+async function streamClaudeResponse(
+  botId: number,
+  history: Array<{ role: "user" | "assistant"; content: string }>,
+  onDelta: (chunk: string) => void,
+): Promise<void> {
+  const res = await fetch(`${ORCHESTRATOR_URL}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ botId, messages: history }),
+  });
+
+  if (!res.ok || !res.body) {
+    onDelta("⚠ Could not reach OpenClaw Agent — is the orchestrator running?");
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const payload = line.slice(6).trim();
+      if (payload === "[DONE]") return;
+      try {
+        const parsed = JSON.parse(payload) as {
+          delta?: string;
+          error?: string;
+        };
+        if (parsed.error) {
+          onDelta(`⚠ ${parsed.error}`);
+          return;
+        }
+        if (parsed.delta) onDelta(parsed.delta);
+      } catch {
+        // ignore malformed SSE lines
+      }
+    }
+  }
+}
+
 export function OpenClawChat({
   botId,
   onConfigChange,
@@ -40,12 +113,16 @@ export function OpenClawChat({
       id: msgId++,
       from: "agent",
       ts: new Date(),
-      text: `Hi! I'm the **OpenClaw Agent** for Bot ${botId}. I can read and update the market maker's parameters in plain English.\n\nTry: **"show settings"**, **"set spread to 4 cents"**, **"make it aggressive"**, or **"help"**.`,
+      text: `Hi! I'm the **OpenClaw Agent** for Bot ${botId}. I have live access to your portfolio and positions.\n\nAsk me anything: **"how am I doing?"**, **"which bot is losing money?"**, **"show positions"**, **"set spread to 4 cents"**, or **"help"**.`,
     },
   ]);
   const [input, setInput] = useState("");
   const [minimized, setMinimized] = useState(false);
   const [typing, setTyping] = useState(false);
+  // Track conversation history for Claude (user+assistant turns only)
+  const claudeHistory = useRef<
+    Array<{ role: "user" | "assistant"; content: string }>
+  >([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -68,43 +145,92 @@ export function OpenClawChat({
     setInput("");
     pushMessage("user", text);
 
-    // Simulate a short "thinking" delay so the response feels natural
+    // ── Config command: handle locally with pattern matching ──────────────────
+    if (isConfigCommand(text)) {
+      setTyping(true);
+      await new Promise((r) => setTimeout(r, 300));
+      setTyping(false);
+
+      const response = processAgentMessage(text, params);
+
+      if (response.action === "reset") {
+        const updated = await reset();
+        if (updated) {
+          onConfigChange?.(updated);
+          pushMessage(
+            "agent",
+            response.reply +
+              "\n\n**Done.** All parameters restored to startup defaults.",
+          );
+        } else {
+          pushMessage("agent", "⚠ Reset failed — is the bot running?");
+        }
+        return;
+      }
+
+      if (response.patch) {
+        const updated = await save(response.patch);
+        if (updated) {
+          onConfigChange?.(updated);
+          pushMessage(
+            "agent",
+            response.reply +
+              "\n\n✓ **Saved.** Change takes effect immediately.",
+          );
+        } else {
+          pushMessage(
+            "agent",
+            "⚠ Could not apply change — is the bot running?",
+          );
+        }
+        return;
+      }
+
+      pushMessage("agent", response.reply);
+      return;
+    }
+
+    // ── Everything else: stream from Claude with live portfolio context ────────
+    claudeHistory.current.push({ role: "user", content: text });
+
+    // Create a streaming placeholder message
+    const streamId = msgId++;
+    setMessages((prev) => [
+      ...prev,
+      { id: streamId, from: "agent", text: "", ts: new Date() },
+    ]);
     setTyping(true);
-    await new Promise((r) => setTimeout(r, 400));
+
+    let accumulated = "";
+    await streamClaudeResponse(botId, claudeHistory.current, (chunk) => {
+      accumulated += chunk;
+      setTyping(false);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === streamId ? { ...m, text: accumulated } : m)),
+      );
+    });
+
+    // If nothing came back, show a fallback
+    if (!accumulated) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === streamId
+            ? {
+                ...m,
+                text: "⚠ No response — check that the orchestrator is running.",
+              }
+            : m,
+        ),
+      );
+    } else {
+      // Save assistant turn to history for follow-up context
+      claudeHistory.current.push({ role: "assistant", content: accumulated });
+      // Keep history bounded to last 20 turns to avoid token bloat
+      if (claudeHistory.current.length > 40) {
+        claudeHistory.current = claudeHistory.current.slice(-40);
+      }
+    }
     setTyping(false);
-
-    const response = processAgentMessage(text, params);
-
-    if (response.action === "reset") {
-      const updated = await reset();
-      if (updated) {
-        onConfigChange?.(updated);
-        pushMessage(
-          "agent",
-          response.reply +
-            "\n\n**Done.** All parameters restored to startup defaults.",
-        );
-      } else {
-        pushMessage("agent", "⚠ Reset failed — is the bot running?");
-      }
-      return;
-    }
-
-    if (response.patch) {
-      const updated = await save(response.patch);
-      if (updated) {
-        onConfigChange?.(updated);
-        pushMessage(
-          "agent",
-          response.reply + "\n\n✓ **Saved.** Change takes effect immediately.",
-        );
-      } else {
-        pushMessage("agent", "⚠ Could not apply change — is the bot running?");
-      }
-      return;
-    }
-
-    pushMessage("agent", response.reply);
   }
 
   function handleKey(e: React.KeyboardEvent) {
@@ -156,7 +282,7 @@ export function OpenClawChat({
           <div>
             <div style={{ fontSize: 13, fontWeight: 700 }}>OpenClaw Agent</div>
             <div style={{ fontSize: 10, color: "var(--text-secondary)" }}>
-              Chat to configure the bot
+              AI · live portfolio access
             </div>
           </div>
         </div>
