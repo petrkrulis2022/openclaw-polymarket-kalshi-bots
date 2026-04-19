@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 4000",
+    "dev": "vite --port 4000 --host",
     "build": "tsc -b && vite build"
   },
   "dependencies": {
