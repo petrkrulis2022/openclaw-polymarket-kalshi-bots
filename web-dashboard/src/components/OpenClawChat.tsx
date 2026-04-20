@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { processAgentMessage } from "../utils/openclaw-agent";
 import { useBotConfig, type QuotingParams } from "../hooks/use-bot-config";
 
-const ORCHESTRATOR_URL = "http://localhost:3002";
+const ORCHESTRATOR_URL = "/api/orchestrator";
 
 interface Message {
   id: number;
