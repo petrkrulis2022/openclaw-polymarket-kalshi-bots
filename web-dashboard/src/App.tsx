@@ -27,6 +27,9 @@ import {
 import { USDT_ADDRESS, USDT_DECIMALS } from "./config/wagmi";
 import { BotConfigPanel } from "./components/BotConfigPanel";
 import { OpenClawChat } from "./components/OpenClawChat";
+import { useInMarketArb } from "./hooks/use-in-market-arb";
+import { useResolutionLag } from "./hooks/use-resolution-lag";
+import { useMicrostructure } from "./hooks/use-microstructure";
 import "./index.css";
 
 const ERC20_ABI = [
@@ -682,7 +685,7 @@ function BotDetailView({
 
       {/* ── Strategy Configuration + OpenClaw Agent ── */}
       <div style={{ marginTop: 32 }}>
-        <BotConfigPanel botId={Number(bot.id)} />
+        {bot.id === "1" && <BotConfigPanel botId={1} />}
         <OpenClawChat botId={Number(bot.id)} />
       </div>
     </div>
@@ -1581,6 +1584,1085 @@ function CopyTraderView({
   );
 }
 
+// ── In-Market Arb View ────────────────────────────────────────────────────────
+function InMarketArbView({
+  bot,
+  onBack,
+}: {
+  bot: BotSummary;
+  onBack: () => void;
+}) {
+  const { data, loading, error } = useInMarketArb();
+  const { pairs, totalRealizedPnl, signals, scannedAt, metrics } = data;
+  const equity = metrics?.equity ?? bot.equity;
+  const openPairs = pairs.filter(
+    (p) => p.status === "pending" || p.status === "partial",
+  ).length;
+
+  const statusBadgeColor = (s: string) => {
+    if (s === "filled") return "#4caf50";
+    if (s === "cancelled") return "#ff6b6b";
+    if (s === "partial") return "#ff9800";
+    return "var(--text-secondary)";
+  };
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            color: "var(--text)",
+            cursor: "pointer",
+            padding: "6px 14px",
+            fontSize: 13,
+          }}
+        >
+          ← Back
+        </button>
+        <div style={{ fontSize: 20, fontWeight: 700 }}>{bot.name}</div>
+        <span className="badge">{bot.strategy}</span>
+        <div
+          className="status-dot"
+          style={{ background: statusColor(bot.status), marginLeft: 4 }}
+        />
+      </div>
+
+      {/* Stats */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Allocated Equity</div>
+          <div className="balance-big">${equity.toFixed(2)}</div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Open Pairs</div>
+          <div className="balance-big">{openPairs}</div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Realized PnL</div>
+          <div className={`balance-big ${pnlClass(totalRealizedPnl)}`}>
+            {totalRealizedPnl >= 0 ? "+" : ""}${totalRealizedPnl.toFixed(4)}
+          </div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Utilization</div>
+          <div className="balance-big">
+            {(metrics?.utilization ?? 0).toFixed(1)}%
+          </div>
+        </div>
+      </div>
+
+      {loading && <p className="offline">Loading data…</p>}
+      {error && <p className="offline">⚠ Bot offline — {error}</p>}
+
+      {/* Scan Results */}
+      <div style={{ marginBottom: 32 }}>
+        <div className="section-label" style={{ marginBottom: 10 }}>
+          Latest Scan Results
+          {scannedAt && (
+            <span
+              style={{
+                fontWeight: 400,
+                marginLeft: 8,
+                color: "var(--text-secondary)",
+                fontSize: 11,
+              }}
+            >
+              scanned {new Date(scannedAt).toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+        {signals.length === 0 ? (
+          <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+            No profitable signals in last scan.
+          </p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 12,
+                background: "var(--card)",
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: "var(--background)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {[
+                    "Market",
+                    "YES Ask",
+                    "NO Ask",
+                    "Net Spread",
+                    "Vol (USD)",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: h === "Market" ? "left" : "right",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {signals.map((s) => (
+                  <tr
+                    key={s.marketId}
+                    style={{ borderTop: "1px solid var(--border)" }}
+                  >
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        maxWidth: 260,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={s.marketQuestion}
+                    >
+                      {s.marketQuestion}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {s.yesEntryPrice.toFixed(4)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {s.noEntryPrice.toFixed(4)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color: "#4caf50",
+                      }}
+                    >
+                      +{(s.netSpread * 100).toFixed(2)}%
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      ${s.profitableVolumeUsd.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Active Pairs */}
+      <div style={{ marginBottom: 32 }}>
+        <div className="section-label" style={{ marginBottom: 10 }}>
+          Active Pairs
+        </div>
+        {pairs.length === 0 ? (
+          <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+            No pairs tracked yet.
+          </p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 12,
+                background: "var(--card)",
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: "var(--background)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {[
+                    "Market",
+                    "YES Price",
+                    "NO Price",
+                    "Size (USD)",
+                    "Status",
+                    "PnL",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: h === "Market" ? "left" : "right",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pairs.map((p) => (
+                  <tr
+                    key={p.id}
+                    style={{ borderTop: "1px solid var(--border)" }}
+                  >
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        maxWidth: 260,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={p.marketQuestion}
+                    >
+                      {p.marketQuestion}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {p.yesPrice.toFixed(4)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {p.noPrice.toFixed(4)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      ${p.sizeUsd.toFixed(2)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color: statusBadgeColor(p.status),
+                      }}
+                    >
+                      {p.status}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color:
+                          (p.realizedPnl ?? 0) >= 0 ? "#4caf50" : "#ff6b6b",
+                      }}
+                    >
+                      {p.realizedPnl != null
+                        ? `${p.realizedPnl >= 0 ? "+" : ""}$${p.realizedPnl.toFixed(4)}`
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Config */}
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="section-label" style={{ marginBottom: 12 }}>
+          Configuration
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: 12,
+            fontSize: 13,
+          }}
+        >
+          {[
+            {
+              label: "Fee Threshold",
+              value: `${(0.002 * 100).toFixed(1)}%`,
+              hint: "Min net spread required",
+            },
+            {
+              label: "Max Position USD",
+              value: "$50",
+              hint: "Per market pair",
+            },
+            {
+              label: "Max Concurrent",
+              value: "10",
+              hint: "Markets scanned simultaneously",
+            },
+          ].map((item) => (
+            <div
+              key={item.label}
+              style={{
+                background: "var(--background)",
+                borderRadius: 8,
+                padding: "10px 14px",
+              }}
+            >
+              <div
+                style={{
+                  color: "var(--text-secondary)",
+                  fontSize: 11,
+                  marginBottom: 4,
+                }}
+              >
+                {item.label}
+              </div>
+              <div style={{ fontWeight: 600 }}>{item.value}</div>
+              <div
+                style={{
+                  color: "var(--text-secondary)",
+                  fontSize: 11,
+                  marginTop: 2,
+                }}
+              >
+                {item.hint}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 32 }}>
+        <OpenClawChat botId={Number(bot.id)} />
+      </div>
+    </div>
+  );
+}
+
+// ── Resolution Lag View ───────────────────────────────────────────────────────
+function ResolutionLagView({
+  bot,
+  onBack,
+}: {
+  bot: BotSummary;
+  onBack: () => void;
+}) {
+  const { data, loading, error } = useResolutionLag();
+  const { positions, totalRealizedPnl, opportunities, scannedAt, metrics } =
+    data;
+  const equity = metrics?.equity ?? bot.equity;
+  const openPositions = positions.filter((p) => p.status === "open").length;
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            color: "var(--text)",
+            cursor: "pointer",
+            padding: "6px 14px",
+            fontSize: 13,
+          }}
+        >
+          ← Back
+        </button>
+        <div style={{ fontSize: 20, fontWeight: 700 }}>{bot.name}</div>
+        <span className="badge">{bot.strategy}</span>
+        <div
+          className="status-dot"
+          style={{ background: statusColor(bot.status), marginLeft: 4 }}
+        />
+      </div>
+
+      {/* Stats */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Allocated Equity</div>
+          <div className="balance-big">${equity.toFixed(2)}</div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Open Positions</div>
+          <div className="balance-big">{openPositions}</div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Realized PnL</div>
+          <div className={`balance-big ${pnlClass(totalRealizedPnl)}`}>
+            {totalRealizedPnl >= 0 ? "+" : ""}${totalRealizedPnl.toFixed(4)}
+          </div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Opportunities Found</div>
+          <div className="balance-big">{opportunities.length}</div>
+        </div>
+      </div>
+
+      {loading && <p className="offline">Loading data…</p>}
+      {error && <p className="offline">⚠ Bot offline — {error}</p>}
+
+      {/* Opportunities */}
+      <div style={{ marginBottom: 32 }}>
+        <div className="section-label" style={{ marginBottom: 10 }}>
+          Resolution Opportunities
+          {scannedAt && (
+            <span
+              style={{
+                fontWeight: 400,
+                marginLeft: 8,
+                color: "var(--text-secondary)",
+                fontSize: 11,
+              }}
+            >
+              scanned {new Date(scannedAt).toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+        {opportunities.length === 0 ? (
+          <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+            No opportunities found in last scan.
+          </p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 12,
+                background: "var(--card)",
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: "var(--background)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {["Market", "Outcome", "CLOB Ask", "Yield"].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: h === "Market" ? "left" : "right",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {opportunities.map((o) => (
+                  <tr
+                    key={o.market.id}
+                    style={{ borderTop: "1px solid var(--border)" }}
+                  >
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        maxWidth: 260,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={o.market.question}
+                    >
+                      {o.market.question}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color:
+                          o.market.gammaOutcome === "YES"
+                            ? "#4caf50"
+                            : "#ff6b6b",
+                      }}
+                    >
+                      {o.market.gammaOutcome}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {o.currentAsk.toFixed(4)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color: "#4caf50",
+                      }}
+                    >
+                      +{(o.expectedYield * 100).toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Positions */}
+      <div style={{ marginBottom: 32 }}>
+        <div className="section-label" style={{ marginBottom: 10 }}>
+          Positions
+        </div>
+        {positions.length === 0 ? (
+          <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+            No positions held yet.
+          </p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 12,
+                background: "var(--card)",
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: "var(--background)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {[
+                    "Market",
+                    "Bought At",
+                    "Size",
+                    "Cost",
+                    "Exp. Yield",
+                    "Status",
+                    "PnL",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: h === "Market" ? "left" : "right",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {positions.map((p) => (
+                  <tr
+                    key={p.id}
+                    style={{ borderTop: "1px solid var(--border)" }}
+                  >
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        maxWidth: 240,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={p.marketQuestion}
+                    >
+                      {p.marketQuestion}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {p.boughtAt.toFixed(4)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {p.size.toFixed(2)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      ${p.costBasis.toFixed(2)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color: "#4caf50",
+                      }}
+                    >
+                      +{(p.expectedYield * 100).toFixed(1)}%
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color:
+                          p.status === "resolved"
+                            ? "#4caf50"
+                            : p.status === "expired"
+                              ? "#ff6b6b"
+                              : "var(--text-secondary)",
+                      }}
+                    >
+                      {p.status}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color:
+                          (p.realizedPnl ?? 0) >= 0 ? "#4caf50" : "#ff6b6b",
+                      }}
+                    >
+                      {p.realizedPnl != null
+                        ? `${p.realizedPnl >= 0 ? "+" : ""}$${p.realizedPnl.toFixed(4)}`
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Config */}
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="section-label" style={{ marginBottom: 12 }}>
+          Configuration
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: 12,
+            fontSize: 13,
+          }}
+        >
+          {[
+            {
+              label: "Min Yield",
+              value: "0.5%",
+              hint: "Minimum discount to act",
+            },
+            { label: "Max Position USD", value: "$100", hint: "Per market" },
+            {
+              label: "Max Open Positions",
+              value: "20",
+              hint: "Concurrent positions cap",
+            },
+            {
+              label: "Monitor Interval",
+              value: "5 min",
+              hint: "Scan frequency",
+            },
+          ].map((item) => (
+            <div
+              key={item.label}
+              style={{
+                background: "var(--background)",
+                borderRadius: 8,
+                padding: "10px 14px",
+              }}
+            >
+              <div
+                style={{
+                  color: "var(--text-secondary)",
+                  fontSize: 11,
+                  marginBottom: 4,
+                }}
+              >
+                {item.label}
+              </div>
+              <div style={{ fontWeight: 600 }}>{item.value}</div>
+              <div
+                style={{
+                  color: "var(--text-secondary)",
+                  fontSize: 11,
+                  marginTop: 2,
+                }}
+              >
+                {item.hint}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 32 }}>
+        <OpenClawChat botId={Number(bot.id)} />
+      </div>
+    </div>
+  );
+}
+
+// ── Microstructure View ───────────────────────────────────────────────────────
+function MicrostructureView({
+  bot,
+  onBack,
+}: {
+  bot: BotSummary;
+  onBack: () => void;
+}) {
+  const { data, loading, error } = useMicrostructure();
+  const { positions, totalRealizedPnl, screenedMarkets, metrics } = data;
+  const equity = metrics?.equity ?? bot.equity;
+  const activeBids = positions.filter((p) => p.bidOrderId !== null).length;
+  const heldShares = positions.reduce((s, p) => s + p.heldShares, 0);
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            color: "var(--text)",
+            cursor: "pointer",
+            padding: "6px 14px",
+            fontSize: 13,
+          }}
+        >
+          ← Back
+        </button>
+        <div style={{ fontSize: 20, fontWeight: 700 }}>{bot.name}</div>
+        <span className="badge">{bot.strategy}</span>
+        <div
+          className="status-dot"
+          style={{ background: statusColor(bot.status), marginLeft: 4 }}
+        />
+      </div>
+
+      {/* Stats */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Allocated Equity</div>
+          <div className="balance-big">${equity.toFixed(2)}</div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Active Bids</div>
+          <div className="balance-big">{activeBids}</div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Screened Markets</div>
+          <div className="balance-big">{screenedMarkets.length}</div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Realized PnL</div>
+          <div className={`balance-big ${pnlClass(totalRealizedPnl)}`}>
+            {totalRealizedPnl >= 0 ? "+" : ""}${totalRealizedPnl.toFixed(4)}
+          </div>
+        </div>
+      </div>
+
+      {loading && <p className="offline">Loading data…</p>}
+      {error && <p className="offline">⚠ Bot offline — {error}</p>}
+
+      {/* Active Positions */}
+      <div style={{ marginBottom: 32 }}>
+        <div className="section-label" style={{ marginBottom: 10 }}>
+          Active Positions
+          {heldShares > 0 && (
+            <span
+              style={{
+                fontWeight: 400,
+                marginLeft: 8,
+                color: "var(--text-secondary)",
+                fontSize: 11,
+              }}
+            >
+              {heldShares.toFixed(2)} shares held
+            </span>
+          )}
+        </div>
+        {positions.length === 0 ? (
+          <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+            No active positions — waiting for fills.
+          </p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 12,
+                background: "var(--card)",
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: "var(--background)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {["Market", "Bid", "Ask", "Held", "Days Left", "PnL"].map(
+                    (h) => (
+                      <th
+                        key={h}
+                        style={{
+                          padding: "8px 10px",
+                          textAlign: h === "Market" ? "left" : "right",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {h}
+                      </th>
+                    ),
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {positions.map((p) => (
+                  <tr
+                    key={p.marketId}
+                    style={{ borderTop: "1px solid var(--border)" }}
+                  >
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        maxWidth: 260,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={p.marketQuestion}
+                    >
+                      {p.marketQuestion}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color: p.bidOrderId
+                          ? "#4caf50"
+                          : "var(--text-secondary)",
+                      }}
+                    >
+                      {p.bidOrderId ? p.bidPrice.toFixed(4) : "—"}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color: p.askOrderId
+                          ? "#ff6b6b"
+                          : "var(--text-secondary)",
+                      }}
+                    >
+                      {p.askOrderId ? p.askPrice.toFixed(4) : "—"}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {p.heldShares.toFixed(2)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {p.daysToExpiry}d
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color: p.realizedPnl >= 0 ? "#4caf50" : "#ff6b6b",
+                      }}
+                    >
+                      {p.realizedPnl >= 0 ? "+" : ""}${p.realizedPnl.toFixed(4)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Screened Markets */}
+      <div style={{ marginBottom: 32 }}>
+        <div className="section-label" style={{ marginBottom: 10 }}>
+          Screened Markets
+        </div>
+        {screenedMarkets.length === 0 ? (
+          <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+            No screened markets yet — next screen in up to 30 min.
+          </p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 12,
+                background: "var(--card)",
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: "var(--background)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {["Market", "Best Ask", "Days to Expiry"].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: h === "Market" ? "left" : "right",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {screenedMarkets.map((m) => (
+                  <tr
+                    key={m.id}
+                    style={{ borderTop: "1px solid var(--border)" }}
+                  >
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        maxWidth: 300,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={m.question}
+                    >
+                      {m.question}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {m.bestAsk.toFixed(4)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {m.daysToExpiry}d
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Config */}
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="section-label" style={{ marginBottom: 12 }}>
+          Configuration
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: 12,
+            fontSize: 13,
+          }}
+        >
+          {[
+            {
+              label: "Max Ask Price",
+              value: "0.3¢",
+              hint: "Filter ceiling for bids",
+            },
+            {
+              label: "Min Days to Expiry",
+              value: "90d",
+              hint: "Only long-duration markets",
+            },
+            { label: "Max Markets", value: "200", hint: "Screened pool size" },
+            {
+              label: "USD Per Market",
+              value: "$2",
+              hint: "Capital per resting bid",
+            },
+          ].map((item) => (
+            <div
+              key={item.label}
+              style={{
+                background: "var(--background)",
+                borderRadius: 8,
+                padding: "10px 14px",
+              }}
+            >
+              <div
+                style={{
+                  color: "var(--text-secondary)",
+                  fontSize: 11,
+                  marginBottom: 4,
+                }}
+              >
+                {item.label}
+              </div>
+              <div style={{ fontWeight: 600 }}>{item.value}</div>
+              <div
+                style={{
+                  color: "var(--text-secondary)",
+                  fontSize: 11,
+                  marginTop: 2,
+                }}
+              >
+                {item.hint}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 32 }}>
+        <OpenClawChat botId={Number(bot.id)} />
+      </div>
+    </div>
+  );
+}
+
 // ── Portfolio section ─────────────────────────────────────────────────────────
 function PortfolioSection({
   onSelectBot,
@@ -1654,6 +2736,21 @@ export default function App() {
       {selectedBot ? (
         selectedBot.id === "3" ? (
           <CopyTraderView
+            bot={selectedBot}
+            onBack={() => setSelectedBot(null)}
+          />
+        ) : selectedBot.id === "4" ? (
+          <InMarketArbView
+            bot={selectedBot}
+            onBack={() => setSelectedBot(null)}
+          />
+        ) : selectedBot.id === "5" ? (
+          <ResolutionLagView
+            bot={selectedBot}
+            onBack={() => setSelectedBot(null)}
+          />
+        ) : selectedBot.id === "6" ? (
+          <MicrostructureView
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
           />
