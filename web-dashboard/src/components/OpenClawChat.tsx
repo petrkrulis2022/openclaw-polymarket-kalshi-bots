@@ -461,7 +461,11 @@ export function OpenClawChat({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKey}
-              placeholder={orchestratorMode ? 'e.g. "how are all bots doing?" or "which bot is most profitable?"' : 'e.g. "set spread to 5 cents" or "quote 3 markets"'}
+              placeholder={
+                orchestratorMode
+                  ? 'e.g. "how are all bots doing?" or "which bot is most profitable?"'
+                  : 'e.g. "set spread to 5 cents" or "quote 3 markets"'
+              }
               disabled={!orchestratorMode && !params}
               style={{
                 flex: 1,
