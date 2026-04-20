@@ -2765,6 +2765,9 @@ export default function App() {
           <WalletSection />
           <TreasurySection />
           <PortfolioSection onSelectBot={setSelectedBot} />
+          <div style={{ padding: "0 24px 24px" }}>
+            <OpenClawChat />
+          </div>
         </>
       )}
     </>

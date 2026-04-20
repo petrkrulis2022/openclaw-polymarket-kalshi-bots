@@ -104,16 +104,19 @@ export function OpenClawChat({
   botId,
   onConfigChange,
 }: {
-  botId: number;
+  botId?: number;
   onConfigChange?: (params: QuotingParams) => void;
 }) {
-  const { params, save, reset } = useBotConfig(botId);
+  const orchestratorMode = botId === undefined;
+  const { params, save, reset } = useBotConfig(orchestratorMode ? -1 : botId!);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: msgId++,
       from: "agent",
       ts: new Date(),
-      text: `Hi! I'm the **OpenClaw Agent** for Bot ${botId}. I have live access to your portfolio and positions.\n\nAsk me anything: **"how am I doing?"**, **"which bot is losing money?"**, **"show positions"**, **"set spread to 4 cents"**, or **"help"**.`,
+      text: orchestratorMode
+        ? `Hi! I'm the **OpenClaw Orchestrator**. I have live access to all bots, your full portfolio, and market data.\n\nAsk me anything: **"how are all bots doing?"**, **"which bot is most profitable?"**, **"summarize positions"**, **"what's the market outlook?"**, or **"help"**.`
+        : `Hi! I'm the **OpenClaw Agent** for Bot ${botId}. I have live access to your portfolio and positions.\n\nAsk me anything: **"how am I doing?"**, **"which bot is losing money?"**, **"show positions"**, **"set spread to 4 cents"**, or **"help"**.`,
     },
   ]);
   const [input, setInput] = useState("");
@@ -141,17 +144,19 @@ export function OpenClawChat({
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || !params) return;
+    if (!text) return;
+    // In orchestrator mode we don't need params; in bot mode we do
+    if (!orchestratorMode && !params) return;
     setInput("");
     pushMessage("user", text);
 
-    // ── Config command: handle locally with pattern matching ──────────────────
-    if (isConfigCommand(text)) {
+    // ── Config command: handle locally with pattern matching (bot mode only) ──
+    if (!orchestratorMode && isConfigCommand(text)) {
       setTyping(true);
       await new Promise((r) => setTimeout(r, 300));
       setTyping(false);
 
-      const response = processAgentMessage(text, params);
+      const response = processAgentMessage(text, params!);
 
       if (response.action === "reset") {
         const updated = await reset();
@@ -202,7 +207,7 @@ export function OpenClawChat({
     setTyping(true);
 
     let accumulated = "";
-    await streamClaudeResponse(botId, claudeHistory.current, (chunk) => {
+    await streamClaudeResponse(botId ?? 0, claudeHistory.current, (chunk) => {
       accumulated += chunk;
       setTyping(false);
       setMessages((prev) =>

@@ -35,6 +35,7 @@ export function useBotConfig(botId: number): BotConfigState {
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
+    if (botId < 0) { setLoading(false); return; }
     let cancelled = false;
     setLoading(true);
     fetch(`/api/bot/${botId}/config`)
