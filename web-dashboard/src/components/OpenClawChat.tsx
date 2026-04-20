@@ -461,8 +461,8 @@ export function OpenClawChat({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKey}
-              placeholder='e.g. "set spread to 5 cents" or "quote 3 markets"'
-              disabled={!params}
+              placeholder={orchestratorMode ? 'e.g. "how are all bots doing?" or "which bot is most profitable?"' : 'e.g. "set spread to 5 cents" or "quote 3 markets"'}
+              disabled={!orchestratorMode && !params}
               style={{
                 flex: 1,
                 background: "var(--background)",
@@ -477,7 +477,7 @@ export function OpenClawChat({
             <button
               className="btn-primary"
               onClick={handleSend}
-              disabled={!input.trim() || !params}
+              disabled={!input.trim() || (!orchestratorMode && !params)}
               style={{ padding: "8px 16px", minWidth: 70 }}
             >
               Send
