@@ -19,6 +19,7 @@ import express, { NextFunction, Request, Response } from "express";
 import walletsRouter from "./routes/wallets.js";
 import allocateRouter from "./routes/allocate.js";
 import recallRouter from "./routes/recall.js";
+import deriveRouter from "./routes/derive.js";
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.get("/health", (_req, res) => {
 app.use("/wallets", walletsRouter);
 app.use("/allocate", allocateRouter);
 app.use("/recall", recallRouter);
+app.use("/derive", deriveRouter);
 
 // ── 404 catch-all ─────────────────────────────────────────────────────────────
 
@@ -63,4 +65,5 @@ app.listen(PORT, () => {
   console.log(`  GET  /wallets`);
   console.log(`  POST /allocate`);
   console.log(`  POST /recall`);
+  console.log(`  POST /derive   (internal)`);
 });

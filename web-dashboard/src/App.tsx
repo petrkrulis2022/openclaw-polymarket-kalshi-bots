@@ -30,6 +30,8 @@ import { OpenClawChat } from "./components/OpenClawChat";
 import { useInMarketArb } from "./hooks/use-in-market-arb";
 import { useResolutionLag } from "./hooks/use-resolution-lag";
 import { useMicrostructure } from "./hooks/use-microstructure";
+import { useUser } from "./hooks/use-user";
+import { UserOnboarding } from "./components/UserOnboarding";
 import "./index.css";
 
 const ERC20_ABI = [
@@ -2721,6 +2723,14 @@ function PortfolioSection({
 // ── Root App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [selectedBot, setSelectedBot] = useState<BotSummary | null>(null);
+  const { address, isConnected } = useAccount();
+  const { user, loading: userLoading, saveApiKeys, startBots } = useUser(
+    isConnected ? address : undefined,
+  );
+
+  // Show onboarding if connected but setup not complete
+  const showOnboarding =
+    isConnected && !userLoading && user !== null && !user.botsRunning;
 
   return (
     <>
@@ -2763,6 +2773,15 @@ export default function App() {
       ) : (
         <>
           <WalletSection />
+          {showOnboarding && user && (
+            <div style={{ padding: "0 24px" }}>
+              <UserOnboarding
+                user={user}
+                onSaveApiKeys={saveApiKeys}
+                onStartBots={startBots}
+              />
+            </div>
+          )}
           <TreasurySection />
           <PortfolioSection onSelectBot={setSelectedBot} />
           <div style={{ padding: "0 24px 24px" }}>
