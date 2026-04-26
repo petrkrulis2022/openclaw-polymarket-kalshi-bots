@@ -45,7 +45,11 @@ export function UserOnboarding({ user, onSaveApiKeys, onStartBots }: Props) {
     setSaving(true);
     setError(null);
     try {
-      await onSaveApiKeys(apiKey.trim(), apiSecret.trim(), apiPassphrase.trim());
+      await onSaveApiKeys(
+        apiKey.trim(),
+        apiSecret.trim(),
+        apiPassphrase.trim(),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -102,7 +106,8 @@ export function UserOnboarding({ user, onSaveApiKeys, onStartBots }: Props) {
         <div>
           <p style={{ marginBottom: 12, lineHeight: 1.6 }}>
             OpenClaw generated a dedicated trading wallet for you. Send{" "}
-            <strong>USDC.e on Polygon</strong> to this address to fund your bots:
+            <strong>USDC.e on Polygon</strong> to this address to fund your
+            bots:
           </p>
 
           <div
@@ -129,7 +134,13 @@ export function UserOnboarding({ user, onSaveApiKeys, onStartBots }: Props) {
             </button>
           </div>
 
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>
+          <p
+            style={{
+              fontSize: 13,
+              color: "var(--text-secondary)",
+              marginBottom: 16,
+            }}
+          >
             Token: USDC.e (0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174)
             &nbsp;·&nbsp; Network: Polygon
           </p>
@@ -230,7 +241,12 @@ export function UserOnboarding({ user, onSaveApiKeys, onStartBots }: Props) {
               </p>
 
               <div
-                style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                  marginBottom: 16,
+                }}
               >
                 <div>
                   <label

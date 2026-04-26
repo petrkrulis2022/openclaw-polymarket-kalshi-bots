@@ -46,7 +46,9 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? "Registration failed");
+        throw new Error(
+          (body as { error?: string }).error ?? "Registration failed",
+        );
       }
       const data = (await res.json()) as UserRecord;
       setUser(data);
@@ -89,7 +91,9 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? "Failed to save API keys");
+        throw new Error(
+          (body as { error?: string }).error ?? "Failed to save API keys",
+        );
       }
       await refresh();
     },
@@ -104,7 +108,9 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     );
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error((body as { error?: string }).error ?? "Failed to start bots");
+      throw new Error(
+        (body as { error?: string }).error ?? "Failed to start bots",
+      );
     }
     await refresh();
   }, [metamaskAddress, refresh]);
@@ -117,7 +123,9 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     );
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error((body as { error?: string }).error ?? "Failed to stop bots");
+      throw new Error(
+        (body as { error?: string }).error ?? "Failed to stop bots",
+      );
     }
     await refresh();
   }, [metamaskAddress, refresh]);

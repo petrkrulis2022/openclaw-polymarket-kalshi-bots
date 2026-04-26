@@ -2724,9 +2724,12 @@ function PortfolioSection({
 export default function App() {
   const [selectedBot, setSelectedBot] = useState<BotSummary | null>(null);
   const { address, isConnected } = useAccount();
-  const { user, loading: userLoading, saveApiKeys, startBots } = useUser(
-    isConnected ? address : undefined,
-  );
+  const {
+    user,
+    loading: userLoading,
+    saveApiKeys,
+    startBots,
+  } = useUser(isConnected ? address : undefined);
 
   // Show onboarding if connected but setup not complete
   const showOnboarding =

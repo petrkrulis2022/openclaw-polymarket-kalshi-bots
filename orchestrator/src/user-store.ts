@@ -63,7 +63,9 @@ const stmtUpdateApiKeys = db.prepare<[string, string, string, string]>(
 const stmtSetBotsRunning = db.prepare<[number, string]>(
   "UPDATE users SET bots_running = ? WHERE metamask_address = ?",
 );
-const stmtGetMeta = db.prepare<[string]>("SELECT value FROM meta WHERE key = ?");
+const stmtGetMeta = db.prepare<[string]>(
+  "SELECT value FROM meta WHERE key = ?",
+);
 const stmtSetMeta = db.prepare<[string, string]>(
   "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
 );
@@ -123,6 +125,9 @@ export function updateApiKeys(
   stmtUpdateApiKeys.run(apiKey, apiSecret, apiPassphrase, metamaskAddress);
 }
 
-export function setBotsRunning(metamaskAddress: string, running: boolean): void {
+export function setBotsRunning(
+  metamaskAddress: string,
+  running: boolean,
+): void {
   stmtSetBotsRunning.run(running ? 1 : 0, metamaskAddress);
 }

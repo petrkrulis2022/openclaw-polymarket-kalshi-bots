@@ -61,7 +61,11 @@ function safeUser(user: User) {
   return {
     metamaskAddress: user.metamask_address,
     botWalletAddress: user.bot_wallet_address,
-    hasApiKeys: !!(user.poly_api_key && user.poly_api_secret && user.poly_api_passphrase),
+    hasApiKeys: !!(
+      user.poly_api_key &&
+      user.poly_api_secret &&
+      user.poly_api_passphrase
+    ),
     botsRunning: user.bots_running === 1,
     createdAt: user.created_at,
   };
@@ -142,29 +146,26 @@ router.get("/:address", (req: Request, res: Response) => {
 
 // ── PUT /users/:address/api-keys ──────────────────────────────────────────────
 
-router.put(
-  "/:address/api-keys",
-  (req: Request, res: Response) => {
-    const { address } = req.params;
-    const { apiKey, apiSecret, apiPassphrase } = req.body as {
-      apiKey?: string;
-      apiSecret?: string;
-      apiPassphrase?: string;
-    };
+router.put("/:address/api-keys", (req: Request, res: Response) => {
+  const { address } = req.params;
+  const { apiKey, apiSecret, apiPassphrase } = req.body as {
+    apiKey?: string;
+    apiSecret?: string;
+    apiPassphrase?: string;
+  };
 
-    if (!apiKey || !apiSecret || !apiPassphrase) {
-      return res
-        .status(400)
-        .json({ error: "apiKey, apiSecret, and apiPassphrase are required" });
-    }
+  if (!apiKey || !apiSecret || !apiPassphrase) {
+    return res
+      .status(400)
+      .json({ error: "apiKey, apiSecret, and apiPassphrase are required" });
+  }
 
-    const user = getUser(address);
-    if (!user) return res.status(404).json({ error: "User not found" });
+  const user = getUser(address);
+  if (!user) return res.status(404).json({ error: "User not found" });
 
-    updateApiKeys(address, apiKey, apiSecret, apiPassphrase);
-    return res.json({ ok: true });
-  },
-);
+  updateApiKeys(address, apiKey, apiSecret, apiPassphrase);
+  return res.json({ ok: true });
+});
 
 // ── POST /users/:address/start-bots ───────────────────────────────────────────
 
@@ -178,7 +179,11 @@ router.post(
       if (!user.bot_wallet_address) {
         return res.status(400).json({ error: "Bot wallet not yet derived" });
       }
-      if (!user.poly_api_key || !user.poly_api_secret || !user.poly_api_passphrase) {
+      if (
+        !user.poly_api_key ||
+        !user.poly_api_secret ||
+        !user.poly_api_passphrase
+      ) {
         return res.status(400).json({ error: "API keys not configured" });
       }
 
@@ -217,11 +222,9 @@ router.post(
 
       // Write the PM2 ecosystem JSON for this user
       const ecosystemPath = path.join(ENVS_DIR, `ecosystem-u${slot}.json`);
-      fs.writeFileSync(
-        ecosystemPath,
-        JSON.stringify({ apps }, null, 2),
-        { mode: 0o600 },
-      );
+      fs.writeFileSync(ecosystemPath, JSON.stringify({ apps }, null, 2), {
+        mode: 0o600,
+      });
 
       // Start via PM2
       await runCmd("pm2", ["start", ecosystemPath]);
