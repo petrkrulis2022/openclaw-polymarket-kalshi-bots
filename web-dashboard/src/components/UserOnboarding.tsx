@@ -12,7 +12,23 @@
  */
 
 import React, { useState } from "react";
+import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { parseUnits } from "viem";
+import { USDT_ADDRESS, USDT_DECIMALS } from "../config/wagmi";
 import type { UserRecord, BotWalletBalance } from "../hooks/use-user";
+
+const ERC20_TRANSFER_ABI = [
+  {
+    name: "transfer",
+    type: "function" as const,
+    stateMutability: "nonpayable" as const,
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
 
 interface Props {
   user: UserRecord;
@@ -56,6 +72,30 @@ export function UserOnboarding({
     txHash: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sendAmount, setSendAmount] = useState("");
+
+  const {
+    writeContract,
+    data: sendTxHash,
+    isPending: isSendPending,
+    error: sendTxError,
+    reset: resetSendTx,
+  } = useWriteContract();
+
+  const { isLoading: isSendConfirming, isSuccess: isSendConfirmed } =
+    useWaitForTransactionReceipt({ hash: sendTxHash });
+
+  const handleSendUsdt = () => {
+    const amount = parseFloat(sendAmount);
+    if (!botAddr || isNaN(amount) || amount <= 0) return;
+    resetSendTx();
+    writeContract({
+      address: USDT_ADDRESS,
+      abi: ERC20_TRANSFER_ABI,
+      functionName: "transfer",
+      args: [botAddr as `0x${string}`, parseUnits(sendAmount, USDT_DECIMALS)],
+    });
+  };
 
   const botAddr = user.botWalletAddress ?? "";
   const usdtBalance = balance ? parseFloat(balance.usdt) : 0;
@@ -171,6 +211,83 @@ export function UserOnboarding({
             >
               Copy
             </button>
+          </div>
+
+          {/* MetaMask send button */}
+          <div
+            style={{
+              background: "var(--surface)",
+              borderRadius: 8,
+              padding: "14px 16px",
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 14 }}>
+              Send USDT via MetaMask
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                marginBottom: 8,
+              }}
+            >
+              <input
+                type="number"
+                min="0"
+                step="any"
+                placeholder="Amount (USDT)"
+                value={sendAmount}
+                onChange={(e) => {
+                  setSendAmount(e.target.value);
+                  resetSendTx();
+                }}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: 6,
+                  border: "1px solid var(--border, #333)",
+                  background: "var(--bg)",
+                  color: "var(--text)",
+                  fontSize: 14,
+                }}
+              />
+              <button
+                className="btn-primary"
+                style={{ flexShrink: 0 }}
+                onClick={handleSendUsdt}
+                disabled={
+                  !sendAmount ||
+                  parseFloat(sendAmount) <= 0 ||
+                  isSendPending ||
+                  isSendConfirming
+                }
+              >
+                {isSendPending
+                  ? "Confirm in MetaMask…"
+                  : isSendConfirming
+                    ? "Confirming…"
+                    : "Send USDT"}
+              </button>
+            </div>
+            {sendTxError && (
+              <p style={{ color: "#f44336", fontSize: 12, margin: 0 }}>
+                {sendTxError.message.split("\n")[0]}
+              </p>
+            )}
+            {isSendConfirmed && sendTxHash && (
+              <p style={{ color: "#4caf50", fontSize: 12, margin: 0 }}>
+                ✓ Sent!{" "}
+                <a
+                  href={`https://polygonscan.com/tx/${sendTxHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View on PolygonScan ↗
+                </a>
+              </p>
+            )}
           </div>
 
           {/* Live balance display */}
