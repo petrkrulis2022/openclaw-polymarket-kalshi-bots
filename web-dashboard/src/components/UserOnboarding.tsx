@@ -3,39 +3,64 @@
  *
  * 3-step onboarding flow shown when a new user connects their wallet:
  *
- *  Step 1 — Fund bot wallet: display the server-generated EOA address and
- *            instruct the user to send USDC.e on Polygon.
+ *  Step 1 — Fund bot wallet: display the server-generated EOA address, show
+ *            live USDT balance on that address, and let the user continue once
+ *            they've sent funds.
  *  Step 2 — Generate Polymarket API keys for their bot wallet address.
- *  Step 3 — Enter API key, secret, and passphrase into the form.
+ *  Step 3 — Enter API keys, then convert USDT → USDC.e and optionally enable
+ *            autonomous mode so future deposits are converted automatically.
  */
 
 import React, { useState } from "react";
-import type { UserRecord } from "../hooks/use-user";
+import type { UserRecord, BotWalletBalance } from "../hooks/use-user";
 
 interface Props {
   user: UserRecord;
+  balance: BotWalletBalance | null;
   onSaveApiKeys: (
     apiKey: string,
     apiSecret: string,
     apiPassphrase: string,
   ) => Promise<void>;
   onStartBots: () => Promise<void>;
+  onConvertFunds: () => Promise<{
+    usdtSwapped: string;
+    usdceReceived: string;
+    txHash: string;
+  }>;
+  onSetAutonomousMode: (enabled: boolean) => Promise<void>;
 }
 
 function abbrev(addr: string) {
   return `${addr.slice(0, 10)}…${addr.slice(-8)}`;
 }
 
-export function UserOnboarding({ user, onSaveApiKeys, onStartBots }: Props) {
+export function UserOnboarding({
+  user,
+  balance,
+  onSaveApiKeys,
+  onStartBots,
+  onConvertFunds,
+  onSetAutonomousMode,
+}: Props) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [apiKey, setApiKey] = useState("");
   const [apiSecret, setApiSecret] = useState("");
   const [apiPassphrase, setApiPassphrase] = useState("");
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [converting, setConverting] = useState(false);
+  const [convertResult, setConvertResult] = useState<{
+    usdtSwapped: string;
+    usdceReceived: string;
+    txHash: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const botAddr = user.botWalletAddress ?? "";
+  const usdtBalance = balance ? parseFloat(balance.usdt) : 0;
+  const usdceBalance = balance ? parseFloat(balance.usdce) : 0;
+  const hasFunds = usdtBalance > 0 || usdceBalance > 0;
 
   const handleSaveKeys = async () => {
     if (!apiKey.trim() || !apiSecret.trim() || !apiPassphrase.trim()) {
@@ -66,6 +91,20 @@ export function UserOnboarding({ user, onSaveApiKeys, onStartBots }: Props) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setStarting(false);
+    }
+  };
+
+  const handleConvert = async () => {
+    setConverting(true);
+    setError(null);
+    setConvertResult(null);
+    try {
+      const result = await onConvertFunds();
+      setConvertResult(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setConverting(false);
     }
   };
 
@@ -106,8 +145,8 @@ export function UserOnboarding({ user, onSaveApiKeys, onStartBots }: Props) {
         <div>
           <p style={{ marginBottom: 12, lineHeight: 1.6 }}>
             OpenClaw generated a dedicated trading wallet for you. Send{" "}
-            <strong>USDC.e on Polygon</strong> to this address to fund your
-            bots:
+            <strong>USDT on Polygon</strong> to this address — it will be
+            automatically converted to USDC.e for trading:
           </p>
 
           <div
@@ -134,20 +173,95 @@ export function UserOnboarding({ user, onSaveApiKeys, onStartBots }: Props) {
             </button>
           </div>
 
-          <p
-            style={{
-              fontSize: 13,
-              color: "var(--text-secondary)",
-              marginBottom: 16,
-            }}
-          >
-            Token: USDC.e (0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174)
-            &nbsp;·&nbsp; Network: Polygon
-          </p>
+          {/* Live balance display */}
+          {balance ? (
+            <div
+              style={{
+                background: "var(--surface)",
+                borderRadius: 8,
+                padding: "10px 14px",
+                fontSize: 13,
+                marginBottom: 16,
+                display: "flex",
+                gap: 24,
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    color: "var(--text-secondary)",
+                    fontSize: 11,
+                    marginBottom: 2,
+                  }}
+                >
+                  USDT
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 16 }}>
+                  {usdtBalance.toFixed(2)}
+                </div>
+              </div>
+              <div>
+                <div
+                  style={{
+                    color: "var(--text-secondary)",
+                    fontSize: 11,
+                    marginBottom: 2,
+                  }}
+                >
+                  USDC.e
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 16 }}>
+                  {usdceBalance.toFixed(2)}
+                </div>
+              </div>
+              <div>
+                <div
+                  style={{
+                    color: "var(--text-secondary)",
+                    fontSize: 11,
+                    marginBottom: 2,
+                  }}
+                >
+                  POL (gas)
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 16 }}>
+                  {balance.nativePol !== "0"
+                    ? (Number(balance.nativePol) / 1e18).toFixed(4)
+                    : "0"}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p
+              style={{
+                fontSize: 13,
+                color: "var(--text-secondary)",
+                marginBottom: 16,
+              }}
+            >
+              Checking balance… (Token: USDT · Network: Polygon)
+            </p>
+          )}
 
-          <button className="btn-primary" onClick={() => setStep(2)}>
-            I've funded it → Next
+          <button
+            className="btn-primary"
+            onClick={() => setStep(2)}
+            disabled={!hasFunds}
+            title={!hasFunds ? "Send USDT to continue" : undefined}
+          >
+            {hasFunds ? "Funds received → Next" : "Waiting for USDT…"}
           </button>
+          {!hasFunds && (
+            <p
+              style={{
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                marginTop: 8,
+              }}
+            >
+              Balance updates every 30 s automatically.
+            </p>
+          )}
         </div>
       )}
 
@@ -211,14 +325,114 @@ export function UserOnboarding({ user, onSaveApiKeys, onStartBots }: Props) {
         </div>
       )}
 
-      {/* Step 3 — Enter API keys */}
+      {/* Step 3 — Enter API keys + convert + autonomous */}
       {step === 3 && (
         <div>
           {user.hasApiKeys ? (
             <div>
               <p style={{ marginBottom: 16, color: "#4caf50" }}>
-                ✓ API keys are saved. Your bots are ready to run.
+                ✓ API keys are saved.
               </p>
+
+              {/* Convert USDT → USDC.e */}
+              {usdtBalance > 0 && (
+                <div
+                  style={{
+                    background: "var(--surface)",
+                    borderRadius: 8,
+                    padding: "14px 16px",
+                    marginBottom: 16,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                    Convert USDT → USDC.e
+                  </div>
+                  <p
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text-secondary)",
+                      marginBottom: 10,
+                    }}
+                  >
+                    Your bot wallet has {usdtBalance.toFixed(2)} USDT. Convert
+                    it to USDC.e via Uniswap V3 (stable 0.01% fee) so bots can
+                    trade on Polymarket.
+                  </p>
+                  {convertResult ? (
+                    <p style={{ color: "#4caf50", fontSize: 13 }}>
+                      ✓ Swapped {convertResult.usdtSwapped} USDT →{" "}
+                      {convertResult.usdceReceived} USDC.e &nbsp;
+                      <a
+                        href={`https://polygonscan.com/tx/${convertResult.txHash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ fontSize: 12 }}
+                      >
+                        View tx ↗
+                      </a>
+                    </p>
+                  ) : (
+                    <button
+                      className="btn-primary"
+                      onClick={handleConvert}
+                      disabled={converting}
+                    >
+                      {converting
+                        ? "Converting… (on-chain)"
+                        : `Convert ${usdtBalance.toFixed(2)} USDT → USDC.e`}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Autonomous mode toggle */}
+              <div
+                style={{
+                  background: "var(--surface)",
+                  borderRadius: 8,
+                  padding: "14px 16px",
+                  marginBottom: 16,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 16,
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                    Auto-convert future deposits
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                    Every 5 min the orchestrator checks your wallet. If you have
+                    &gt; 1 USDT, it auto-swaps to USDC.e.
+                  </div>
+                </div>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={user.autonomousMode}
+                    onChange={(e) =>
+                      onSetAutonomousMode(e.target.checked).catch(() => {})
+                    }
+                  />
+                  {user.autonomousMode ? "On" : "Off"}
+                </label>
+              </div>
+
+              {error && (
+                <p style={{ color: "#ff3b30", marginBottom: 12, fontSize: 13 }}>
+                  {error}
+                </p>
+              )}
+
               {!user.botsRunning ? (
                 <button
                   className="btn-primary"

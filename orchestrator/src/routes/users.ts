@@ -21,6 +21,7 @@ import {
   updateBotWalletAddress,
   updateApiKeys,
   setBotsRunning,
+  setAutonomousMode,
   type User,
 } from "../user-store.js";
 
@@ -67,6 +68,7 @@ function safeUser(user: User) {
       user.poly_api_passphrase
     ),
     botsRunning: user.bots_running === 1,
+    autonomousMode: user.autonomous_mode === 1,
     createdAt: user.created_at,
   };
 }
@@ -263,6 +265,93 @@ router.post(
 
       setBotsRunning(address, false);
       return res.json({ ok: true });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── POST /users/:address/convert-funds ───────────────────────────────────────
+// Triggers a USDT → USDC.e swap for the user's bot wallet via the treasury.
+
+router.post(
+  "/:address/convert-funds",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      if (!user.bot_wallet_address) {
+        return res.status(400).json({ error: "Bot wallet not yet derived" });
+      }
+
+      const { amountUsdt } = req.body as { amountUsdt?: string };
+
+      const swapRes = await fetch(`${WDK_TREASURY_URL}/swap`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ index: user.bot_wallet_index, amountUsdt }),
+      });
+
+      if (!swapRes.ok) {
+        const body = await swapRes.text();
+        return res
+          .status(502)
+          .json({ error: `Treasury swap failed (${swapRes.status}): ${body}` });
+      }
+
+      const result = await swapRes.json();
+      return res.json(result);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── PUT /users/:address/autonomous ───────────────────────────────────────────
+// Toggle autonomous USDT→USDC.e auto-swap mode.
+
+router.put("/:address/autonomous", (req: Request, res: Response) => {
+  const { address } = req.params;
+  const user = getUser(address);
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  const { enabled } = req.body as { enabled?: boolean };
+  if (typeof enabled !== "boolean") {
+    return res.status(400).json({ error: "enabled (boolean) is required" });
+  }
+
+  setAutonomousMode(address, enabled);
+  return res.json({ ok: true, autonomousMode: enabled });
+});
+
+// ── GET /users/:address/balance ───────────────────────────────────────────────
+// Returns USDT, USDC.e and native POL balances for the bot wallet.
+
+router.get(
+  "/:address/balance",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const balRes = await fetch(`${WDK_TREASURY_URL}/balance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ index: user.bot_wallet_index }),
+      });
+
+      if (!balRes.ok) {
+        const body = await balRes.text();
+        return res
+          .status(502)
+          .json({
+            error: `Treasury balance failed (${balRes.status}): ${body}`,
+          });
+      }
+
+      return res.json(await balRes.json());
     } catch (err) {
       return next(err);
     }

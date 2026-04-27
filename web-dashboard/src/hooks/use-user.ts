@@ -3,23 +3,34 @@
  *
  * Manages the per-user registration state for multi-user support.
  * Automatically registers the connected MetaMask address with the orchestrator
- * and exposes helpers for saving API keys and starting bots.
+ * and exposes helpers for saving API keys, starting bots, converting funds, and
+ * toggling autonomous mode.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 export interface UserRecord {
   metamaskAddress: string;
   botWalletAddress: string | null;
   hasApiKeys: boolean;
   botsRunning: boolean;
+  autonomousMode: boolean;
   createdAt: number;
+}
+
+export interface BotWalletBalance {
+  address: string;
+  usdt: string;
+  usdce: string;
+  nativePol: string;
 }
 
 interface UseUserReturn {
   user: UserRecord | null;
   loading: boolean;
   error: string | null;
+  balance: BotWalletBalance | null;
+  balanceLoading: boolean;
   saveApiKeys: (
     apiKey: string,
     apiSecret: string,
@@ -27,13 +38,23 @@ interface UseUserReturn {
   ) => Promise<void>;
   startBots: () => Promise<void>;
   stopBots: () => Promise<void>;
+  convertFunds: (
+    amountUsdt?: string,
+  ) => Promise<{ usdtSwapped: string; usdceReceived: string; txHash: string }>;
+  setAutonomousMode: (enabled: boolean) => Promise<void>;
   refresh: () => Promise<void>;
+  refreshBalance: () => Promise<void>;
 }
+
+const BALANCE_POLL_MS = 30_000; // poll bot wallet balance every 30 s
 
 export function useUser(metamaskAddress: string | undefined): UseUserReturn {
   const [user, setUser] = useState<UserRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [balance, setBalance] = useState<BotWalletBalance | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const register = useCallback(async (address: string) => {
     setLoading(true);
@@ -69,14 +90,38 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     } catch {}
   }, [metamaskAddress]);
 
+  const refreshBalance = useCallback(async () => {
+    if (!metamaskAddress) return;
+    setBalanceLoading(true);
+    try {
+      const res = await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/balance`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as BotWalletBalance;
+      setBalance(data);
+    } catch {
+    } finally {
+      setBalanceLoading(false);
+    }
+  }, [metamaskAddress]);
+
   useEffect(() => {
     if (!metamaskAddress) {
       setUser(null);
       setError(null);
+      setBalance(null);
+      if (pollRef.current) clearInterval(pollRef.current);
       return;
     }
-    register(metamaskAddress);
-  }, [metamaskAddress, register]);
+    register(metamaskAddress).then(() => refreshBalance());
+    pollRef.current = setInterval(() => {
+      refreshBalance();
+    }, BALANCE_POLL_MS);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [metamaskAddress, register, refreshBalance]);
 
   const saveApiKeys = useCallback(
     async (apiKey: string, apiSecret: string, apiPassphrase: string) => {
@@ -130,5 +175,69 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     await refresh();
   }, [metamaskAddress, refresh]);
 
-  return { user, loading, error, saveApiKeys, startBots, stopBots, refresh };
+  const convertFunds = useCallback(
+    async (amountUsdt?: string) => {
+      if (!metamaskAddress) throw new Error("Not connected");
+      const res = await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/convert-funds`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(amountUsdt ? { amountUsdt } : {}),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string }).error ?? "Conversion failed",
+        );
+      }
+      const result = (await res.json()) as {
+        usdtSwapped: string;
+        usdceReceived: string;
+        txHash: string;
+      };
+      await refreshBalance();
+      return result;
+    },
+    [metamaskAddress, refreshBalance],
+  );
+
+  const setAutonomousMode = useCallback(
+    async (enabled: boolean) => {
+      if (!metamaskAddress) return;
+      const res = await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/autonomous`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string }).error ??
+            "Failed to update autonomous mode",
+        );
+      }
+      await refresh();
+    },
+    [metamaskAddress, refresh],
+  );
+
+  return {
+    user,
+    loading,
+    error,
+    balance,
+    balanceLoading,
+    saveApiKeys,
+    startBots,
+    stopBots,
+    convertFunds,
+    setAutonomousMode,
+    refresh,
+    refreshBalance,
+  };
 }

@@ -34,6 +34,7 @@ db.exec(`
     poly_api_secret    TEXT,
     poly_api_passphrase TEXT,
     bots_running       INTEGER NOT NULL DEFAULT 0,
+    autonomous_mode    INTEGER NOT NULL DEFAULT 0,
     created_at         INTEGER NOT NULL DEFAULT (unixepoch())
   );
 
@@ -45,6 +46,19 @@ db.exec(`
   -- Start user bot wallet indices at 10 (0-3 are reserved for treasury+bot1/2/3)
   INSERT OR IGNORE INTO meta (key, value) VALUES ('next_wallet_index', '10');
 `);
+
+// Migration: add autonomous_mode to databases that predate this column
+if (
+  !db
+    .prepare(
+      "SELECT name FROM pragma_table_info('users') WHERE name = 'autonomous_mode'",
+    )
+    .get()
+) {
+  db.exec(
+    "ALTER TABLE users ADD COLUMN autonomous_mode INTEGER NOT NULL DEFAULT 0",
+  );
+}
 
 // ── Prepared statements ───────────────────────────────────────────────────────
 
@@ -63,6 +77,10 @@ const stmtUpdateApiKeys = db.prepare<[string, string, string, string]>(
 const stmtSetBotsRunning = db.prepare<[number, string]>(
   "UPDATE users SET bots_running = ? WHERE metamask_address = ?",
 );
+const stmtSetAutonomousMode = db.prepare<[number, string]>(
+  "UPDATE users SET autonomous_mode = ? WHERE metamask_address = ?",
+);
+const stmtGetAllUsers = db.prepare("SELECT * FROM users");
 const stmtGetMeta = db.prepare<[string]>(
   "SELECT value FROM meta WHERE key = ?",
 );
@@ -80,6 +98,7 @@ export interface User {
   poly_api_secret: string | null;
   poly_api_passphrase: string | null;
   bots_running: number;
+  autonomous_mode: number;
   created_at: number;
 }
 
@@ -130,4 +149,15 @@ export function setBotsRunning(
   running: boolean,
 ): void {
   stmtSetBotsRunning.run(running ? 1 : 0, metamaskAddress);
+}
+
+export function setAutonomousMode(
+  metamaskAddress: string,
+  enabled: boolean,
+): void {
+  stmtSetAutonomousMode.run(enabled ? 1 : 0, metamaskAddress);
+}
+
+export function getAllUsers(): User[] {
+  return stmtGetAllUsers.all() as User[];
 }

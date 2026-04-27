@@ -8,12 +8,12 @@ export default defineConfig({
     host: true,
     proxy: {
       "/api/treasury": {
-        target: "http://localhost:3101",
+        target: "http://localhost:3001",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/treasury/, ""),
       },
       "/api/orchestrator": {
-        target: "http://localhost:3102",
+        target: "http://localhost:3002",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/orchestrator/, ""),
       },

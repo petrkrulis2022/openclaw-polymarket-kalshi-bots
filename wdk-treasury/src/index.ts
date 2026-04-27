@@ -20,6 +20,8 @@ import walletsRouter from "./routes/wallets.js";
 import allocateRouter from "./routes/allocate.js";
 import recallRouter from "./routes/recall.js";
 import deriveRouter from "./routes/derive.js";
+import balanceRouter from "./routes/balance.js";
+import swapRouter from "./routes/swap.js";
 
 const app = express();
 
@@ -37,6 +39,8 @@ app.use("/wallets", walletsRouter);
 app.use("/allocate", allocateRouter);
 app.use("/recall", recallRouter);
 app.use("/derive", deriveRouter);
+app.use("/balance", balanceRouter);
+app.use("/swap", swapRouter);
 
 // ── 404 catch-all ─────────────────────────────────────────────────────────────
 

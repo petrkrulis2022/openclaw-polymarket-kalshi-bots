@@ -1,16 +1,5 @@
 import React, { useState } from "react";
-import {
-  useAccount,
-  useConnect,
-  useDisconnect,
-  useReadContract,
-  useWriteContract,
-  useWaitForTransactionReceipt,
-  useSwitchChain,
-} from "wagmi";
-import { polygon } from "wagmi/chains";
-import { parseUnits, formatUnits } from "viem";
-import { useTreasury } from "./hooks/use-treasury";
+import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { usePortfolio, type BotSummary } from "./hooks/use-portfolio";
 import {
   useBotDetail,
@@ -24,7 +13,6 @@ import {
   type CopyInventoryPosition,
   type TraderDataPosition,
 } from "./hooks/use-copy-trader";
-import { USDT_ADDRESS, USDT_DECIMALS } from "./config/wagmi";
 import { BotConfigPanel } from "./components/BotConfigPanel";
 import { OpenClawChat } from "./components/OpenClawChat";
 import { useInMarketArb } from "./hooks/use-in-market-arb";
@@ -33,16 +21,6 @@ import { useMicrostructure } from "./hooks/use-microstructure";
 import { useUser } from "./hooks/use-user";
 import { UserOnboarding } from "./components/UserOnboarding";
 import "./index.css";
-
-const ERC20_ABI = [
-  {
-    type: "function",
-    name: "balanceOf",
-    inputs: [{ name: "account", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view",
-  },
-] as const;
 
 function abbrev(addr: string) {
   return `${addr.slice(0, 8)}…${addr.slice(-6)}`;
@@ -64,221 +42,47 @@ function statusColor(s: string) {
 
 // ── Wallet section ──────────────────────────────────────────────────────────
 function WalletSection() {
-  const { address, isConnected, chainId } = useAccount();
+  const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
-  const { switchChain } = useSwitchChain();
-
-  const { data: usdtBalance } = useReadContract({
-    address: USDT_ADDRESS,
-    abi: ERC20_ABI,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  });
-
-  const wrongNetwork = isConnected && chainId !== polygon.id;
-
-  return (
-    <div>
-      {wrongNetwork && (
-        <div className="network-warning">
-          <span>
-            ⚠ You're on the wrong network. Switch to Polygon to fund the agent.
-          </span>
-          <button
-            className="btn-primary"
-            onClick={() => switchChain({ chainId: polygon.id })}
-          >
-            Switch to Polygon
-          </button>
-        </div>
-      )}
-
-      <div className="card card-accent">
-        <div className="section-label">Your Wallet</div>
-        {!isConnected ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ color: "var(--text-secondary)", fontSize: 14 }}>
-              Connect MetaMask to fund the OpenClaw agent
-            </span>
-            <button
-              className="btn-primary"
-              onClick={() => connect({ connector: connectors[0] })}
-            >
-              Connect MetaMask
-            </button>
-          </div>
-        ) : (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: 12,
-            }}
-          >
-            <div>
-              <div className="balance-label">USDT Balance (Polygon)</div>
-              <div className="balance-big">
-                {usdtBalance !== undefined
-                  ? `${parseFloat(formatUnits(usdtBalance, USDT_DECIMALS)).toFixed(2)} USDT`
-                  : "—"}
-              </div>
-              <div
-                className="wallet-address"
-                title="Click to copy"
-                onClick={() => navigator.clipboard.writeText(address!)}
-              >
-                {abbrev(address!)} 📋
-              </div>
-            </div>
-            <button className="btn-secondary" onClick={() => disconnect()}>
-              Disconnect
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Treasury / Fund Agent section ────────────────────────────────────────────
-function TreasurySection() {
-  const { address, isConnected, chainId } = useAccount();
-  const { treasury, loading, error } = useTreasury();
-  const [amount, setAmount] = useState("");
-
-  const {
-    writeContract,
-    data: hash,
-    isPending,
-    error: writeError,
-    reset,
-  } = useWriteContract();
-  const { isLoading: confirming, isSuccess } = useWaitForTransactionReceipt({
-    hash,
-  });
-
-  const canFund =
-    isConnected &&
-    chainId === polygon.id &&
-    !!treasury?.address &&
-    !!amount &&
-    parseFloat(amount) > 0;
-
-  const handleFund = () => {
-    if (!canFund || !treasury) return;
-    reset();
-    writeContract({
-      address: USDT_ADDRESS,
-      abi: [
-        {
-          type: "function",
-          name: "transfer",
-          inputs: [
-            { name: "to", type: "address" },
-            { name: "amount", type: "uint256" },
-          ],
-          outputs: [{ name: "", type: "bool" }],
-          stateMutability: "nonpayable",
-        },
-      ] as const,
-      functionName: "transfer",
-      args: [
-        treasury.address as `0x${string}`,
-        parseUnits(amount, USDT_DECIMALS),
-      ],
-    });
-  };
 
   return (
     <div className="card card-accent">
-      <div className="section-label">OpenClaw Agent Wallet</div>
-
-      {loading ? (
-        <p className="offline">Loading treasury…</p>
-      ) : error ? (
-        <p className="offline">
-          ⚠ Treasury service offline — start wdk-treasury on :3001
-        </p>
-      ) : treasury ? (
-        <>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: 12,
-            }}
+      <div className="section-label">Your Wallet</div>
+      {!isConnected ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ color: "var(--text-secondary)", fontSize: 14 }}>
+            Connect MetaMask to access your OpenClaw bot
+          </span>
+          <button
+            className="btn-primary"
+            onClick={() => connect({ connector: connectors[0] })}
           >
-            <div>
-              <div className="balance-label">USDT Balance</div>
-              <div className="balance-big">
-                {parseFloat(treasury.balanceUsdT).toFixed(2)} USDT
-              </div>
-              <div
-                className="wallet-address"
-                title="Click to copy"
-                onClick={() => navigator.clipboard.writeText(treasury.address)}
-              >
-                {abbrev(treasury.address)} 📋
-              </div>
-            </div>
+            Connect MetaMask
+          </button>
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 12,
+          }}
+        >
+          <div
+            className="wallet-address"
+            title="Click to copy"
+            onClick={() => navigator.clipboard.writeText(address!)}
+          >
+            {abbrev(address!)} 📋
           </div>
-
-          <div className="fund-form">
-            <input
-              className="fund-input"
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="Amount USDT"
-              value={amount}
-              onChange={(e) => {
-                reset();
-                setAmount(e.target.value);
-              }}
-            />
-            <button
-              className="btn-primary"
-              disabled={!canFund || isPending || confirming}
-              onClick={handleFund}
-            >
-              {isPending
-                ? "Check MetaMask…"
-                : confirming
-                  ? "Confirming…"
-                  : "Fund Agent"}
-            </button>
-          </div>
-
-          {!isConnected && (
-            <p className="tx-status">
-              Connect your wallet above to fund the agent.
-            </p>
-          )}
-          {isSuccess && hash && (
-            <p className="tx-status">
-              ✅ Funded!{" "}
-              <a
-                href={`https://polygonscan.com/tx/${hash}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                View on PolygonScan ↗
-              </a>
-            </p>
-          )}
-          {writeError && (
-            <p className="tx-status" style={{ color: "var(--danger)" }}>
-              ❌ {writeError.shortMessage ?? writeError.message}
-            </p>
-          )}
-        </>
-      ) : null}
+          <button className="btn-secondary" onClick={() => disconnect()}>
+            Disconnect
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2727,8 +2531,13 @@ export default function App() {
   const {
     user,
     loading: userLoading,
+    balance,
+    balanceLoading,
     saveApiKeys,
     startBots,
+    convertFunds,
+    setAutonomousMode,
+    refreshBalance,
   } = useUser(isConnected ? address : undefined);
 
   // Show onboarding if connected but setup not complete
@@ -2780,16 +2589,108 @@ export default function App() {
             <div style={{ padding: "0 24px" }}>
               <UserOnboarding
                 user={user}
+                balance={balance}
                 onSaveApiKeys={saveApiKeys}
                 onStartBots={startBots}
+                onConvertFunds={convertFunds}
+                onSetAutonomousMode={setAutonomousMode}
               />
             </div>
           )}
-          <TreasurySection />
-          <PortfolioSection onSelectBot={setSelectedBot} />
-          <div style={{ padding: "0 24px 24px" }}>
-            <OpenClawChat />
-          </div>
+          {/* Agent wallet balance card — shown after onboarding */}
+          {isConnected && user?.botsRunning && (
+            <div style={{ padding: "0 24px", marginBottom: 16 }}>
+              <div className="card">
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 12,
+                  }}
+                >
+                  <div className="section-label" style={{ margin: 0 }}>
+                    Agent Wallet
+                  </div>
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: 12, padding: "4px 10px" }}
+                    onClick={refreshBalance}
+                    disabled={balanceLoading}
+                  >
+                    {balanceLoading ? "…" : "Refresh"}
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+                  <div>
+                    <div className="balance-label">USDT</div>
+                    <div className="balance-big">
+                      {balance ? parseFloat(balance.usdt).toFixed(2) : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="balance-label">USDC.e</div>
+                    <div className="balance-big">
+                      {balance ? parseFloat(balance.usdce).toFixed(2) : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="balance-label">POL (gas)</div>
+                    <div className="balance-big">
+                      {balance && balance.nativePol !== "0"
+                        ? (Number(balance.nativePol) / 1e18).toFixed(4)
+                        : "0"}
+                    </div>
+                  </div>
+                </div>
+                {balance && parseFloat(balance.usdt) >= 1 && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      display: "flex",
+                      gap: 12,
+                      alignItems: "center",
+                    }}
+                  >
+                    <button
+                      className="btn-primary"
+                      style={{ fontSize: 13 }}
+                      onClick={() =>
+                        convertFunds().then(() => refreshBalance())
+                      }
+                    >
+                      Convert USDT → USDC.e
+                    </button>
+                    <label
+                      style={{
+                        fontSize: 13,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={user?.autonomousMode ?? false}
+                        onChange={(e) => setAutonomousMode(e.target.checked)}
+                      />
+                      Auto-convert
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {/* Only show legacy portfolio/chat when user is not mid-onboarding */}
+          {(!isConnected || !user || user.botsRunning) && (
+            <>
+              <PortfolioSection onSelectBot={setSelectedBot} />
+              <div style={{ padding: "0 24px 24px" }}>
+                <OpenClawChat />
+              </div>
+            </>
+          )}
         </>
       )}
     </>
