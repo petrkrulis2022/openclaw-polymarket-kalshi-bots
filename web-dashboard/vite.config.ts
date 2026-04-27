@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     port: 4001,
     host: true,
+    allowedHosts: true,
     proxy: {
       "/api/treasury": {
         target: "http://localhost:3001",
