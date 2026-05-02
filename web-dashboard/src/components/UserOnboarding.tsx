@@ -107,6 +107,7 @@ export function UserOnboarding({
     setError(null);
     try {
       await onSaveFunderAddress(addr);
+      setStep(3);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
