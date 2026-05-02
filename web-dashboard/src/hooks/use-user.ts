@@ -42,6 +42,17 @@ interface UseUserReturn {
     amountUsdt?: string,
   ) => Promise<{ usdtSwapped: string; usdceReceived: string; txHash: string }>;
   setAutonomousMode: (enabled: boolean) => Promise<void>;
+  withdrawFunds: (opts?: {
+    amountUsdt?: string;
+    stopBots?: boolean;
+  }) => Promise<{
+    swapTxHash?: string;
+    usdceSwapped?: string;
+    usdtReceived?: string;
+    withdrawTxHash: string;
+    amountWithdrawn: string;
+    to: string;
+  }>;
   refresh: () => Promise<void>;
   refreshBalance: () => Promise<void>;
 }
@@ -226,6 +237,30 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     [metamaskAddress, refresh],
   );
 
+  const withdrawFunds = useCallback(
+    async (opts?: { amountUsdt?: string; stopBots?: boolean }) => {
+      if (!metamaskAddress) throw new Error("Not connected");
+      const res = await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/withdraw`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(opts ?? {}),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string }).error ?? "Withdrawal failed",
+        );
+      }
+      const result = await res.json();
+      await refreshBalance();
+      return result;
+    },
+    [metamaskAddress, refreshBalance],
+  );
+
   return {
     user,
     loading,
@@ -237,6 +272,7 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     stopBots,
     convertFunds,
     setAutonomousMode,
+    withdrawFunds,
     refresh,
     refreshBalance,
   };

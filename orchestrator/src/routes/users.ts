@@ -344,14 +344,130 @@ router.get(
 
       if (!balRes.ok) {
         const body = await balRes.text();
-        return res
-          .status(502)
-          .json({
-            error: `Treasury balance failed (${balRes.status}): ${body}`,
-          });
+        return res.status(502).json({
+          error: `Treasury balance failed (${balRes.status}): ${body}`,
+        });
       }
 
       return res.json(await balRes.json());
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── POST /users/:address/withdraw ─────────────────────────────────────────────
+// Full withdrawal flow:
+//   1. Optionally stop PM2 bots
+//   2. Swap all USDC.e → USDT via treasury /swap-reverse
+//   3. Transfer USDT from bot wallet → user's MetaMask address
+
+router.post(
+  "/:address/withdraw",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address } = req.params;
+      const { amountUsdt, stopBots: doStopBots } = req.body as {
+        amountUsdt?: string;
+        stopBots?: boolean;
+      };
+
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      if (!user.bot_wallet_address) {
+        return res.status(400).json({ error: "Bot wallet not yet derived" });
+      }
+
+      // ── Step 1: Optionally stop bots ───────────────────────────────────────
+
+      if (doStopBots && user.bots_running === 1) {
+        const slot = userSlot(user.bot_wallet_index);
+        for (const bot of BOT_DEFS) {
+          const pmName = `${bot.name}-u${slot}`;
+          try {
+            await runCmd("pm2", ["stop", pmName]);
+          } catch {
+            // Process may not exist — ignore
+          }
+        }
+        setBotsRunning(address, false);
+      }
+
+      // ── Step 2: Swap USDC.e → USDT (skip gracefully if no balance) ─────────
+
+      let swapTxHash: string | undefined;
+      let usdceSwapped: string | undefined;
+      let usdtReceived: string | undefined;
+
+      const swapRes = await fetch(`${WDK_TREASURY_URL}/swap-reverse`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ index: user.bot_wallet_index }),
+      });
+
+      if (swapRes.ok) {
+        const swapResult = (await swapRes.json()) as {
+          txHash: string;
+          usdceSwapped: string;
+          usdtReceived: string;
+        };
+        swapTxHash = swapResult.txHash;
+        usdceSwapped = swapResult.usdceSwapped;
+        usdtReceived = swapResult.usdtReceived;
+      } else {
+        const body = await swapRes.text();
+        // "No USDC.e balance to swap" is expected when user only has USDT
+        if (!body.includes("No USDC.e balance")) {
+          return res
+            .status(502)
+            .json({
+              error: `USDC.e → USDT swap failed (${swapRes.status}): ${body}`,
+            });
+        }
+      }
+
+      // ── Step 3: Transfer USDT → user's MetaMask address ────────────────────
+
+      const withdrawBody: {
+        index: number;
+        toAddress: string;
+        amountUsdt?: string;
+      } = {
+        index: user.bot_wallet_index,
+        toAddress: address, // always send to the user's own MetaMask address
+      };
+      if (amountUsdt) withdrawBody.amountUsdt = amountUsdt;
+
+      const withdrawRes = await fetch(`${WDK_TREASURY_URL}/withdraw`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(withdrawBody),
+      });
+
+      if (!withdrawRes.ok) {
+        const body = await withdrawRes.text();
+        return res
+          .status(502)
+          .json({
+            error: `Withdrawal transfer failed (${withdrawRes.status}): ${body}`,
+          });
+      }
+
+      const withdrawResult = (await withdrawRes.json()) as {
+        txHash: string;
+        from: string;
+        to: string;
+        amount: string;
+      };
+
+      return res.json({
+        swapTxHash,
+        usdceSwapped,
+        usdtReceived,
+        withdrawTxHash: withdrawResult.txHash,
+        amountWithdrawn: withdrawResult.amount,
+        to: withdrawResult.to,
+      });
     } catch (err) {
       return next(err);
     }

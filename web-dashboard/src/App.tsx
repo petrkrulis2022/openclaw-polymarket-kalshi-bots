@@ -20,6 +20,7 @@ import { useResolutionLag } from "./hooks/use-resolution-lag";
 import { useMicrostructure } from "./hooks/use-microstructure";
 import { useUser } from "./hooks/use-user";
 import { UserOnboarding } from "./components/UserOnboarding";
+import { AdminPanel } from "./components/AdminPanel";
 import "./index.css";
 
 function abbrev(addr: string) {
@@ -2535,14 +2536,43 @@ export default function App() {
     balanceLoading,
     saveApiKeys,
     startBots,
+    stopBots,
     convertFunds,
     setAutonomousMode,
     refreshBalance,
+    withdrawFunds,
   } = useUser(isConnected ? address : undefined);
 
   // Show onboarding if connected but setup not complete
   const showOnboarding =
     isConnected && !userLoading && user !== null && !user.botsRunning;
+
+  const [withdrawing, setWithdrawing] = React.useState(false);
+  const [withdrawResult, setWithdrawResult] = React.useState<{
+    withdrawTxHash: string;
+    amountWithdrawn: string;
+  } | null>(null);
+  const [withdrawError, setWithdrawError] = React.useState<string | null>(null);
+  const [withdrawAmount, setWithdrawAmount] = React.useState("");
+  const [withdrawStopBots, setWithdrawStopBots] = React.useState(true);
+  const [showAdmin, setShowAdmin] = React.useState(false);
+
+  const handleWithdraw = async () => {
+    setWithdrawing(true);
+    setWithdrawError(null);
+    setWithdrawResult(null);
+    try {
+      const result = await withdrawFunds({
+        stopBots: withdrawStopBots,
+        amountUsdt: withdrawAmount || undefined,
+      });
+      setWithdrawResult(result);
+    } catch (err) {
+      setWithdrawError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setWithdrawing(false);
+    }
+  };
 
   return (
     <>
@@ -2682,6 +2712,98 @@ export default function App() {
               </div>
             </div>
           )}
+          {/* Withdraw card — shown after onboarding */}
+          {isConnected && user?.botsRunning && (
+            <div style={{ padding: "0 24px", marginBottom: 16 }}>
+              <div className="card">
+                <div className="section-label" style={{ marginBottom: 8 }}>
+                  Withdraw to MetaMask
+                </div>
+                <p
+                  style={{
+                    fontSize: 13,
+                    color: "var(--text-secondary)",
+                    marginBottom: 12,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Converts USDC.e back to USDT via Uniswap, then sends USDT to
+                  your connected MetaMask address on Polygon.
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    marginBottom: 10,
+                  }}
+                >
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="Amount USDT (blank = all)"
+                    value={withdrawAmount}
+                    onChange={(e) => setWithdrawAmount(e.target.value)}
+                    style={{
+                      flex: 1,
+                      minWidth: 180,
+                      padding: "8px 12px",
+                      borderRadius: 6,
+                      border: "1px solid var(--border)",
+                      background: "var(--background)",
+                      color: "var(--text)",
+                      fontSize: 13,
+                    }}
+                  />
+                  <label
+                    style={{
+                      fontSize: 13,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={withdrawStopBots}
+                      onChange={(e) => setWithdrawStopBots(e.target.checked)}
+                    />
+                    Stop bots first
+                  </label>
+                  <button
+                    className="btn-primary"
+                    style={{ background: "#c0392b", flexShrink: 0 }}
+                    onClick={() => void handleWithdraw()}
+                    disabled={withdrawing}
+                  >
+                    {withdrawing ? "Withdrawing…" : "Withdraw to MetaMask"}
+                  </button>
+                </div>
+                {withdrawError && (
+                  <p style={{ color: "#ff3b30", fontSize: 12, margin: 0 }}>
+                    {withdrawError}
+                  </p>
+                )}
+                {withdrawResult && (
+                  <p style={{ color: "#4caf50", fontSize: 12, margin: 0 }}>
+                    ✓ Withdrew {withdrawResult.amountWithdrawn} USDT —{" "}
+                    <a
+                      href={`https://polygonscan.com/tx/${withdrawResult.withdrawTxHash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: "#4caf50" }}
+                    >
+                      View on PolygonScan ↗
+                    </a>
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
           {/* Only show legacy portfolio/chat when user is not mid-onboarding */}
           {(!isConnected || !user || user.botsRunning) && (
             <>
@@ -2691,8 +2813,32 @@ export default function App() {
               </div>
             </>
           )}
+          {/* ── Admin footer ────────────────────────────────────────────────── */}
+          <div
+            style={{
+              textAlign: "center",
+              padding: "24px 0 16px",
+              borderTop: "1px solid var(--border)",
+              marginTop: 8,
+            }}
+          >
+            <button
+              onClick={() => setShowAdmin(true)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-secondary)",
+                fontSize: 12,
+                cursor: "pointer",
+                opacity: 0.4,
+              }}
+            >
+              ⚙ Admin
+            </button>
+          </div>
         </>
       )}
+      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
     </>
   );
 }

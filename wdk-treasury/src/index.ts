@@ -22,6 +22,8 @@ import recallRouter from "./routes/recall.js";
 import deriveRouter from "./routes/derive.js";
 import balanceRouter from "./routes/balance.js";
 import swapRouter from "./routes/swap.js";
+import swapReverseRouter from "./routes/swap-reverse.js";
+import withdrawRouter from "./routes/withdraw.js";
 
 const app = express();
 
@@ -41,6 +43,8 @@ app.use("/recall", recallRouter);
 app.use("/derive", deriveRouter);
 app.use("/balance", balanceRouter);
 app.use("/swap", swapRouter);
+app.use("/swap-reverse", swapReverseRouter);
+app.use("/withdraw", withdrawRouter);
 
 // ── 404 catch-all ─────────────────────────────────────────────────────────────
 
