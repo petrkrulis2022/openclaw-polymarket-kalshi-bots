@@ -20,7 +20,7 @@ module.exports = {
       name: "dashboard",
       cwd: "./web-dashboard",
       script: "npm",
-      args: "run dev",
+      args: "run preview",
       watch: false,
       autorestart: true,
     },

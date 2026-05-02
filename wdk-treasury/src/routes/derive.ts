@@ -8,17 +8,16 @@
  * be exposed via the Cloudflare tunnel or any public-facing proxy).
  *
  * Body: { index: number }
- * Response: { address: string, signerKey: string }   (signerKey = 32-byte hex)
+ * Response: { address: string, signerKey: string }   (signerKey = 32-byte hex, no 0x prefix)
  */
 
 import { Router, Request, Response, NextFunction } from "express";
-import { getAccount } from "../wdk.js";
+import { ethers } from "ethers";
+import { SEED_PHRASE } from "../wdk.js";
 
 const router = Router();
 
-router.post("/", async (req: Request, res: Response, next: NextFunction) => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let account: any = null;
+router.post("/", (req: Request, res: Response, next: NextFunction) => {
   try {
     const { index } = req.body as { index?: unknown };
 
@@ -29,19 +28,20 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       });
     }
 
-    account = await getAccount(index);
-    const address: string = await account.getAddress();
-    // keyPair.privateKey is a 32-byte Uint8Array/Buffer
-    const privBuf: Uint8Array = account.keyPair.privateKey;
-    const signerKey = Buffer.from(privBuf).toString("hex");
+    // Derive wallet using BIP-44 path — same derivation the WDK EVM wallet uses.
+    const wallet = ethers.HDNodeWallet.fromPhrase(
+      SEED_PHRASE,
+      undefined,
+      `m/44'/60'/0'/0/${index}`,
+    );
 
-    return res.json({ address, signerKey });
+    // Return the key without 0x prefix so callers can prepend as needed.
+    return res.json({
+      address: wallet.address,
+      signerKey: wallet.privateKey.slice(2),
+    });
   } catch (err) {
     return next(err);
-  } finally {
-    try {
-      account?.dispose?.();
-    } catch {}
   }
 });
 

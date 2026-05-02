@@ -11,10 +11,9 @@ export const config = {
   botId: parseInt(process.env["BOT_ID"] ?? "5", 10),
   polymarket: {
     walletAddress: req("POLYMARKET_WALLET_ADDRESS"),
-    apiKey: req("POLYMARKET_API_KEY"),
-    apiSecret: req("POLYMARKET_API_SECRET"),
-    apiPassphrase: req("POLYMARKET_API_PASSPHRASE"),
     signerKey: process.env["BOT_SIGNER_KEY"] ?? "",
+    // Polymarket proxy wallet (Gnosis Safe) that holds pUSD collateral
+    funderAddress: process.env["POLYMARKET_FUNDER_ADDRESS"] ?? "",
     host: "https://clob.polymarket.com",
   } as const,
   orchestratorUrl: process.env["ORCHESTRATOR_URL"] ?? "http://localhost:3002",

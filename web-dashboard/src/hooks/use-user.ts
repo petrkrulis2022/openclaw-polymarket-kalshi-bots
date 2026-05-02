@@ -12,7 +12,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 export interface UserRecord {
   metamaskAddress: string;
   botWalletAddress: string | null;
-  hasApiKeys: boolean;
+  hasApiKeys: boolean; // true when funderAddress is set
+  funderAddress: string | null;
   botsRunning: boolean;
   autonomousMode: boolean;
   createdAt: number;
@@ -31,11 +32,7 @@ interface UseUserReturn {
   error: string | null;
   balance: BotWalletBalance | null;
   balanceLoading: boolean;
-  saveApiKeys: (
-    apiKey: string,
-    apiSecret: string,
-    apiPassphrase: string,
-  ) => Promise<void>;
+  saveFunderAddress: (funderAddress: string) => Promise<void>;
   startBots: () => Promise<void>;
   stopBots: () => Promise<void>;
   convertFunds: (
@@ -134,21 +131,21 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     };
   }, [metamaskAddress, register, refreshBalance]);
 
-  const saveApiKeys = useCallback(
-    async (apiKey: string, apiSecret: string, apiPassphrase: string) => {
+  const saveFunderAddress = useCallback(
+    async (funderAddress: string) => {
       if (!metamaskAddress) return;
       const res = await fetch(
-        `/api/orchestrator/users/${metamaskAddress}/api-keys`,
+        `/api/orchestrator/users/${metamaskAddress}/funder-address`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ apiKey, apiSecret, apiPassphrase }),
+          body: JSON.stringify({ funderAddress }),
         },
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(
-          (body as { error?: string }).error ?? "Failed to save API keys",
+          (body as { error?: string }).error ?? "Failed to save funder address",
         );
       }
       await refresh();
@@ -267,7 +264,7 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     error,
     balance,
     balanceLoading,
-    saveApiKeys,
+    saveFunderAddress,
     startBots,
     stopBots,
     convertFunds,

@@ -6,9 +6,10 @@
  *  Step 1 — Fund bot wallet: display the server-generated EOA address, show
  *            live USDT balance on that address, and let the user continue once
  *            they've sent funds.
- *  Step 2 — Generate Polymarket API keys for their bot wallet address.
- *  Step 3 — Enter API keys, then convert USDT → USDC.e and optionally enable
- *            autonomous mode so future deposits are converted automatically.
+ *  Step 2 — Link Polymarket proxy wallet: the bot EOA needs to be connected on
+ *            polymarket.com so a Gnosis Safe proxy wallet is created for it.
+ *            The user copies that proxy wallet address here.
+ *  Step 3 — Convert USDT → USDC.e and optionally enable autonomous mode.
  */
 
 import React, { useState } from "react";
@@ -33,11 +34,7 @@ const ERC20_TRANSFER_ABI = [
 interface Props {
   user: UserRecord;
   balance: BotWalletBalance | null;
-  onSaveApiKeys: (
-    apiKey: string,
-    apiSecret: string,
-    apiPassphrase: string,
-  ) => Promise<void>;
+  onSaveFunderAddress: (funderAddress: string) => Promise<void>;
   onStartBots: () => Promise<void>;
   onConvertFunds: () => Promise<{
     usdtSwapped: string;
@@ -54,15 +51,13 @@ function abbrev(addr: string) {
 export function UserOnboarding({
   user,
   balance,
-  onSaveApiKeys,
+  onSaveFunderAddress,
   onStartBots,
   onConvertFunds,
   onSetAutonomousMode,
 }: Props) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [apiKey, setApiKey] = useState("");
-  const [apiSecret, setApiSecret] = useState("");
-  const [apiPassphrase, setApiPassphrase] = useState("");
+  const [funderAddress, setFunderAddress] = useState(user.funderAddress ?? "");
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
   const [converting, setConverting] = useState(false);
@@ -102,19 +97,16 @@ export function UserOnboarding({
   const usdceBalance = balance ? parseFloat(balance.usdce) : 0;
   const hasFunds = usdtBalance > 0 || usdceBalance > 0;
 
-  const handleSaveKeys = async () => {
-    if (!apiKey.trim() || !apiSecret.trim() || !apiPassphrase.trim()) {
-      setError("All three fields are required.");
+  const handleSaveFunderAddress = async () => {
+    const addr = funderAddress.trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) {
+      setError("Enter a valid 0x-prefixed Ethereum address (42 chars).");
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      await onSaveApiKeys(
-        apiKey.trim(),
-        apiSecret.trim(),
-        apiPassphrase.trim(),
-      );
+      await onSaveFunderAddress(addr);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -175,7 +167,7 @@ export function UserOnboarding({
             }}
             onClick={() => step > s && setStep(s)}
           >
-            {s === 1 ? "Fund" : s === 2 ? "API Keys" : "Activate"}
+            {s === 1 ? "Fund" : s === 2 ? "Proxy Wallet" : "Activate"}
           </span>
         ))}
       </div>
@@ -382,16 +374,37 @@ export function UserOnboarding({
         </div>
       )}
 
-      {/* Step 2 — Generate Polymarket API keys */}
+      {/* Step 2 — Link Polymarket proxy wallet */}
       {step === 2 && (
         <div>
           <p style={{ marginBottom: 12, lineHeight: 1.6 }}>
-            Generate API keys on Polymarket for your bot wallet address{" "}
-            <strong>{abbrev(botAddr)}</strong>. OpenClaw needs these to place
-            orders on your behalf.
+            Polymarket uses a <strong>proxy wallet</strong> (Gnosis Safe) for
+            each connected address. Your bot EOA{" "}
+            <strong>{abbrev(botAddr)}</strong> needs to be connected on
+            Polymarket so it gets one. Then paste the proxy wallet address below
+            — this is used to sign orders on-chain.
           </p>
 
           <ol style={{ paddingLeft: 20, lineHeight: 2, marginBottom: 16 }}>
+            <li>
+              Go to{" "}
+              <a
+                href="https://polymarket.com"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                polymarket.com
+              </a>{" "}
+              and connect MetaMask with your bot address{" "}
+              <span style={{ fontFamily: "monospace", fontSize: 13 }}>
+                {abbrev(botAddr)}
+              </span>
+              . (Import it first if needed.)
+            </li>
+            <li>
+              Accept the sign-in prompt — Polymarket creates a proxy wallet for
+              your bot address automatically.
+            </li>
             <li>
               Open{" "}
               <a
@@ -401,13 +414,9 @@ export function UserOnboarding({
               >
                 polymarket.com/settings
               </a>{" "}
-              and connect MetaMask.
+              and copy your <strong>Proxy Wallet</strong> address (shown as
+              "Your Account Address").
             </li>
-            <li>Switch MetaMask to your bot address (import it first).</li>
-            <li>
-              Go to <em>API Keys</em> → <strong>Create Key</strong>.
-            </li>
-            <li>Copy the API Key, Secret, and Passphrase.</li>
           </ol>
 
           <div
@@ -419,7 +428,7 @@ export function UserOnboarding({
               marginBottom: 16,
             }}
           >
-            <strong>Bot wallet address:</strong>
+            <strong>Bot EOA address (to connect on Polymarket):</strong>
             <br />
             <span style={{ fontFamily: "monospace" }}>{botAddr}</span>{" "}
             <button
@@ -431,24 +440,55 @@ export function UserOnboarding({
             </button>
           </div>
 
+          <div style={{ marginBottom: 16 }}>
+            <label
+              style={{
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                display: "block",
+                marginBottom: 4,
+              }}
+            >
+              Proxy Wallet Address (0x…)
+            </label>
+            <input
+              type="text"
+              className="input"
+              placeholder="0x…"
+              value={funderAddress}
+              onChange={(e) => setFunderAddress(e.target.value)}
+              style={{ width: "100%" }}
+            />
+          </div>
+
+          {error && (
+            <p style={{ color: "#ff3b30", marginBottom: 12, fontSize: 13 }}>
+              {error}
+            </p>
+          )}
+
           <div style={{ display: "flex", gap: 10 }}>
             <button className="btn-secondary" onClick={() => setStep(1)}>
               Back
             </button>
-            <button className="btn-primary" onClick={() => setStep(3)}>
-              I have my API keys → Next
+            <button
+              className="btn-primary"
+              onClick={handleSaveFunderAddress}
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Save & Continue"}
             </button>
           </div>
         </div>
       )}
 
-      {/* Step 3 — Enter API keys + convert + autonomous */}
+      {/* Step 3 — Convert + autonomous */}
       {step === 3 && (
         <div>
           {user.hasApiKeys ? (
             <div>
               <p style={{ marginBottom: 16, color: "#4caf50" }}>
-                ✓ API keys are saved.
+                ✓ Proxy wallet linked.
               </p>
 
               {/* Convert USDT → USDC.e */}
@@ -567,100 +607,12 @@ export function UserOnboarding({
           ) : (
             <div>
               <p style={{ marginBottom: 16, lineHeight: 1.6 }}>
-                Enter the Polymarket API credentials you generated for{" "}
-                <strong>{abbrev(botAddr)}</strong>:
+                Please go back to Step 2 and save your Polymarket proxy wallet
+                address to continue.
               </p>
-
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                  marginBottom: 16,
-                }}
-              >
-                <div>
-                  <label
-                    style={{
-                      fontSize: 12,
-                      color: "var(--text-secondary)",
-                      display: "block",
-                      marginBottom: 4,
-                    }}
-                  >
-                    API Key (UUID)
-                  </label>
-                  <input
-                    type="text"
-                    className="input"
-                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    style={{ width: "100%" }}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    style={{
-                      fontSize: 12,
-                      color: "var(--text-secondary)",
-                      display: "block",
-                      marginBottom: 4,
-                    }}
-                  >
-                    API Secret (base64)
-                  </label>
-                  <input
-                    type="password"
-                    className="input"
-                    placeholder="base64-encoded secret"
-                    value={apiSecret}
-                    onChange={(e) => setApiSecret(e.target.value)}
-                    style={{ width: "100%" }}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    style={{
-                      fontSize: 12,
-                      color: "var(--text-secondary)",
-                      display: "block",
-                      marginBottom: 4,
-                    }}
-                  >
-                    API Passphrase (hex)
-                  </label>
-                  <input
-                    type="password"
-                    className="input"
-                    placeholder="hex passphrase"
-                    value={apiPassphrase}
-                    onChange={(e) => setApiPassphrase(e.target.value)}
-                    style={{ width: "100%" }}
-                  />
-                </div>
-              </div>
-
-              {error && (
-                <p style={{ color: "#ff3b30", marginBottom: 12, fontSize: 13 }}>
-                  {error}
-                </p>
-              )}
-
-              <div style={{ display: "flex", gap: 10 }}>
-                <button className="btn-secondary" onClick={() => setStep(2)}>
-                  Back
-                </button>
-                <button
-                  className="btn-primary"
-                  onClick={handleSaveKeys}
-                  disabled={saving}
-                >
-                  {saving ? "Saving…" : "Save API Keys"}
-                </button>
-              </div>
+              <button className="btn-secondary" onClick={() => setStep(2)}>
+                Back to Step 2
+              </button>
             </div>
           )}
         </div>

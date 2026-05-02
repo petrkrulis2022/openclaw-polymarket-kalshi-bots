@@ -33,6 +33,7 @@ db.exec(`
     poly_api_key       TEXT,
     poly_api_secret    TEXT,
     poly_api_passphrase TEXT,
+    poly_funder_address TEXT,
     bots_running       INTEGER NOT NULL DEFAULT 0,
     autonomous_mode    INTEGER NOT NULL DEFAULT 0,
     created_at         INTEGER NOT NULL DEFAULT (unixepoch())
@@ -60,6 +61,17 @@ if (
   );
 }
 
+// Migration: add poly_funder_address to databases that predate this column
+if (
+  !db
+    .prepare(
+      "SELECT name FROM pragma_table_info('users') WHERE name = 'poly_funder_address'",
+    )
+    .get()
+) {
+  db.exec("ALTER TABLE users ADD COLUMN poly_funder_address TEXT");
+}
+
 // ── Prepared statements ───────────────────────────────────────────────────────
 
 const stmtGetUser = db.prepare<[string]>(
@@ -73,6 +85,9 @@ const stmtUpdateBotAddress = db.prepare<[string, string]>(
 );
 const stmtUpdateApiKeys = db.prepare<[string, string, string, string]>(
   "UPDATE users SET poly_api_key = ?, poly_api_secret = ?, poly_api_passphrase = ? WHERE metamask_address = ?",
+);
+const stmtUpdateFunderAddress = db.prepare<[string, string]>(
+  "UPDATE users SET poly_funder_address = ? WHERE metamask_address = ?",
 );
 const stmtSetBotsRunning = db.prepare<[number, string]>(
   "UPDATE users SET bots_running = ? WHERE metamask_address = ?",
@@ -97,6 +112,7 @@ export interface User {
   poly_api_key: string | null;
   poly_api_secret: string | null;
   poly_api_passphrase: string | null;
+  poly_funder_address: string | null;
   bots_running: number;
   autonomous_mode: number;
   created_at: number;
@@ -142,6 +158,13 @@ export function updateApiKeys(
   apiPassphrase: string,
 ): void {
   stmtUpdateApiKeys.run(apiKey, apiSecret, apiPassphrase, metamaskAddress);
+}
+
+export function updateFunderAddress(
+  metamaskAddress: string,
+  funderAddress: string,
+): void {
+  stmtUpdateFunderAddress.run(funderAddress, metamaskAddress);
 }
 
 export function setBotsRunning(

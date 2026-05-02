@@ -19,7 +19,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { ethers } from "ethers";
 import {
-  getAccount,
+  SEED_PHRASE,
   USDT_TOKEN_ADDRESS,
   POLYGON_RPC,
   parseUsdT,
@@ -71,8 +71,6 @@ const SWAP_ROUTER_ABI = [
 const router = Router();
 
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let account: any = null;
   try {
     const { index, amountUsdce } = req.body as {
       index?: unknown;
@@ -88,17 +86,19 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       });
     }
 
-    // ── Derive signer key and wallet address ────────────────────────────────
+    // ── Derive signer key and wallet address using BIP-44 path ─────────────
 
-    account = await getAccount(index);
-    const walletAddress: string = await account.getAddress();
-    const privBuf: Uint8Array = account.keyPair.privateKey;
-    const signerKey = Buffer.from(privBuf).toString("hex");
+    const hdWallet = ethers.HDNodeWallet.fromPhrase(
+      SEED_PHRASE,
+      undefined,
+      `m/44'/60'/0'/0/${index}`,
+    );
+    const walletAddress = hdWallet.address;
 
     // ── Build ethers signer ─────────────────────────────────────────────────
 
     const provider = new ethers.JsonRpcProvider(POLYGON_RPC);
-    const signer = new ethers.Wallet(`0x${signerKey}`, provider);
+    const signer = new ethers.Wallet(hdWallet.privateKey, provider);
 
     // ── Determine swap amount ────────────────────────────────────────────────
 
@@ -189,10 +189,6 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     });
   } catch (err) {
     return next(err);
-  } finally {
-    try {
-      account?.dispose?.();
-    } catch {}
   }
 });
 

@@ -2534,7 +2534,7 @@ export default function App() {
     loading: userLoading,
     balance,
     balanceLoading,
-    saveApiKeys,
+    saveFunderAddress,
     startBots,
     stopBots,
     convertFunds,
@@ -2620,7 +2620,7 @@ export default function App() {
               <UserOnboarding
                 user={user}
                 balance={balance}
-                onSaveApiKeys={saveApiKeys}
+                onSaveFunderAddress={saveFunderAddress}
                 onStartBots={startBots}
                 onConvertFunds={convertFunds}
                 onSetAutonomousMode={setAutonomousMode}

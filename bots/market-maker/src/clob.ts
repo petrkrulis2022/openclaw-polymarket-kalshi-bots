@@ -2,9 +2,12 @@ import {
   ClobClient,
   Chain,
   Side,
-  type ApiKeyCreds,
-} from "@polymarket/clob-client";
-import { SignatureType } from "@polymarket/order-utils";
+  AssetType,
+  SignatureTypeV2,
+} from "@polymarket/clob-client-v2";
+import { createWalletClient, http } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { polygon } from "viem/chains";
 import { config } from "./config.js";
 
 export interface OrderBook {
@@ -17,41 +20,49 @@ export interface OrderResult {
   paper: boolean;
 }
 
-// Lazy-init client — L1 creds only (no private key needed for reads)
+// Lazy-init client — no signer needed for reads
 let _client: ClobClient | null = null;
 
 function getClient(): ClobClient {
   if (_client) return _client;
-  const creds: ApiKeyCreds = {
-    key: config.polymarket.apiKey,
-    secret: config.polymarket.apiSecret,
-    passphrase: config.polymarket.apiPassphrase,
-  };
-  _client = new ClobClient(
-    config.polymarket.host,
-    Chain.POLYGON,
-    undefined,
-    creds,
-  );
+  _client = new ClobClient({
+    host: config.polymarket.host,
+    chain: Chain.POLYGON,
+  });
   return _client;
 }
 
-// EOA mode — MetaMask EOA (0xD7CA82...) is both signer and maker.
-// USDC.e is approved to CTF Exchange directly from the EOA wallet.
+// Signing client — derives API creds from private key once at startup
+let _signingClient: ClobClient | null = null;
+
 async function getSigningClient(): Promise<ClobClient> {
-  const { Wallet } = await import("ethers");
-  const creds: ApiKeyCreds = {
-    key: config.polymarket.apiKey,
-    secret: config.polymarket.apiSecret,
-    passphrase: config.polymarket.apiPassphrase,
-  };
-  return new ClobClient(
-    config.polymarket.host,
-    Chain.POLYGON,
-    new Wallet(config.polymarket.signerKey),
-    creds,
-    SignatureType.EOA,
+  if (_signingClient) return _signingClient;
+  const key = config.polymarket.signerKey;
+  const account = privateKeyToAccount(
+    (key.startsWith("0x") ? key : `0x${key}`) as `0x${string}`,
   );
+  const walletClient = createWalletClient({
+    account,
+    chain: polygon,
+    transport: http(),
+  });
+  const tempClient = new ClobClient({
+    host: config.polymarket.host,
+    chain: Chain.POLYGON,
+    signer: walletClient,
+    signatureType: SignatureTypeV2.POLY_GNOSIS_SAFE,
+    funderAddress: config.polymarket.funderAddress,
+  });
+  const creds = await tempClient.createOrDeriveApiKey();
+  _signingClient = new ClobClient({
+    host: config.polymarket.host,
+    chain: Chain.POLYGON,
+    signer: walletClient,
+    creds,
+    signatureType: SignatureTypeV2.POLY_GNOSIS_SAFE,
+    funderAddress: config.polymarket.funderAddress,
+  });
+  return _signingClient;
 }
 
 export async function getOrderBook(tokenId: string): Promise<OrderBook> {
@@ -118,7 +129,7 @@ export async function getCollateralBalance(): Promise<number> {
   try {
     const c = await getSigningClient();
     const result = (await c.getBalanceAllowance({
-      asset_type: "COLLATERAL",
+      asset_type: AssetType.COLLATERAL,
     })) as {
       balance?: string;
     };

@@ -1,6 +1,5 @@
 /**
- * clob.ts — thin wrapper around @polymarket/clob-client for the copy-trader bot.
- * Mirrors the market-maker clob.ts exactly.
+ * clob.ts — thin wrapper around @polymarket/clob-client-v2 for the copy-trader bot.
  */
 
 import {
@@ -8,9 +7,11 @@ import {
   Chain,
   Side,
   AssetType,
-  type ApiKeyCreds,
-} from "@polymarket/clob-client";
-import { SignatureType } from "@polymarket/order-utils";
+  SignatureTypeV2,
+} from "@polymarket/clob-client-v2";
+import { createWalletClient, http } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { polygon } from "viem/chains";
 import { config } from "./config.js";
 
 export interface OrderBook {
@@ -28,34 +29,43 @@ let _client: ClobClient | null = null;
 
 function getClient(): ClobClient {
   if (_client) return _client;
-  const creds: ApiKeyCreds = {
-    key: config.polymarket.apiKey,
-    secret: config.polymarket.apiSecret,
-    passphrase: config.polymarket.apiPassphrase,
-  };
-  _client = new ClobClient(
-    config.polymarket.host,
-    Chain.POLYGON,
-    undefined,
-    creds,
-  );
+  _client = new ClobClient({
+    host: config.polymarket.host,
+    chain: Chain.POLYGON,
+  });
   return _client;
 }
 
+let _signingClient: ClobClient | null = null;
+
 async function getSigningClient(): Promise<ClobClient> {
-  const { Wallet } = await import("ethers");
-  const creds: ApiKeyCreds = {
-    key: config.polymarket.apiKey,
-    secret: config.polymarket.apiSecret,
-    passphrase: config.polymarket.apiPassphrase,
-  };
-  return new ClobClient(
-    config.polymarket.host,
-    Chain.POLYGON,
-    new Wallet(config.polymarket.signerKey),
-    creds,
-    SignatureType.EOA,
+  if (_signingClient) return _signingClient;
+  const key = config.polymarket.signerKey;
+  const account = privateKeyToAccount(
+    (key.startsWith("0x") ? key : `0x${key}`) as `0x${string}`,
   );
+  const walletClient = createWalletClient({
+    account,
+    chain: polygon,
+    transport: http(),
+  });
+  const tempClient = new ClobClient({
+    host: config.polymarket.host,
+    chain: Chain.POLYGON,
+    signer: walletClient,
+    signatureType: SignatureTypeV2.POLY_GNOSIS_SAFE,
+    funderAddress: config.polymarket.funderAddress,
+  });
+  const creds = await tempClient.createOrDeriveApiKey();
+  _signingClient = new ClobClient({
+    host: config.polymarket.host,
+    chain: Chain.POLYGON,
+    signer: walletClient,
+    creds,
+    signatureType: SignatureTypeV2.POLY_GNOSIS_SAFE,
+    funderAddress: config.polymarket.funderAddress,
+  });
+  return _signingClient;
 }
 
 // ── Orderbook ─────────────────────────────────────────────────────────────────

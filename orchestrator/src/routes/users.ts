@@ -20,6 +20,7 @@ import {
   upsertUser,
   updateBotWalletAddress,
   updateApiKeys,
+  updateFunderAddress,
   setBotsRunning,
   setAutonomousMode,
   type User,
@@ -62,11 +63,10 @@ function safeUser(user: User) {
   return {
     metamaskAddress: user.metamask_address,
     botWalletAddress: user.bot_wallet_address,
-    hasApiKeys: !!(
-      user.poly_api_key &&
-      user.poly_api_secret &&
-      user.poly_api_passphrase
-    ),
+    // hasApiKeys now reflects whether Polymarket funder address (proxy wallet) is configured.
+    // Bots auto-derive their API creds from the private key via clob-client-v2.
+    hasApiKeys: !!user.poly_funder_address,
+    funderAddress: user.poly_funder_address ?? null,
     botsRunning: user.bots_running === 1,
     autonomousMode: user.autonomous_mode === 1,
     createdAt: user.created_at,
@@ -147,6 +147,7 @@ router.get("/:address", (req: Request, res: Response) => {
 });
 
 // ── PUT /users/:address/api-keys ──────────────────────────────────────────────
+// Kept for backward-compat; stores API key/secret/passphrase if provided.
 
 router.put("/:address/api-keys", (req: Request, res: Response) => {
   const { address } = req.params;
@@ -169,6 +170,28 @@ router.put("/:address/api-keys", (req: Request, res: Response) => {
   return res.json({ ok: true });
 });
 
+// ── PUT /users/:address/funder-address ─────────────────────────────────────────
+// Save the Polymarket proxy wallet address (funderAddress for GNOSIS_SAFE sigs).
+
+router.put("/:address/funder-address", (req: Request, res: Response) => {
+  const { address } = req.params;
+  const { funderAddress } = req.body as { funderAddress?: string };
+
+  if (!funderAddress || !/^0x[0-9a-fA-F]{40}$/.test(funderAddress)) {
+    return res
+      .status(400)
+      .json({
+        error: "Invalid funderAddress (must be a 0x-prefixed EVM address)",
+      });
+  }
+
+  const user = getUser(address);
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  updateFunderAddress(address, funderAddress);
+  return res.json({ ok: true });
+});
+
 // ── POST /users/:address/start-bots ───────────────────────────────────────────
 
 router.post(
@@ -181,12 +204,13 @@ router.post(
       if (!user.bot_wallet_address) {
         return res.status(400).json({ error: "Bot wallet not yet derived" });
       }
-      if (
-        !user.poly_api_key ||
-        !user.poly_api_secret ||
-        !user.poly_api_passphrase
-      ) {
-        return res.status(400).json({ error: "API keys not configured" });
+      if (!user.poly_funder_address) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Polymarket funder address not configured — complete onboarding step 2 first",
+          });
       }
 
       // Get the signer key from treasury (needed to sign Polymarket orders)
@@ -212,9 +236,7 @@ router.post(
             BOT_ID: String(bot.botId),
             POLYMARKET_WALLET_ADDRESS: user.bot_wallet_address,
             BOT_SIGNER_KEY: signerKey,
-            POLYMARKET_API_KEY: user.poly_api_key,
-            POLYMARKET_API_SECRET: user.poly_api_secret,
-            POLYMARKET_API_PASSPHRASE: user.poly_api_passphrase,
+            POLYMARKET_FUNDER_ADDRESS: user.poly_funder_address,
             ORCHESTRATOR_URL: `http://localhost:${process.env["PORT"] ?? 3002}`,
             TREASURY_URL: WDK_TREASURY_URL,
             PAPER_TRADING: "",
@@ -418,11 +440,9 @@ router.post(
         const body = await swapRes.text();
         // "No USDC.e balance to swap" is expected when user only has USDT
         if (!body.includes("No USDC.e balance")) {
-          return res
-            .status(502)
-            .json({
-              error: `USDC.e → USDT swap failed (${swapRes.status}): ${body}`,
-            });
+          return res.status(502).json({
+            error: `USDC.e → USDT swap failed (${swapRes.status}): ${body}`,
+          });
         }
       }
 
@@ -446,11 +466,9 @@ router.post(
 
       if (!withdrawRes.ok) {
         const body = await withdrawRes.text();
-        return res
-          .status(502)
-          .json({
-            error: `Withdrawal transfer failed (${withdrawRes.status}): ${body}`,
-          });
+        return res.status(502).json({
+          error: `Withdrawal transfer failed (${withdrawRes.status}): ${body}`,
+        });
       }
 
       const withdrawResult = (await withdrawRes.json()) as {

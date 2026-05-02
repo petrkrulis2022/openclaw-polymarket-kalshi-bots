@@ -50,7 +50,7 @@ function getOrCreateSeedPhrase(): string {
   return mnemonic;
 }
 
-const SEED_PHRASE = getOrCreateSeedPhrase();
+export const SEED_PHRASE = getOrCreateSeedPhrase();
 export const USDT_TOKEN_ADDRESS =
   process.env.USDT_TOKEN_ADDRESS ??
   "0xc2132D05D31c914a87C6611C10748AEb04B58e8F";

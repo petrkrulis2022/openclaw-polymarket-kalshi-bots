@@ -10,20 +10,18 @@ export const config = {
   port: parseInt(process.env["PORT"] ?? "3003", 10),
   botId: parseInt(process.env["BOT_ID"] ?? "1", 10),
   // Live mode: BOT_SIGNER_KEY must be set and PAPER_TRADING must not be "true".
-  // MetaMask EOA (0xD7CA82...) signs via POLY_PROXY for the funded proxy wallet (0x705cA73...).
+  // The bot EOA signs on behalf of funderAddress (Polymarket proxy wallet) using
+  // GNOSIS_SAFE signature type. API creds are auto-derived from the private key.
   paperTrading:
     !process.env["BOT_SIGNER_KEY"] || process.env["PAPER_TRADING"] === "true",
 
   polymarket: {
-    // Proxy wallet address — holds deposited USDC, the maker on all orders
+    // Proxy wallet address registered on Polymarket (the maker on all orders)
     walletAddress: req("POLYMARKET_WALLET_ADDRESS"),
-    apiKey: req("POLYMARKET_API_KEY"),
-    apiSecret: req("POLYMARKET_API_SECRET"),
-    apiPassphrase: req("POLYMARKET_API_PASSPHRASE"),
-    // MetaMask EOA private key — signs on behalf of funderAddress (POLY_PROXY)
+    // Bot EOA private key (hex, no 0x prefix) — signs orders for funderAddress
     signerKey: process.env["BOT_SIGNER_KEY"] ?? "",
-    // Proxy/funder wallet that holds USDC (maker on orders)
-    funderAddress: process.env["POLYMARKET_WALLET_ADDRESS"] ?? "",
+    // Polymarket proxy wallet (Gnosis Safe) that holds pUSD collateral
+    funderAddress: process.env["POLYMARKET_FUNDER_ADDRESS"] ?? "",
     host: "https://clob.polymarket.com",
     gammaHost: "https://gamma-api.polymarket.com",
   } as const,
