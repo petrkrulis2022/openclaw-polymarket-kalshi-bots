@@ -44,15 +44,39 @@ async function getSigningClient(): Promise<ClobClient> {
   const account = privateKeyToAccount(
     (key.startsWith("0x") ? key : `0x${key}`) as `0x${string}`,
   );
-  const walletClient = createWalletClient({
-    account,
-    chain: polygon,
-    transport: http(),
-  });
+  // For POLY_1271 (deposit wallet), POLY_ADDRESS in L1 auth must be the deposit wallet
+  // address, not the EOA. Create an EthersSigner adapter: getAddress() returns the
+  // deposit wallet, _signTypedData() signs with the EOA (valid via ERC-1271 on-chain).
+  const signer =
+    config.polymarket.signatureType === SignatureTypeV2.POLY_1271 &&
+    config.polymarket.funderAddress
+      ? {
+          getAddress: async () => config.polymarket.funderAddress,
+          _signTypedData: async (
+            domain: Record<string, unknown>,
+            types: Record<string, Array<{ name: string; type: string }>>,
+            value: Record<string, unknown>,
+          ): Promise<string> => {
+            const primaryType = Object.keys(types).find(
+              (k) => k !== "EIP712Domain",
+            ) as string;
+            return account.signTypedData({
+              domain: domain as any,
+              types: types as any,
+              primaryType: primaryType as any,
+              message: value as any,
+            });
+          },
+        }
+      : createWalletClient({
+          account,
+          chain: polygon,
+          transport: http(),
+        });
   const tempClient = new ClobClient({
     host: config.polymarket.host,
     chain: Chain.POLYGON,
-    signer: walletClient,
+    signer: signer as any,
     signatureType: config.polymarket.signatureType,
     funderAddress: config.polymarket.funderAddress,
   });
@@ -60,7 +84,7 @@ async function getSigningClient(): Promise<ClobClient> {
   _signingClient = new ClobClient({
     host: config.polymarket.host,
     chain: Chain.POLYGON,
-    signer: walletClient,
+    signer: signer as any,
     creds,
     signatureType: config.polymarket.signatureType,
     funderAddress: config.polymarket.funderAddress,
