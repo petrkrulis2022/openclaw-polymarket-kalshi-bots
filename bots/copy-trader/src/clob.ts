@@ -53,7 +53,7 @@ async function getSigningClient(): Promise<ClobClient> {
     host: config.polymarket.host,
     chain: Chain.POLYGON,
     signer: walletClient,
-    signatureType: SignatureTypeV2.POLY_GNOSIS_SAFE,
+    signatureType: config.polymarket.signatureType,
     funderAddress: config.polymarket.funderAddress,
   });
   const creds = await tempClient.createOrDeriveApiKey();
@@ -62,7 +62,7 @@ async function getSigningClient(): Promise<ClobClient> {
     chain: Chain.POLYGON,
     signer: walletClient,
     creds,
-    signatureType: SignatureTypeV2.POLY_GNOSIS_SAFE,
+    signatureType: config.polymarket.signatureType,
     funderAddress: config.polymarket.funderAddress,
   });
   return _signingClient;

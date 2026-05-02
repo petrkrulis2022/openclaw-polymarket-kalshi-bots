@@ -17,18 +17,18 @@ interface MetricsBody {
   extra?: Record<string, unknown>;
 }
 
-const VALID_BOT_IDS = new Set([1, 2, 3]);
+const VALID_BOT_IDS = new Set([1, 2, 3, 4, 5, 6, 7]);
 
 metricsRouter.post("/", async (req: Request, res: Response) => {
   const body = req.body as MetricsBody;
 
   const botId = Number(body.botId);
   if (!VALID_BOT_IDS.has(botId)) {
-    res.status(400).json({ error: "botId must be 1, 2, or 3" });
+    res.status(400).json({ error: "botId must be 1, 2, 3, 4, 5, 6, or 7" });
     return;
   }
 
-  const equity = parseFloat(body.equity);
+  const equity = parseFloat(String(body.equity));
   if (!isFinite(equity) || equity < 0) {
     res.status(400).json({ error: "equity must be a non-negative number" });
     return;

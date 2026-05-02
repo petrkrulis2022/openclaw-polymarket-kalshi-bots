@@ -178,11 +178,9 @@ router.put("/:address/funder-address", (req: Request, res: Response) => {
   const { funderAddress } = req.body as { funderAddress?: string };
 
   if (!funderAddress || !/^0x[0-9a-fA-F]{40}$/.test(funderAddress)) {
-    return res
-      .status(400)
-      .json({
-        error: "Invalid funderAddress (must be a 0x-prefixed EVM address)",
-      });
+    return res.status(400).json({
+      error: "Invalid funderAddress (must be a 0x-prefixed EVM address)",
+    });
   }
 
   const user = getUser(address);
@@ -205,12 +203,10 @@ router.post(
         return res.status(400).json({ error: "Bot wallet not yet derived" });
       }
       if (!user.poly_funder_address) {
-        return res
-          .status(400)
-          .json({
-            error:
-              "Polymarket funder address not configured — complete onboarding step 2 first",
-          });
+        return res.status(400).json({
+          error:
+            "Polymarket funder address not configured — complete onboarding step 2 first",
+        });
       }
 
       // Get the signer key from treasury (needed to sign Polymarket orders)
@@ -234,9 +230,10 @@ router.post(
           env: {
             PORT: String(port),
             BOT_ID: String(bot.botId),
-            POLYMARKET_WALLET_ADDRESS: user.bot_wallet_address,
+            POLYMARKET_WALLET_ADDRESS: user.poly_funder_address,
             BOT_SIGNER_KEY: signerKey,
             POLYMARKET_FUNDER_ADDRESS: user.poly_funder_address,
+            POLYMARKET_SIGNATURE_TYPE: "POLY_1271",
             ORCHESTRATOR_URL: `http://localhost:${process.env["PORT"] ?? 3002}`,
             TREASURY_URL: WDK_TREASURY_URL,
             PAPER_TRADING: "",
