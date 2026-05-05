@@ -41,11 +41,10 @@ async function getSigningClient(): Promise<ClobClient> {
   const account = privateKeyToAccount(
     (key.startsWith("0x") ? key : `0x${key}`) as `0x${string}`,
   );
-  // For POLY_1271 (deposit wallet), POLY_ADDRESS in L1 auth must be the deposit wallet
-  // address, not the EOA. Create an EthersSigner adapter: getAddress() returns the
-  // deposit wallet, _signTypedData() signs with the EOA (valid via ERC-1271 on-chain).
+  // For POLY_PROXY (Polymarket proxy wallet), POLY_ADDRESS must be the proxy wallet
+  // address (funderAddress), not the EOA. Create an EthersSigner adapter:
+  // getAddress() returns the proxy wallet, _signTypedData() signs with the EOA.
   const signer =
-    config.polymarket.signatureType === SignatureTypeV2.POLY_1271 &&
     config.polymarket.funderAddress
       ? {
           getAddress: async () => config.polymarket.funderAddress,
