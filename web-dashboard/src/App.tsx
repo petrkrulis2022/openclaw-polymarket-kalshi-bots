@@ -2651,6 +2651,40 @@ export default function App() {
                     {balanceLoading ? "…" : "Refresh"}
                   </button>
                 </div>
+                {user?.botWalletAddress && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      marginBottom: 12,
+                      background: "var(--bg)",
+                      borderRadius: 6,
+                      padding: "6px 10px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: "monospace",
+                        fontSize: 13,
+                        color: "var(--text-secondary)",
+                        flex: 1,
+                        wordBreak: "break-all",
+                      }}
+                    >
+                      {user.botWalletAddress}
+                    </span>
+                    <button
+                      className="btn-secondary"
+                      style={{ flexShrink: 0, fontSize: 11, padding: "3px 8px" }}
+                      onClick={() =>
+                        navigator.clipboard.writeText(user.botWalletAddress!)
+                      }
+                    >
+                      Copy
+                    </button>
+                  </div>
+                )}
                 <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
                   <div>
                     <div className="balance-label">USDT</div>
