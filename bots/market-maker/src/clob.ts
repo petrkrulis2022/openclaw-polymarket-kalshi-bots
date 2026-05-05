@@ -126,7 +126,7 @@ export async function cancelOrder(orderId: string): Promise<void> {
   }
 }
 
-/** Returns the CLOB collateral balance in USD (6-decimal USDC.e normalised). */
+/** Returns the CLOB collateral balance in USD (6-decimal pUSD normalised). */
 export async function getCollateralBalance(): Promise<number> {
   try {
     const c = await getSigningClient();
@@ -135,7 +135,6 @@ export async function getCollateralBalance(): Promise<number> {
     })) as {
       balance?: string;
     };
-    console.log("[clob] getBalanceAllowance raw result:", JSON.stringify(result));
     return parseFloat(result.balance ?? "0") / 1e6;
   } catch (err) {
     console.warn("[clob] getCollateralBalance error:", (err as Error).message);
