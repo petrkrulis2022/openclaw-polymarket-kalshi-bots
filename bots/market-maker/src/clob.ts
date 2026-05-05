@@ -41,34 +41,13 @@ async function getSigningClient(): Promise<ClobClient> {
   const account = privateKeyToAccount(
     (key.startsWith("0x") ? key : `0x${key}`) as `0x${string}`,
   );
-  // For POLY_PROXY (Polymarket proxy wallet), POLY_ADDRESS must be the proxy wallet
-  // address (funderAddress), not the EOA. Create an EthersSigner adapter:
-  // getAddress() returns the proxy wallet, _signTypedData() signs with the EOA.
-  const signer =
-    config.polymarket.funderAddress
-      ? {
-          getAddress: async () => config.polymarket.funderAddress,
-          _signTypedData: async (
-            domain: Record<string, unknown>,
-            types: Record<string, Array<{ name: string; type: string }>>,
-            value: Record<string, unknown>,
-          ): Promise<string> => {
-            const primaryType = Object.keys(types).find(
-              (k) => k !== "EIP712Domain",
-            ) as string;
-            return account.signTypedData({
-              domain: domain as any,
-              types: types as any,
-              primaryType: primaryType as any,
-              message: value as any,
-            });
-          },
-        }
-      : createWalletClient({
-          account,
-          chain: polygon,
-          transport: http(),
-        });
+  // Use EOA walletClient as signer. In v2 SDK, POLY_ADDRESS = EOA address for L1 auth.
+  // funderAddress (proxy/deposit wallet) is used only for order construction (maker field).
+  const signer = createWalletClient({
+    account,
+    chain: polygon,
+    transport: http(),
+  });
   const tempClient = new ClobClient({
     host: config.polymarket.host,
     chain: Chain.POLYGON,
