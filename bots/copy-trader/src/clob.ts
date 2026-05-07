@@ -8,6 +8,8 @@ import {
   Side,
   AssetType,
   SignatureTypeV2,
+  createL1Headers,
+  type ApiKeyCreds,
 } from "@polymarket/clob-client-v2";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -38,27 +40,67 @@ function getClient(): ClobClient {
 
 let _signingClient: ClobClient | null = null;
 
+async function createOrDeriveApiKeyPoly1271(
+  signer: any,
+  chainId: Chain,
+  host: string,
+  funderAddress: string,
+): Promise<ApiKeyCreds> {
+  const nonce = 0;
+  const l1Headers = await createL1Headers(signer, chainId, nonce, undefined, funderAddress);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    POLY_ADDRESS: l1Headers.POLY_ADDRESS,
+    POLY_SIGNATURE: l1Headers.POLY_SIGNATURE,
+    POLY_TIMESTAMP: l1Headers.POLY_TIMESTAMP,
+    POLY_NONCE: l1Headers.POLY_NONCE,
+  };
+  const createResp = await fetch(`${host}/auth/api-key`, { method: "POST", headers });
+  if (createResp.ok) {
+    const raw = (await createResp.json()) as { apiKey: string; secret: string; passphrase: string };
+    return { key: raw.apiKey, secret: raw.secret, passphrase: raw.passphrase };
+  }
+  const deriveResp = await fetch(`${host}/auth/derive-api-key`, { method: "GET", headers });
+  if (!deriveResp.ok) {
+    const errBody = await deriveResp.text();
+    throw new Error(`POLY_1271 API key create/derive failed: ${errBody}`);
+  }
+  const raw = (await deriveResp.json()) as { apiKey: string; secret: string; passphrase: string };
+  return { key: raw.apiKey, secret: raw.secret, passphrase: raw.passphrase };
+}
+
 async function getSigningClient(): Promise<ClobClient> {
   if (_signingClient) return _signingClient;
   const key = config.polymarket.signerKey;
   const account = privateKeyToAccount(
     (key.startsWith("0x") ? key : `0x${key}`) as `0x${string}`,
   );
-  // Use EOA walletClient as signer. In v2 SDK, POLY_ADDRESS = EOA address for L1 auth.
-  // funderAddress (proxy/deposit wallet) is used only for order construction (maker field).
   const signer = createWalletClient({
     account,
     chain: polygon,
     transport: http(),
   });
-  const tempClient = new ClobClient({
-    host: config.polymarket.host,
-    chain: Chain.POLYGON,
-    signer: signer as any,
-    signatureType: config.polymarket.signatureType,
-    funderAddress: config.polymarket.funderAddress,
-  });
-  const creds = await tempClient.createOrDeriveApiKey();
+  let creds: ApiKeyCreds;
+  if (config.polymarket.signatureType === SignatureTypeV2.POLY_1271) {
+    if (!config.polymarket.funderAddress) {
+      throw new Error("POLY_1271 requires funderAddress (deposit wallet address) to be set");
+    }
+    creds = await createOrDeriveApiKeyPoly1271(
+      signer as any,
+      Chain.POLYGON,
+      config.polymarket.host,
+      config.polymarket.funderAddress,
+    );
+  } else {
+    const tempClient = new ClobClient({
+      host: config.polymarket.host,
+      chain: Chain.POLYGON,
+      signer: signer as any,
+      signatureType: config.polymarket.signatureType,
+      funderAddress: config.polymarket.funderAddress,
+    });
+    creds = await tempClient.createOrDeriveApiKey();
+  }
   _signingClient = new ClobClient({
     host: config.polymarket.host,
     chain: Chain.POLYGON,

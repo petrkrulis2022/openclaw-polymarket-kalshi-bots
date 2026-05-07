@@ -233,7 +233,7 @@ router.post(
             POLYMARKET_WALLET_ADDRESS: user.poly_funder_address,
             BOT_SIGNER_KEY: signerKey,
             POLYMARKET_FUNDER_ADDRESS: user.poly_funder_address,
-            POLYMARKET_SIGNATURE_TYPE: "POLY_PROXY",
+            POLYMARKET_SIGNATURE_TYPE: "POLY_1271",
             ORCHESTRATOR_URL: `http://localhost:${process.env["PORT"] ?? 3002}`,
             TREASURY_URL: WDK_TREASURY_URL,
             PAPER_TRADING: "",
