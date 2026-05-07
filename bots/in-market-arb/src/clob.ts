@@ -52,8 +52,7 @@ async function getSigningClient(): Promise<ClobClient> {
   const needsAddressOverride =
     funderAddress &&
     funderAddress.toLowerCase() !== account.address.toLowerCase() &&
-    (config.polymarket.signatureType === SignatureTypeV2.POLY_1271 ||
-      config.polymarket.signatureType === SignatureTypeV2.POLY_GNOSIS_SAFE);
+    config.polymarket.signatureType !== SignatureTypeV2.EOA;
 
   const effectiveAccount = needsAddressOverride
     ? { ...account, address: funderAddress as `0x${string}` }
@@ -72,7 +71,18 @@ async function getSigningClient(): Promise<ClobClient> {
     signatureType: config.polymarket.signatureType,
     funderAddress: config.polymarket.funderAddress,
   });
+  console.log(
+    `[clob] creating API key sig_type=${config.polymarket.signatureType} poly_address=${effectiveAccount.address} funder=${config.polymarket.funderAddress || "(none)"}`,
+  );
   const creds = await tempClient.createOrDeriveApiKey();
+  if (!creds || !(creds as Record<string, unknown>)["key"]) {
+    throw new Error(
+      `createOrDeriveApiKey returned empty creds: ${JSON.stringify(creds)}. ` +
+        `sig_type=${config.polymarket.signatureType}, funder=${config.polymarket.funderAddress || "(none)"}. ` +
+        `If using POLY_1271/POLY_GNOSIS_SAFE, funderAddress must be a deployed EIP-1271 contract on Polygon.`,
+    );
+  }
+  console.log(`[clob] API key created/derived ok: key=${(creds as Record<string, unknown>)["key"]}`);
 
   _signingClient = new ClobClient({
     host: config.polymarket.host,
