@@ -54,12 +54,14 @@ async function fetchTreasuryEquity(): Promise<number> {
 async function fetchAllocatedEquity(): Promise<number> {
   const treasuryBalance = await fetchTreasuryEquity();
   if (treasuryBalance > 0) return treasuryBalance;
-  // Fall back to CLOB collateral balance (EOA mode)
+  // Fall back to CLOB collateral balance (EOA mode).
+  // Divide by BOT_COUNT so multiple user bots sharing one proxy wallet don't overcount.
+  const botCount = parseInt(process.env["BOT_COUNT"] ?? "1", 10);
   const clobBalance = await getCollateralBalance();
   if (clobBalance > 0) {
-    console.log(`[init] EOA CLOB balance: $${clobBalance.toFixed(4)} USDC.e`);
+    console.log(`[init] EOA CLOB balance: $${clobBalance.toFixed(4)} USDC.e (÷${botCount} bots)`);
   }
-  return clobBalance;
+  return clobBalance / botCount;
 }
 
 // ─── Main quoting loop ────────────────────────────────────────────────────────

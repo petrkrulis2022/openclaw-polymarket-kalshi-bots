@@ -38,7 +38,8 @@ async function fetchAllocatedEquity(): Promise<number> {
     // Treasury offline — fall back to CLOB balance
   }
   try {
-    return await getCollateralBalance();
+    const botCount = parseInt(process.env["BOT_COUNT"] ?? "1", 10);
+    return (await getCollateralBalance()) / botCount;
   } catch {
     return 0;
   }

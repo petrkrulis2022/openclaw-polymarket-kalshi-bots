@@ -236,6 +236,7 @@ router.post(
             POLYMARKET_SIGNATURE_TYPE: "POLY_GNOSIS_SAFE",
             ORCHESTRATOR_URL: `http://localhost:${process.env["PORT"] ?? 3002}`,
             TREASURY_URL: WDK_TREASURY_URL,
+            BOT_COUNT: String(BOT_DEFS.length),
             PAPER_TRADING: "",
           },
         };
