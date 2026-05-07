@@ -1,9 +1,4 @@
-import {
-  ClobClient,
-  Chain,
-  Side,
-  AssetType,
-} from "@polymarket/clob-client-v2";
+import { ClobClient, Chain, Side, AssetType } from "@polymarket/clob-client-v2";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { polygon } from "viem/chains";
@@ -68,7 +63,9 @@ async function getSigningClient(): Promise<ClobClient> {
         `If using POLY_1271/POLY_GNOSIS_SAFE, funderAddress must be a deployed EIP-1271 contract on Polygon.`,
     );
   }
-  console.log(`[clob] API key created/derived ok: key=${(creds as Record<string, unknown>)["key"]}`);
+  console.log(
+    `[clob] API key created/derived ok: key=${(creds as Record<string, unknown>)["key"]}`,
+  );
 
   _signingClient = new ClobClient({
     host: config.polymarket.host,
@@ -145,11 +142,19 @@ export async function getCollateralBalance(): Promise<number> {
   if (config.paperTrading) return 0;
   try {
     const c = await getSigningClient();
+    // Refresh the CLOB's on-chain cache first (no-op if already fresh)
+    await c.updateBalanceAllowance({ asset_type: AssetType.COLLATERAL }).catch(
+      (e: unknown) => console.warn("[clob] updateBalanceAllowance error:", (e as Error).message),
+    );
     const result = (await c.getBalanceAllowance({
       asset_type: AssetType.COLLATERAL,
     })) as {
       balance?: string;
+      allowance?: string;
     };
+    console.log(
+      `[clob] balance-allowance raw: balance=${result.balance ?? "?"} allowance=${result.allowance ?? "?"}`,
+    );
     return parseFloat(result.balance ?? "0") / 1e6;
   } catch (err) {
     console.warn("[clob] getCollateralBalance error:", (err as Error).message);
