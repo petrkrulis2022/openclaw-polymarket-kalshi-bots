@@ -3,7 +3,6 @@ import {
   Chain,
   Side,
   AssetType,
-  SignatureTypeV2,
 } from "@polymarket/clob-client-v2";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -42,23 +41,11 @@ async function getSigningClient(): Promise<ClobClient> {
     (key.startsWith("0x") ? key : `0x${key}`) as `0x${string}`,
   );
 
-  // For POLY_1271 / POLY_GNOSIS_SAFE with a funderAddress, the SDK always uses
-  // the EOA address as POLY_ADDRESS in both L1 and L2 headers, but the CLOB
-  // needs POLY_ADDRESS = funderAddress (the deposit/proxy wallet). We fix this
-  // by overriding account.address on a copy — the private key is unchanged, so
-  // all signatures are still produced by the EOA key as required for EIP-1271.
-  const funderAddress = config.polymarket.funderAddress;
-  const needsAddressOverride =
-    funderAddress &&
-    funderAddress.toLowerCase() !== account.address.toLowerCase() &&
-    config.polymarket.signatureType !== SignatureTypeV2.EOA;
-
-  const effectiveAccount = needsAddressOverride
-    ? { ...account, address: funderAddress as `0x${string}` }
-    : account;
-
+  // For POLY_PROXY (signatureType=1), POLY_ADDRESS must be the EOA address.
+  // The SDK passes funderAddress as the maker on orders, but the signature
+  // verification in L1 headers uses POLY_ADDRESS = EOA.
   const signer = createWalletClient({
-    account: effectiveAccount,
+    account,
     chain: polygon,
     transport: http(),
   });
@@ -71,7 +58,7 @@ async function getSigningClient(): Promise<ClobClient> {
     funderAddress: config.polymarket.funderAddress,
   });
   console.log(
-    `[clob] creating API key sig_type=${config.polymarket.signatureType} poly_address=${effectiveAccount.address} funder=${config.polymarket.funderAddress || "(none)"}`,
+    `[clob] creating API key sig_type=${config.polymarket.signatureType} poly_address=${account.address} funder=${config.polymarket.funderAddress || "(none)"}`,
   );
   const creds = await tempClient.createOrDeriveApiKey();
   if (!creds || !(creds as Record<string, unknown>)["key"]) {
@@ -89,7 +76,7 @@ async function getSigningClient(): Promise<ClobClient> {
     signer: signer as any,
     creds,
     signatureType: config.polymarket.signatureType,
-    funderAddress: config.polymarket.funderAddress,
+    funderAddress: config.polymarket.funderAddress ?? undefined,
   });
   return _signingClient;
 }
