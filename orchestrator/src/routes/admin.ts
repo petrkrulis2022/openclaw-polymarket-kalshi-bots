@@ -59,7 +59,7 @@ router.get(
             metamask_address: user.metamask_address,
             bot_wallet_address: user.bot_wallet_address,
             bot_wallet_index: user.bot_wallet_index,
-            has_api_keys: !!(user.poly_api_key && user.poly_api_secret),
+            has_api_keys: !!user.poly_funder_address,
             bots_running: user.bots_running === 1,
             autonomous_mode: user.autonomous_mode === 1,
             created_at: user.created_at,

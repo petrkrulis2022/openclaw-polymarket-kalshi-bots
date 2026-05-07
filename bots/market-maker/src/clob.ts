@@ -143,9 +143,14 @@ export async function getCollateralBalance(): Promise<number> {
   try {
     const c = await getSigningClient();
     // Refresh the CLOB's on-chain cache first (no-op if already fresh)
-    await c.updateBalanceAllowance({ asset_type: AssetType.COLLATERAL }).catch(
-      (e: unknown) => console.warn("[clob] updateBalanceAllowance error:", (e as Error).message),
-    );
+    await c
+      .updateBalanceAllowance({ asset_type: AssetType.COLLATERAL })
+      .catch((e: unknown) =>
+        console.warn(
+          "[clob] updateBalanceAllowance error:",
+          (e as Error).message,
+        ),
+      );
     const result = (await c.getBalanceAllowance({
       asset_type: AssetType.COLLATERAL,
     })) as {

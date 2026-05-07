@@ -290,6 +290,98 @@ router.post(
   },
 );
 
+// ── POST /users/:address/bots/:botName/stop ───────────────────────────────────
+// Stop a single named bot for a user (e.g. "market-maker").
+
+router.post(
+  "/:address/bots/:botName/stop",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address, botName } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const valid = BOT_DEFS.find((b) => b.name === botName);
+      if (!valid) {
+        return res.status(400).json({
+          error: `Unknown bot "${botName}". Valid: ${BOT_DEFS.map((b) => b.name).join(", ")}`,
+        });
+      }
+
+      const slot = userSlot(user.bot_wallet_index);
+      const pmName = `${botName}-u${slot}`;
+      await runCmd("pm2", ["stop", pmName]);
+      return res.json({ ok: true, bot: pmName, action: "stopped" });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── POST /users/:address/bots/:botName/start ──────────────────────────────────
+// Start a single named bot for a user.
+
+router.post(
+  "/:address/bots/:botName/start",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address, botName } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const valid = BOT_DEFS.find((b) => b.name === botName);
+      if (!valid) {
+        return res.status(400).json({
+          error: `Unknown bot "${botName}". Valid: ${BOT_DEFS.map((b) => b.name).join(", ")}`,
+        });
+      }
+
+      const slot = userSlot(user.bot_wallet_index);
+      const pmName = `${botName}-u${slot}`;
+      await runCmd("pm2", ["start", pmName]);
+      return res.json({ ok: true, bot: pmName, action: "started" });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── GET /users/:address/bots/status ──────────────────────────────────────────
+// Return running/stopped state for each of the user's bots.
+
+router.get(
+  "/:address/bots/status",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const slot = userSlot(user.bot_wallet_index);
+
+      const raw = await runCmd("pm2", ["jlist"]);
+      const list = JSON.parse(raw) as Array<{
+        name: string;
+        pm2_env?: { status?: string };
+      }>;
+
+      const status = BOT_DEFS.map((bot) => {
+        const pmName = `${bot.name}-u${slot}`;
+        const proc = list.find((p) => p.name === pmName);
+        return {
+          name: bot.name,
+          pmName,
+          status: proc?.pm2_env?.status ?? "stopped",
+        };
+      });
+
+      return res.json(status);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
 // ── POST /users/:address/convert-funds ───────────────────────────────────────
 // Triggers a USDT → USDC.e swap for the user's bot wallet via the treasury.
 

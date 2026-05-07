@@ -379,66 +379,97 @@ export function UserOnboarding({
       {step === 2 && (
         <div>
           <p style={{ marginBottom: 12, lineHeight: 1.6 }}>
-            Polymarket uses a <strong>proxy wallet</strong> (Gnosis Safe) for
-            each connected address. Your bot EOA{" "}
-            <strong>{abbrev(botAddr)}</strong> needs to be connected on
-            Polymarket so it gets one. Then paste the proxy wallet address below
-            — this is used to sign orders on-chain.
+            Polymarket creates a <strong>proxy wallet</strong> for each address
+            that signs in. You need to sign in with your <em>bot wallet</em> (not
+            your MetaMask) so Polymarket assigns a proxy to it. Then paste that
+            proxy address here.
           </p>
 
-          <ol style={{ paddingLeft: 20, lineHeight: 2, marginBottom: 16 }}>
-            <li>
-              Go to{" "}
-              <a
-                href="https://polymarket.com"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                polymarket.com
-              </a>{" "}
-              and connect MetaMask with your bot address{" "}
-              <span style={{ fontFamily: "monospace", fontSize: 13 }}>
-                {abbrev(botAddr)}
-              </span>
-              . (Import it first if needed.)
-            </li>
-            <li>
-              Accept the sign-in prompt — Polymarket creates a proxy wallet for
-              your bot address automatically.
-            </li>
-            <li>
-              Open{" "}
-              <a
-                href="https://polymarket.com/settings"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                polymarket.com/settings
-              </a>{" "}
-              and copy your <strong>Proxy Wallet</strong> address (shown as
-              "Your Account Address").
-            </li>
-          </ol>
-
+          {/* Bot address box */}
           <div
             style={{
               background: "var(--surface)",
               borderRadius: 8,
-              padding: "10px 14px",
-              fontSize: 13,
+              padding: "12px 16px",
               marginBottom: 16,
             }}
           >
-            <strong>Bot EOA address (to connect on Polymarket):</strong>
-            <br />
-            <span style={{ fontFamily: "monospace" }}>{botAddr}</span>{" "}
-            <button
-              className="btn-secondary"
-              style={{ padding: "2px 8px", fontSize: 12 }}
-              onClick={() => navigator.clipboard.writeText(botAddr)}
-            >
-              Copy
-            </button>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
+              Your bot wallet address (connect this to Polymarket):
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontFamily: "monospace", fontSize: 13, wordBreak: "break-all" }}>
+                {botAddr}
+              </span>
+              <button
+                className="btn-secondary"
+                style={{ flexShrink: 0, padding: "4px 10px", fontSize: 12 }}
+                onClick={() => navigator.clipboard.writeText(botAddr)}
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+
+          {/* Step-by-step */}
+          <div
+            style={{
+              background: "var(--surface)",
+              borderRadius: 8,
+              padding: "14px 16px",
+              marginBottom: 16,
+              fontSize: 13,
+              lineHeight: 1.8,
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>How to get your proxy wallet address:</div>
+            <ol style={{ paddingLeft: 18, margin: 0 }}>
+              <li>
+                Open MetaMask → click the account icon → <strong>Add account or hardware wallet</strong> →{" "}
+                <strong>Import account</strong>.
+              </li>
+              <li>
+                Get your bot private key: ask your admin or go to{" "}
+                <a
+                  href="/api/treasury/derive"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "var(--accent)" }}
+                >
+                  treasury /derive
+                </a>{" "}
+                (your admin can retrieve it for you).
+              </li>
+              <li>
+                Paste the private key into MetaMask → confirm. Your MetaMask now shows the bot wallet.
+              </li>
+              <li>
+                Go to{" "}
+                <a
+                  href="https://polymarket.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "var(--accent)" }}
+                >
+                  polymarket.com
+                </a>{" "}
+                and connect with the bot wallet. Accept the sign-in message.
+              </li>
+              <li>
+                Go to{" "}
+                <a
+                  href="https://polymarket.com/settings"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "var(--accent)" }}
+                >
+                  polymarket.com/settings
+                </a>{" "}
+                → copy the address shown under <strong>"Your Proxy Wallet"</strong> or{" "}
+                <strong>"Account Address"</strong>.
+              </li>
+              <li>Paste it below and click Save.</li>
+            </ol>
           </div>
 
           <div style={{ marginBottom: 16 }}>

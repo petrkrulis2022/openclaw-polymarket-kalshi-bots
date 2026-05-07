@@ -2,12 +2,7 @@
  * clob.ts — thin wrapper around @polymarket/clob-client-v2 for in-market-arb bot.
  */
 
-import {
-  ClobClient,
-  Chain,
-  Side,
-  AssetType,
-} from "@polymarket/clob-client-v2";
+import { ClobClient, Chain, Side, AssetType } from "@polymarket/clob-client-v2";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { polygon } from "viem/chains";
@@ -69,7 +64,9 @@ async function getSigningClient(): Promise<ClobClient> {
         `If using POLY_1271/POLY_GNOSIS_SAFE, funderAddress must be a deployed EIP-1271 contract on Polygon.`,
     );
   }
-  console.log(`[clob] API key created/derived ok: key=${(creds as Record<string, unknown>)["key"]}`);
+  console.log(
+    `[clob] API key created/derived ok: key=${(creds as Record<string, unknown>)["key"]}`,
+  );
 
   _signingClient = new ClobClient({
     host: config.polymarket.host,

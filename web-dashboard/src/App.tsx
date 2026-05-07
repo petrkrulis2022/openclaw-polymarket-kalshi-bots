@@ -19,6 +19,7 @@ import { useInMarketArb } from "./hooks/use-in-market-arb";
 import { useResolutionLag } from "./hooks/use-resolution-lag";
 import { useMicrostructure } from "./hooks/use-microstructure";
 import { useUser } from "./hooks/use-user";
+import { useBotStatus } from "./hooks/use-bot-status";
 import { UserOnboarding } from "./components/UserOnboarding";
 import { AdminPanel } from "./components/AdminPanel";
 import "./index.css";
@@ -2557,6 +2558,16 @@ export default function App() {
   const [withdrawStopBots, setWithdrawStopBots] = React.useState(true);
   const [showAdmin, setShowAdmin] = React.useState(false);
 
+  const {
+    bots: botStatuses,
+    startBot,
+    stopBot,
+    refresh: refreshBotStatus,
+  } = useBotStatus(
+    isConnected ? address : undefined,
+    user?.botsRunning ?? false,
+  );
+
   const handleWithdraw = async () => {
     setWithdrawing(true);
     setWithdrawError(null);
@@ -2676,7 +2687,11 @@ export default function App() {
                     </span>
                     <button
                       className="btn-secondary"
-                      style={{ flexShrink: 0, fontSize: 11, padding: "3px 8px" }}
+                      style={{
+                        flexShrink: 0,
+                        fontSize: 11,
+                        padding: "3px 8px",
+                      }}
                       onClick={() =>
                         navigator.clipboard.writeText(user.botWalletAddress!)
                       }
@@ -2835,6 +2850,91 @@ export default function App() {
                     </a>
                   </p>
                 )}
+              </div>
+            </div>
+          )}
+          {/* Bot Controls — per-bot stop/start shown when bots are running */}
+          {isConnected && user?.botsRunning && botStatuses.length > 0 && (
+            <div style={{ padding: "0 24px", marginBottom: 16 }}>
+              <div className="card">
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 12,
+                  }}
+                >
+                  <div className="section-label" style={{ margin: 0 }}>
+                    Bot Controls
+                  </div>
+                  <button
+                    className="btn-secondary"
+                    style={{ fontSize: 12, padding: "4px 10px" }}
+                    onClick={() => void refreshBotStatus()}
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {botStatuses.map((b) => {
+                    const isOnline = b.status === "online";
+                    return (
+                      <div
+                        key={b.name}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          background: "var(--surface)",
+                          borderRadius: 8,
+                          padding: "10px 14px",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <div
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: "50%",
+                              background: isOnline
+                                ? "#4caf50"
+                                : b.status === "stopped"
+                                  ? "#ff3b30"
+                                  : "#ff9500",
+                              flexShrink: 0,
+                            }}
+                          />
+                          <span style={{ fontWeight: 500, fontSize: 14 }}>{b.name}</span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: "var(--text-secondary)",
+                              fontFamily: "monospace",
+                            }}
+                          >
+                            {b.status}
+                          </span>
+                        </div>
+                        <button
+                          className={isOnline ? "btn-secondary" : "btn-primary"}
+                          style={{
+                            fontSize: 12,
+                            padding: "4px 14px",
+                            background: isOnline ? undefined : "#2e7d32",
+                          }}
+                          onClick={() =>
+                            isOnline
+                              ? void stopBot(b.name)
+                              : void startBot(b.name)
+                          }
+                        >
+                          {isOnline ? "Stop" : "Start"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
