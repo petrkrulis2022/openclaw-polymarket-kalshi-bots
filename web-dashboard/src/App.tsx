@@ -1,5 +1,11 @@
 import React, { useState } from "react";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
+import {
+  useAccount,
+  useConnect,
+  useDisconnect,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from "wagmi";
 import { usePortfolio, type BotSummary } from "./hooks/use-portfolio";
 import {
   useBotDetail,
@@ -2558,6 +2564,49 @@ export default function App() {
   const [withdrawStopBots, setWithdrawStopBots] = React.useState(true);
   const [showAdmin, setShowAdmin] = React.useState(false);
 
+  // Fund Agent
+  const [fundAmount, setFundAmount] = React.useState("");
+  const [fundError, setFundError] = React.useState<string | null>(null);
+  const {
+    writeContract,
+    data: fundTxHash,
+    isPending: fundPending,
+  } = useWriteContract();
+  const { isLoading: fundConfirming, isSuccess: fundSuccess } =
+    useWaitForTransactionReceipt({ hash: fundTxHash });
+
+  const USDCE_POLYGON = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" as const;
+  const ERC20_TRANSFER_ABI = [
+    {
+      name: "transfer",
+      type: "function" as const,
+      inputs: [
+        { name: "to", type: "address" },
+        { name: "value", type: "uint256" },
+      ],
+      outputs: [{ name: "", type: "bool" }],
+    },
+  ] as const;
+
+  function handleFund() {
+    setFundError(null);
+    const amt = parseFloat(fundAmount);
+    if (!user?.botWalletAddress) return;
+    if (isNaN(amt) || amt <= 0) {
+      setFundError("Enter a valid amount");
+      return;
+    }
+    writeContract({
+      address: USDCE_POLYGON,
+      abi: ERC20_TRANSFER_ABI,
+      functionName: "transfer",
+      args: [
+        user.botWalletAddress as `0x${string}`,
+        BigInt(Math.round(amt * 1_000_000)), // USDC.e has 6 decimals
+      ],
+    });
+  }
+
   const {
     bots: botStatuses,
     startBot,
@@ -2761,6 +2810,85 @@ export default function App() {
               </div>
             </div>
           )}
+          {/* Fund Agent card — shown after onboarding */}
+          {isConnected && user?.botsRunning && (
+            <div style={{ padding: "0 24px", marginBottom: 16 }}>
+              <div className="card">
+                <div className="section-label" style={{ marginBottom: 8 }}>
+                  Fund Agent
+                </div>
+                <p
+                  style={{
+                    fontSize: 13,
+                    color: "var(--text-secondary)",
+                    marginBottom: 12,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Send USDC.e from your MetaMask wallet to the bot wallet.
+                  MetaMask will ask you to confirm the transfer.
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    marginBottom: 10,
+                  }}
+                >
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="Amount USDC.e"
+                    value={fundAmount}
+                    onChange={(e) => setFundAmount(e.target.value)}
+                    style={{
+                      flex: 1,
+                      minWidth: 150,
+                      padding: "8px 12px",
+                      borderRadius: 6,
+                      border: "1px solid var(--border)",
+                      background: "var(--background)",
+                      color: "var(--text)",
+                      fontSize: 13,
+                    }}
+                  />
+                  <button
+                    className="btn-primary"
+                    style={{ flexShrink: 0 }}
+                    onClick={handleFund}
+                    disabled={fundPending || fundConfirming}
+                  >
+                    {fundPending
+                      ? "Confirm in MetaMask…"
+                      : fundConfirming
+                        ? "Confirming…"
+                        : "Fund Agent"}
+                  </button>
+                </div>
+                {fundError && (
+                  <p style={{ color: "#ff3b30", fontSize: 12, margin: 0 }}>
+                    {fundError}
+                  </p>
+                )}
+                {fundSuccess && fundTxHash && (
+                  <p style={{ color: "#4caf50", fontSize: 12, margin: 0 }}>
+                    ✓ Funded! —{" "}
+                    <a
+                      href={`https://polygonscan.com/tx/${fundTxHash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: "#4caf50" }}
+                    >
+                      View on PolygonScan ↗
+                    </a>
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
           {/* Withdraw card — shown after onboarding */}
           {isConnected && user?.botsRunning && (
             <div style={{ padding: "0 24px", marginBottom: 16 }}>
@@ -2876,7 +3004,9 @@ export default function App() {
                     Refresh
                   </button>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 8 }}
+                >
                   {botStatuses.map((b) => {
                     const isOnline = b.status === "online";
                     return (
@@ -2891,7 +3021,13 @@ export default function App() {
                           padding: "10px 14px",
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                          }}
+                        >
                           <div
                             style={{
                               width: 8,
@@ -2905,7 +3041,9 @@ export default function App() {
                               flexShrink: 0,
                             }}
                           />
-                          <span style={{ fontWeight: 500, fontSize: 14 }}>{b.name}</span>
+                          <span style={{ fontWeight: 500, fontSize: 14 }}>
+                            {b.name}
+                          </span>
                           <span
                             style={{
                               fontSize: 11,
