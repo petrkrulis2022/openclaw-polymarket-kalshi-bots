@@ -59,7 +59,9 @@ async function fetchAllocatedEquity(): Promise<number> {
   const botCount = parseInt(process.env["BOT_COUNT"] ?? "1", 10);
   const clobBalance = await getCollateralBalance();
   if (clobBalance > 0) {
-    console.log(`[init] EOA CLOB balance: $${clobBalance.toFixed(4)} USDC.e (÷${botCount} bots)`);
+    console.log(
+      `[init] EOA CLOB balance: $${clobBalance.toFixed(4)} USDC.e (÷${botCount} bots)`,
+    );
   }
   return clobBalance / botCount;
 }

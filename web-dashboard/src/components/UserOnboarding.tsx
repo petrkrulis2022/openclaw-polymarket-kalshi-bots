@@ -380,9 +380,9 @@ export function UserOnboarding({
         <div>
           <p style={{ marginBottom: 12, lineHeight: 1.6 }}>
             Polymarket creates a <strong>proxy wallet</strong> for each address
-            that signs in. You need to sign in with your <em>bot wallet</em> (not
-            your MetaMask) so Polymarket assigns a proxy to it. Then paste that
-            proxy address here.
+            that signs in. You need to sign in with your <em>bot wallet</em>{" "}
+            (not your MetaMask) so Polymarket assigns a proxy to it. Then paste
+            that proxy address here.
           </p>
 
           {/* Bot address box */}
@@ -394,11 +394,23 @@ export function UserOnboarding({
               marginBottom: 16,
             }}
           >
-            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
+            <div
+              style={{
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                marginBottom: 6,
+              }}
+            >
               Your bot wallet address (connect this to Polymarket):
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontFamily: "monospace", fontSize: 13, wordBreak: "break-all" }}>
+              <span
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: 13,
+                  wordBreak: "break-all",
+                }}
+              >
                 {botAddr}
               </span>
               <button
@@ -422,10 +434,13 @@ export function UserOnboarding({
               lineHeight: 1.8,
             }}
           >
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>How to get your proxy wallet address:</div>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>
+              How to get your proxy wallet address:
+            </div>
             <ol style={{ paddingLeft: 18, margin: 0 }}>
               <li>
-                Open MetaMask → click the account icon → <strong>Add account or hardware wallet</strong> →{" "}
+                Open MetaMask → click the account icon →{" "}
+                <strong>Add account or hardware wallet</strong> →{" "}
                 <strong>Import account</strong>.
               </li>
               <li>
@@ -441,7 +456,8 @@ export function UserOnboarding({
                 (your admin can retrieve it for you).
               </li>
               <li>
-                Paste the private key into MetaMask → confirm. Your MetaMask now shows the bot wallet.
+                Paste the private key into MetaMask → confirm. Your MetaMask now
+                shows the bot wallet.
               </li>
               <li>
                 Go to{" "}
@@ -465,7 +481,8 @@ export function UserOnboarding({
                 >
                   polymarket.com/settings
                 </a>{" "}
-                → copy the address shown under <strong>"Your Proxy Wallet"</strong> or{" "}
+                → copy the address shown under{" "}
+                <strong>"Your Proxy Wallet"</strong> or{" "}
                 <strong>"Account Address"</strong>.
               </li>
               <li>Paste it below and click Save.</li>

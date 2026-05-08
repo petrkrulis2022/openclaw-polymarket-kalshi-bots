@@ -64,9 +64,12 @@ export function useBotStatus(
   const startBot = useCallback(
     async (botName: string) => {
       if (!metamaskAddress) return;
-      await fetch(`/api/orchestrator/users/${metamaskAddress}/bots/${botName}/start`, {
-        method: "POST",
-      });
+      await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/bots/${botName}/start`,
+        {
+          method: "POST",
+        },
+      );
       await fetch_();
     },
     [metamaskAddress, fetch_],
@@ -75,9 +78,12 @@ export function useBotStatus(
   const stopBot = useCallback(
     async (botName: string) => {
       if (!metamaskAddress) return;
-      await fetch(`/api/orchestrator/users/${metamaskAddress}/bots/${botName}/stop`, {
-        method: "POST",
-      });
+      await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/bots/${botName}/stop`,
+        {
+          method: "POST",
+        },
+      );
       await fetch_();
     },
     [metamaskAddress, fetch_],

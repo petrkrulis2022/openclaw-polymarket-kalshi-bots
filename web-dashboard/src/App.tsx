@@ -2835,8 +2835,8 @@ export default function App() {
                     lineHeight: 1.5,
                   }}
                 >
-                  Send USDT from your MetaMask wallet to the bot wallet.
-                  It will be automatically converted to USDC.e for trading.
+                  Send USDT from your MetaMask wallet to the bot wallet. It will
+                  be automatically converted to USDC.e for trading.
                 </p>
                 <div
                   style={{
