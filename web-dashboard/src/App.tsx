@@ -2575,7 +2575,8 @@ export default function App() {
   const { isLoading: fundConfirming, isSuccess: fundSuccess } =
     useWaitForTransactionReceipt({ hash: fundTxHash });
 
-  const USDCE_POLYGON = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" as const;
+  // USDT on Polygon (6 decimals)
+  const USDT_POLYGON = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F" as const;
   const ERC20_TRANSFER_ABI = [
     {
       name: "transfer",
@@ -2588,6 +2589,15 @@ export default function App() {
     },
   ] as const;
 
+  // Auto-convert USDT → USDC.e after fund tx confirms
+  React.useEffect(() => {
+    if (fundSuccess) {
+      convertFunds().catch(() => {
+        /* balance will show USDT; user can convert manually */
+      });
+    }
+  }, [fundSuccess]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleFund() {
     setFundError(null);
     const amt = parseFloat(fundAmount);
@@ -2597,12 +2607,12 @@ export default function App() {
       return;
     }
     writeContract({
-      address: USDCE_POLYGON,
+      address: USDT_POLYGON,
       abi: ERC20_TRANSFER_ABI,
       functionName: "transfer",
       args: [
         user.botWalletAddress as `0x${string}`,
-        BigInt(Math.round(amt * 1_000_000)), // USDC.e has 6 decimals
+        BigInt(Math.round(amt * 1_000_000)), // USDT has 6 decimals
       ],
     });
   }
@@ -2825,8 +2835,8 @@ export default function App() {
                     lineHeight: 1.5,
                   }}
                 >
-                  Send USDC.e from your MetaMask wallet to the bot wallet.
-                  MetaMask will ask you to confirm the transfer.
+                  Send USDT from your MetaMask wallet to the bot wallet.
+                  It will be automatically converted to USDC.e for trading.
                 </p>
                 <div
                   style={{
@@ -2841,7 +2851,7 @@ export default function App() {
                     type="number"
                     min="0"
                     step="any"
-                    placeholder="Amount USDC.e"
+                    placeholder="Amount USDT"
                     value={fundAmount}
                     onChange={(e) => setFundAmount(e.target.value)}
                     style={{
