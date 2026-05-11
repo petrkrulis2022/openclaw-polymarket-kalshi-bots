@@ -2548,6 +2548,7 @@ export default function App() {
     setAutonomousMode,
     refreshBalance,
     withdrawFunds,
+    depositToPolymarket,
   } = useUser(isConnected ? address : undefined);
 
   // Show onboarding if connected but setup not complete
@@ -2563,6 +2564,14 @@ export default function App() {
   const [withdrawAmount, setWithdrawAmount] = React.useState("");
   const [withdrawStopBots, setWithdrawStopBots] = React.useState(true);
   const [showAdmin, setShowAdmin] = React.useState(false);
+
+  // Deposit to Polymarket
+  const [depositing, setDepositing] = React.useState(false);
+  const [depositResult, setDepositResult] = React.useState<{
+    txHash: string;
+    amount: string;
+  } | null>(null);
+  const [depositError, setDepositError] = React.useState<string | null>(null);
 
   // Fund Agent
   const [fundAmount, setFundAmount] = React.useState("");
@@ -2641,6 +2650,21 @@ export default function App() {
       setWithdrawError(err instanceof Error ? err.message : String(err));
     } finally {
       setWithdrawing(false);
+    }
+  };
+
+  const handleDepositToPolymarket = async () => {
+    setDepositing(true);
+    setDepositError(null);
+    setDepositResult(null);
+    try {
+      const result = await depositToPolymarket();
+      setDepositResult({ txHash: result.txHash, amount: result.amount });
+      refreshBalance();
+    } catch (err) {
+      setDepositError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDepositing(false);
     }
   };
 
@@ -2888,6 +2912,63 @@ export default function App() {
                     ✓ Funded! —{" "}
                     <a
                       href={`https://polygonscan.com/tx/${fundTxHash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: "#4caf50" }}
+                    >
+                      View on PolygonScan ↗
+                    </a>
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+          {/* Deposit to Polymarket card — shown after onboarding */}
+          {isConnected && user?.botsRunning && (
+            <div style={{ padding: "0 24px", marginBottom: 16 }}>
+              <div className="card">
+                <div className="section-label" style={{ marginBottom: 8 }}>
+                  Deposit to Polymarket
+                </div>
+                <p
+                  style={{
+                    fontSize: 13,
+                    color: "var(--text-secondary)",
+                    marginBottom: 12,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Transfers USDC.e from the bot wallet to your Polymarket proxy
+                  wallet so bots have capital to trade.
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    marginBottom: 10,
+                  }}
+                >
+                  <button
+                    className="btn-primary"
+                    style={{ flexShrink: 0 }}
+                    onClick={() => void handleDepositToPolymarket()}
+                    disabled={depositing}
+                  >
+                    {depositing ? "Depositing…" : "Deposit USDC.e → Polymarket"}
+                  </button>
+                </div>
+                {depositError && (
+                  <p style={{ color: "#ff3b30", fontSize: 12, margin: 0 }}>
+                    {depositError}
+                  </p>
+                )}
+                {depositResult && (
+                  <p style={{ color: "#4caf50", fontSize: 12, margin: 0 }}>
+                    ✓ Deposited {depositResult.amount} USDC.e —{" "}
+                    <a
+                      href={`https://polygonscan.com/tx/${depositResult.txHash}`}
                       target="_blank"
                       rel="noreferrer"
                       style={{ color: "#4caf50" }}

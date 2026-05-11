@@ -50,6 +50,12 @@ interface UseUserReturn {
     amountWithdrawn: string;
     to: string;
   }>;
+  depositToPolymarket: () => Promise<{
+    txHash: string;
+    from: string;
+    to: string;
+    amount: string;
+  }>;
   refresh: () => Promise<void>;
   refreshBalance: () => Promise<void>;
 }
@@ -258,6 +264,28 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     [metamaskAddress, refreshBalance],
   );
 
+  const depositToPolymarket = useCallback(async () => {
+    if (!metamaskAddress) throw new Error("Not connected");
+    const res = await fetch(
+      `/api/orchestrator/users/${metamaskAddress}/deposit-polymarket`,
+      { method: "POST" },
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(
+        (body as { error?: string }).error ?? "Deposit to Polymarket failed",
+      );
+    }
+    const result = await res.json();
+    await refreshBalance();
+    return result as {
+      txHash: string;
+      from: string;
+      to: string;
+      amount: string;
+    };
+  }, [metamaskAddress, refreshBalance]);
+
   return {
     user,
     loading,
@@ -270,6 +298,7 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     convertFunds,
     setAutonomousMode,
     withdrawFunds,
+    depositToPolymarket,
     refresh,
     refreshBalance,
   };

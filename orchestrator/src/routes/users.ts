@@ -252,6 +252,25 @@ router.post(
       await runCmd("pm2", ["start", ecosystemPath]);
       await runCmd("pm2", ["save"]);
 
+      // Auto-deposit USDC.e from bot wallet EOA to Polymarket proxy wallet
+      try {
+        const depRes = await fetch(`${WDK_TREASURY_URL}/deposit-polymarket`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            index: user.bot_wallet_index,
+            proxyWalletAddress: user.poly_funder_address,
+          }),
+        });
+        const depData = await depRes.json();
+        console.log("[start-bots] auto-deposit to Polymarket:", depData);
+      } catch (err) {
+        console.warn(
+          "[start-bots] auto-deposit to Polymarket failed (non-fatal):",
+          (err as Error).message,
+        );
+      }
+
       setBotsRunning(address, true);
 
       return res.json({ ok: true, slot, basePort });
@@ -285,6 +304,42 @@ router.post(
 
       setBotsRunning(address, false);
       return res.json({ ok: true });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── POST /users/:address/deposit-polymarket ───────────────────────────────────
+// Manually trigger USDC.e transfer from bot wallet EOA to Polymarket proxy.
+
+router.post(
+  "/:address/deposit-polymarket",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      if (!user.poly_funder_address) {
+        return res.status(400).json({
+          error:
+            "No proxy wallet configured — complete onboarding step 2 first",
+        });
+      }
+
+      const depRes = await fetch(`${WDK_TREASURY_URL}/deposit-polymarket`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          index: user.bot_wallet_index,
+          proxyWalletAddress: user.poly_funder_address,
+        }),
+      });
+      const depData = await depRes.json();
+      if (!depRes.ok) {
+        return res.status(depRes.status).json(depData);
+      }
+      return res.json(depData);
     } catch (err) {
       return next(err);
     }
