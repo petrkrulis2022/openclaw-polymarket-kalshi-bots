@@ -121,7 +121,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   } catch (err) {
     return next(err);
   } finally {
-    account?.dispose?.();
+    try { account?.dispose?.(); } catch (_) { /* ignore dispose errors */ }
   }
 });
 
