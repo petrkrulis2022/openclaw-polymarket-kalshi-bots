@@ -6,6 +6,9 @@
  * Transfers USDC.e from a user bot wallet (index >= 10) to the user's
  * Polymarket proxy wallet address so the bots have capital to trade.
  *
+ * Uses ethers.js directly (bypassing WDK signing) to avoid WDK memory-safe
+ * key disposal issues that cause "Uint8Array expected" errors.
+ *
  * Internal-only endpoint — not exposed via public proxy.
  *
  * Body:    { index: number, proxyWalletAddress: string, amountUsdce?: string }
@@ -17,15 +20,25 @@
  */
 
 import { Router, Request, Response, NextFunction } from "express";
-import { getAccount } from "../wdk.js";
+import {
+  ethers,
+  JsonRpcProvider,
+  HDNodeWallet,
+  Mnemonic,
+  Contract,
+} from "ethers";
+import { SEED_PHRASE, POLYGON_RPC } from "../wdk.js";
 
 const USDCE_TOKEN_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+
+const ERC20_ABI = [
+  "function balanceOf(address owner) view returns (uint256)",
+  "function transfer(address to, uint256 amount) returns (bool)",
+];
 
 const router = Router();
 
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let account: any = null;
   try {
     const { index, proxyWalletAddress, amountUsdce } = req.body as {
       index?: unknown;
@@ -52,19 +65,23 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       });
     }
 
-    // ── Derive account ────────────────────────────────────────────────────────
+    // ── Derive wallet via standard ethers.js HD derivation ────────────────────
 
-    account = await getAccount(index);
-    const walletAddress: string = await account.getAddress();
+    const provider = new JsonRpcProvider(POLYGON_RPC);
+    const wallet = HDNodeWallet.fromMnemonic(
+      Mnemonic.fromPhrase(SEED_PHRASE),
+      `m/44'/60'/0'/0/${index}`,
+    ).connect(provider);
+
+    const walletAddress = wallet.address;
+    const usdce = new Contract(USDCE_TOKEN_ADDRESS, ERC20_ABI, wallet);
 
     // ── Fetch balances ────────────────────────────────────────────────────────
 
-    const [balanceRaw, nativeBalanceRaw] = await Promise.all([
-      account.getTokenBalance(USDCE_TOKEN_ADDRESS) as Promise<bigint>,
-      account.getBalance() as Promise<bigint>,
+    const [balance, nativeBalance] = await Promise.all([
+      usdce.balanceOf(walletAddress) as Promise<bigint>,
+      provider.getBalance(walletAddress),
     ]);
-    const balance = BigInt(balanceRaw);
-    const nativeBalance = BigInt(nativeBalanceRaw);
 
     if (nativeBalance === 0n) {
       return res.status(400).json({
@@ -80,7 +97,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       });
     }
 
-    // ── Determine transfer amount ──────────────────────────────────────────────
+    // ── Determine transfer amount ─────────────────────────────────────────────
 
     let transferAmount: bigint;
     if (
@@ -104,11 +121,9 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 
     // ── Execute transfer ──────────────────────────────────────────────────────
 
-    const { hash } = await account.transfer({
-      token: USDCE_TOKEN_ADDRESS,
-      recipient: proxyWalletAddress,
-      amount: transferAmount,
-    });
+    const tx = await usdce.transfer(proxyWalletAddress, transferAmount);
+    const receipt = await tx.wait();
+    const hash: string = receipt?.hash ?? tx.hash;
 
     const amountFormatted = (Number(transferAmount) / 1_000_000).toFixed(6);
 
@@ -120,8 +135,6 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     });
   } catch (err) {
     return next(err);
-  } finally {
-    try { account?.dispose?.(); } catch (_) { /* ignore dispose errors */ }
   }
 });
 
