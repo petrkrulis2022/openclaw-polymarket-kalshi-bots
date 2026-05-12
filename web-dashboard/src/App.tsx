@@ -2736,62 +2736,124 @@ export default function App() {
                   <div className="section-label" style={{ margin: 0 }}>
                     Agent Wallet
                   </div>
-                  <button
-                    className="btn-secondary"
-                    style={{ fontSize: 12, padding: "4px 10px" }}
-                    onClick={refreshBalance}
-                    disabled={balanceLoading}
-                  >
-                    {balanceLoading ? "…" : "Refresh"}
-                  </button>
-                </div>
-                {user?.botWalletAddress && (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      marginBottom: 12,
-                      background: "var(--bg)",
-                      borderRadius: 6,
-                      padding: "6px 10px",
-                    }}
-                  >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span
                       style={{
-                        fontFamily: "monospace",
-                        fontSize: 13,
-                        color: "var(--text-secondary)",
-                        flex: 1,
-                        wordBreak: "break-all",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "#4caf50",
+                        background: "rgba(76,175,80,0.12)",
+                        borderRadius: 8,
+                        padding: "3px 10px",
                       }}
                     >
-                      {user.botWalletAddress}
+                      ● Bots Running
                     </span>
                     <button
                       className="btn-secondary"
-                      style={{
-                        flexShrink: 0,
-                        fontSize: 11,
-                        padding: "3px 8px",
-                      }}
-                      onClick={() =>
-                        navigator.clipboard.writeText(user.botWalletAddress!)
-                      }
+                      style={{ fontSize: 12, padding: "4px 10px" }}
+                      onClick={refreshBalance}
+                      disabled={balanceLoading}
                     >
-                      Copy
+                      {balanceLoading ? "…" : "Refresh"}
                     </button>
+                  </div>
+                </div>
+                {/* Deposit wallet address (primary trading account) */}
+                {balance?.depositWalletAddress && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 3 }}>
+                      Deposit Wallet (Polymarket POLY_1271)
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        background: "var(--bg)",
+                        borderRadius: 6,
+                        padding: "6px 10px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontFamily: "monospace",
+                          fontSize: 13,
+                          color: "var(--text-secondary)",
+                          flex: 1,
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        {balance.depositWalletAddress}
+                      </span>
+                      <button
+                        className="btn-secondary"
+                        style={{ flexShrink: 0, fontSize: 11, padding: "3px 8px" }}
+                        onClick={() =>
+                          navigator.clipboard.writeText(balance.depositWalletAddress!)
+                        }
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {/* EOA address */}
+                {user?.botWalletAddress && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 3 }}>
+                      Bot EOA (send USDT here)
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        background: "var(--bg)",
+                        borderRadius: 6,
+                        padding: "6px 10px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontFamily: "monospace",
+                          fontSize: 13,
+                          color: "var(--text-secondary)",
+                          flex: 1,
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        {user.botWalletAddress}
+                      </span>
+                      <button
+                        className="btn-secondary"
+                        style={{ flexShrink: 0, fontSize: 11, padding: "3px 8px" }}
+                        onClick={() =>
+                          navigator.clipboard.writeText(user.botWalletAddress!)
+                        }
+                      >
+                        Copy
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
                   <div>
-                    <div className="balance-label">USDT</div>
+                    <div className="balance-label">pUSD (trading)</div>
+                    <div className="balance-big" style={{ color: balance?.depositWalletPusd && parseFloat(balance.depositWalletPusd) > 0 ? "#4caf50" : undefined }}>
+                      {balance?.depositWalletPusd
+                        ? parseFloat(balance.depositWalletPusd).toFixed(2)
+                        : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="balance-label">USDT (EOA)</div>
                     <div className="balance-big">
                       {balance ? parseFloat(balance.usdt).toFixed(2) : "—"}
                     </div>
                   </div>
                   <div>
-                    <div className="balance-label">USDC.e</div>
+                    <div className="balance-label">USDC.e (EOA)</div>
                     <div className="balance-big">
                       {balance ? parseFloat(balance.usdce).toFixed(2) : "—"}
                     </div>
@@ -2821,7 +2883,7 @@ export default function App() {
                         convertFunds().then(() => refreshBalance())
                       }
                     >
-                      Convert USDT → USDC.e
+                      Convert USDT → pUSD
                     </button>
                     <label
                       style={{

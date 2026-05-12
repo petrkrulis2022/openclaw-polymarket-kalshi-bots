@@ -24,6 +24,8 @@ export interface BotWalletBalance {
   usdt: string;
   usdce: string;
   nativePol: string;
+  depositWalletAddress?: string;
+  depositWalletPusd?: string;
 }
 
 interface UseUserReturn {

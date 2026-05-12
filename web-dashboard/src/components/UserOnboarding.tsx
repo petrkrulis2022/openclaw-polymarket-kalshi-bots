@@ -1,15 +1,14 @@
 /**
  * UserOnboarding.tsx
  *
- * 3-step onboarding flow shown when a new user connects their wallet:
+ * 2-step onboarding flow shown when a new user connects their wallet:
  *
- *  Step 1 — Fund bot wallet: display the server-generated EOA address, show
- *            live USDT balance on that address, and let the user continue once
- *            they've sent funds.
- *  Step 2 — Link Polymarket proxy wallet: the bot EOA needs to be connected on
- *            polymarket.com so a Gnosis Safe proxy wallet is created for it.
- *            The user copies that proxy wallet address here.
- *  Step 3 — Convert USDT → USDC.e and optionally enable autonomous mode.
+ *  Step 1 — Fund: display the server-generated EOA address, show live balance
+ *            (deposit wallet pUSD + EOA USDT), allow progression once any funds
+ *            are detected.
+ *  Step 2 — Activate: start bots. The orchestrator auto-deploys the Polymarket
+ *            deposit wallet (POLY_1271), transfers pUSD, and sets approvals
+ *            (all idempotent). No manual proxy wallet step needed.
  */
 
 import React, { useState } from "react";
@@ -44,21 +43,14 @@ interface Props {
   onSetAutonomousMode: (enabled: boolean) => Promise<void>;
 }
 
-function abbrev(addr: string) {
-  return `${addr.slice(0, 10)}…${addr.slice(-8)}`;
-}
-
 export function UserOnboarding({
   user,
   balance,
-  onSaveFunderAddress,
   onStartBots,
   onConvertFunds,
   onSetAutonomousMode,
 }: Props) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [funderAddress, setFunderAddress] = useState(user.funderAddress ?? "");
-  const [saving, setSaving] = useState(false);
+  const [step, setStep] = useState<1 | 2>(1);
   const [starting, setStarting] = useState(false);
   const [converting, setConverting] = useState(false);
   const [convertResult, setConvertResult] = useState<{
@@ -95,25 +87,11 @@ export function UserOnboarding({
   const botAddr = user.botWalletAddress ?? "";
   const usdtBalance = balance ? parseFloat(balance.usdt) : 0;
   const usdceBalance = balance ? parseFloat(balance.usdce) : 0;
-  const hasFunds = usdtBalance > 0 || usdceBalance > 0;
-
-  const handleSaveFunderAddress = async () => {
-    const addr = funderAddress.trim();
-    if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) {
-      setError("Enter a valid 0x-prefixed Ethereum address (42 chars).");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      await onSaveFunderAddress(addr);
-      setStep(3);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const pusdBalance = balance?.depositWalletPusd
+    ? parseFloat(balance.depositWalletPusd)
+    : 0;
+  // Funds detected on either: deposit wallet pUSD, or EOA USDT/USDC.e
+  const hasFunds = pusdBalance > 0 || usdtBalance > 0 || usdceBalance > 0;
 
   const handleStartBots = async () => {
     setStarting(true);
@@ -155,7 +133,7 @@ export function UserOnboarding({
           color: "var(--text-secondary)",
         }}
       >
-        {([1, 2, 3] as const).map((s) => (
+        {([1, 2] as const).map((s) => (
           <span
             key={s}
             style={{
@@ -168,7 +146,7 @@ export function UserOnboarding({
             }}
             onClick={() => step > s && setStep(s)}
           >
-            {s === 1 ? "Fund" : s === 2 ? "Proxy Wallet" : "Activate"}
+            {s === 1 ? "1 · Fund" : "2 · Activate"}
           </span>
         ))}
       </div>
@@ -179,7 +157,8 @@ export function UserOnboarding({
           <p style={{ marginBottom: 12, lineHeight: 1.6 }}>
             OpenClaw generated a dedicated trading wallet for you. Send{" "}
             <strong>USDT on Polygon</strong> to this address — it will be
-            automatically converted to USDC.e for trading:
+            automatically converted to <strong>pUSD</strong> and held in your
+            secure Polymarket deposit wallet:
           </p>
 
           <div
@@ -294,6 +273,7 @@ export function UserOnboarding({
                 marginBottom: 16,
                 display: "flex",
                 gap: 24,
+                flexWrap: "wrap",
               }}
             >
               <div>
@@ -304,7 +284,27 @@ export function UserOnboarding({
                     marginBottom: 2,
                   }}
                 >
-                  USDT
+                  pUSD (deposit wallet)
+                </div>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: 18,
+                    color: pusdBalance > 0 ? "#4caf50" : undefined,
+                  }}
+                >
+                  {pusdBalance.toFixed(2)}
+                </div>
+              </div>
+              <div>
+                <div
+                  style={{
+                    color: "var(--text-secondary)",
+                    fontSize: 11,
+                    marginBottom: 2,
+                  }}
+                >
+                  USDT (EOA)
                 </div>
                 <div style={{ fontWeight: 600, fontSize: 16 }}>
                   {usdtBalance.toFixed(2)}
@@ -318,7 +318,7 @@ export function UserOnboarding({
                     marginBottom: 2,
                   }}
                 >
-                  USDC.e
+                  USDC.e (EOA)
                 </div>
                 <div style={{ fontWeight: 600, fontSize: 16 }}>
                   {usdceBalance.toFixed(2)}
@@ -349,7 +349,7 @@ export function UserOnboarding({
                 marginBottom: 16,
               }}
             >
-              Checking balance… (Token: USDT · Network: Polygon)
+              Checking balance… (Network: Polygon)
             </p>
           )}
 
@@ -359,7 +359,7 @@ export function UserOnboarding({
             disabled={!hasFunds}
             title={!hasFunds ? "Send USDT to continue" : undefined}
           >
-            {hasFunds ? "Funds received → Next" : "Waiting for USDT…"}
+            {hasFunds ? "Funds received → Next" : "Waiting for funds…"}
           </button>
           {!hasFunds && (
             <p
@@ -375,140 +375,165 @@ export function UserOnboarding({
         </div>
       )}
 
-      {/* Step 2 — Link Polymarket proxy wallet */}
+      {/* Step 2 — Activate bots */}
       {step === 2 && (
         <div>
-          <p style={{ marginBottom: 12, lineHeight: 1.6 }}>
-            Polymarket creates a <strong>proxy wallet</strong> for each address
-            that signs in. You need to sign in with your <em>bot wallet</em>{" "}
-            (not your MetaMask) so Polymarket assigns a proxy to it. Then paste
-            that proxy address here.
-          </p>
-
-          {/* Bot address box */}
-          <div
-            style={{
-              background: "var(--surface)",
-              borderRadius: 8,
-              padding: "12px 16px",
-              marginBottom: 16,
-            }}
-          >
+          {/* Balance summary */}
+          {balance && (
             <div
               style={{
-                fontSize: 12,
-                color: "var(--text-secondary)",
-                marginBottom: 6,
+                background: "var(--surface)",
+                borderRadius: 8,
+                padding: "12px 16px",
+                marginBottom: 16,
+                display: "flex",
+                gap: 24,
+                flexWrap: "wrap",
               }}
             >
-              Your bot wallet address (connect this to Polymarket):
+              <div>
+                <div
+                  style={{
+                    color: "var(--text-secondary)",
+                    fontSize: 11,
+                    marginBottom: 2,
+                  }}
+                >
+                  pUSD (deposit wallet)
+                </div>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: 18,
+                    color: pusdBalance > 0 ? "#4caf50" : undefined,
+                  }}
+                >
+                  {pusdBalance.toFixed(2)}
+                </div>
+              </div>
+              {usdtBalance > 0 && (
+                <div>
+                  <div
+                    style={{
+                      color: "var(--text-secondary)",
+                      fontSize: 11,
+                      marginBottom: 2,
+                    }}
+                  >
+                    USDT (EOA, unconverted)
+                  </div>
+                  <div style={{ fontWeight: 600, fontSize: 16 }}>
+                    {usdtBalance.toFixed(2)}
+                  </div>
+                </div>
+              )}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span
+          )}
+
+          {/* Convert USDT → pUSD if any USDT on EOA */}
+          {usdtBalance > 0 && (
+            <div
+              style={{
+                background: "var(--surface)",
+                borderRadius: 8,
+                padding: "14px 16px",
+                marginBottom: 16,
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                Convert USDT → pUSD
+              </div>
+              <p
                 style={{
-                  fontFamily: "monospace",
                   fontSize: 13,
-                  wordBreak: "break-all",
+                  color: "var(--text-secondary)",
+                  marginBottom: 10,
                 }}
               >
-                {botAddr}
-              </span>
-              <button
-                className="btn-secondary"
-                style={{ flexShrink: 0, padding: "4px 10px", fontSize: 12 }}
-                onClick={() => navigator.clipboard.writeText(botAddr)}
-              >
-                Copy
-              </button>
+                Your bot wallet has {usdtBalance.toFixed(2)} USDT. Convert it
+                to pUSD for Polymarket trading (Uniswap V3 stable pool).
+              </p>
+              {convertResult ? (
+                <p style={{ color: "#4caf50", fontSize: 13 }}>
+                  ✓ Converted {convertResult.usdtSwapped} USDT →{" "}
+                  {convertResult.usdceReceived} pUSD &nbsp;
+                  <a
+                    href={`https://polygonscan.com/tx/${convertResult.txHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: 12 }}
+                  >
+                    View tx ↗
+                  </a>
+                </p>
+              ) : (
+                <button
+                  className="btn-primary"
+                  onClick={handleConvert}
+                  disabled={converting}
+                >
+                  {converting
+                    ? "Converting… (on-chain)"
+                    : `Convert ${usdtBalance.toFixed(2)} USDT → pUSD`}
+                </button>
+              )}
             </div>
-          </div>
+          )}
 
-          {/* Step-by-step */}
+          {/* Autonomous mode toggle */}
           <div
             style={{
               background: "var(--surface)",
               borderRadius: 8,
               padding: "14px 16px",
               marginBottom: 16,
-              fontSize: 13,
-              lineHeight: 1.8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16,
             }}
           >
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>
-              How to get your proxy wallet address:
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                Auto-convert future deposits
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                The orchestrator will auto-convert USDT deposits to pUSD every
+                5 minutes.
+              </div>
             </div>
-            <ol style={{ paddingLeft: 18, margin: 0 }}>
-              <li>
-                Open MetaMask → click the account icon →{" "}
-                <strong>Add account or hardware wallet</strong> →{" "}
-                <strong>Import account</strong>.
-              </li>
-              <li>
-                Get your bot private key: ask your admin or go to{" "}
-                <a
-                  href="/api/treasury/derive"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "var(--accent)" }}
-                >
-                  treasury /derive
-                </a>{" "}
-                (your admin can retrieve it for you).
-              </li>
-              <li>
-                Paste the private key into MetaMask → confirm. Your MetaMask now
-                shows the bot wallet.
-              </li>
-              <li>
-                Go to{" "}
-                <a
-                  href="https://polymarket.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "var(--accent)" }}
-                >
-                  polymarket.com
-                </a>{" "}
-                and connect with the bot wallet. Accept the sign-in message.
-              </li>
-              <li>
-                Go to{" "}
-                <a
-                  href="https://polymarket.com/settings"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "var(--accent)" }}
-                >
-                  polymarket.com/settings
-                </a>{" "}
-                → copy the address shown under{" "}
-                <strong>"Your Proxy Wallet"</strong> or{" "}
-                <strong>"Account Address"</strong>.
-              </li>
-              <li>Paste it below and click Save.</li>
-            </ol>
-          </div>
-
-          <div style={{ marginBottom: 16 }}>
             <label
               style={{
-                fontSize: 12,
-                color: "var(--text-secondary)",
-                display: "block",
-                marginBottom: 4,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
               }}
             >
-              Proxy Wallet Address (0x…)
+              <input
+                type="checkbox"
+                checked={user.autonomousMode}
+                onChange={(e) =>
+                  onSetAutonomousMode(e.target.checked).catch(() => {})
+                }
+              />
+              {user.autonomousMode ? "On" : "Off"}
             </label>
-            <input
-              type="text"
-              className="input"
-              placeholder="0x…"
-              value={funderAddress}
-              onChange={(e) => setFunderAddress(e.target.value)}
-              style={{ width: "100%" }}
-            />
           </div>
+
+          <p
+            style={{
+              fontSize: 13,
+              color: "var(--text-secondary)",
+              marginBottom: 16,
+              lineHeight: 1.6,
+            }}
+          >
+            Clicking <strong>Start Bots</strong> will automatically deploy your
+            Polymarket deposit wallet (if not yet deployed), transfer pUSD, set
+            trading approvals, and start all 5 bot strategies.
+          </p>
 
           {error && (
             <p style={{ color: "#ff3b30", marginBottom: 12, fontSize: 13 }}>
@@ -520,150 +545,20 @@ export function UserOnboarding({
             <button className="btn-secondary" onClick={() => setStep(1)}>
               Back
             </button>
-            <button
-              className="btn-primary"
-              onClick={handleSaveFunderAddress}
-              disabled={saving}
-            >
-              {saving ? "Saving…" : "Save & Continue"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3 — Convert + autonomous */}
-      {step === 3 && (
-        <div>
-          {user.hasApiKeys ? (
-            <div>
-              <p style={{ marginBottom: 16, color: "#4caf50" }}>
-                ✓ Proxy wallet linked.
-              </p>
-
-              {/* Convert USDT → USDC.e */}
-              {usdtBalance > 0 && (
-                <div
-                  style={{
-                    background: "var(--surface)",
-                    borderRadius: 8,
-                    padding: "14px 16px",
-                    marginBottom: 16,
-                  }}
-                >
-                  <div style={{ fontWeight: 600, marginBottom: 6 }}>
-                    Convert USDT → USDC.e
-                  </div>
-                  <p
-                    style={{
-                      fontSize: 13,
-                      color: "var(--text-secondary)",
-                      marginBottom: 10,
-                    }}
-                  >
-                    Your bot wallet has {usdtBalance.toFixed(2)} USDT. Convert
-                    it to USDC.e via Uniswap V3 (stable 0.01% fee) so bots can
-                    trade on Polymarket.
-                  </p>
-                  {convertResult ? (
-                    <p style={{ color: "#4caf50", fontSize: 13 }}>
-                      ✓ Swapped {convertResult.usdtSwapped} USDT →{" "}
-                      {convertResult.usdceReceived} USDC.e &nbsp;
-                      <a
-                        href={`https://polygonscan.com/tx/${convertResult.txHash}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ fontSize: 12 }}
-                      >
-                        View tx ↗
-                      </a>
-                    </p>
-                  ) : (
-                    <button
-                      className="btn-primary"
-                      onClick={handleConvert}
-                      disabled={converting}
-                    >
-                      {converting
-                        ? "Converting… (on-chain)"
-                        : `Convert ${usdtBalance.toFixed(2)} USDT → USDC.e`}
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Autonomous mode toggle */}
-              <div
-                style={{
-                  background: "var(--surface)",
-                  borderRadius: 8,
-                  padding: "14px 16px",
-                  marginBottom: 16,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 16,
-                }}
+            {!user.botsRunning ? (
+              <button
+                className="btn-primary"
+                onClick={handleStartBots}
+                disabled={starting}
               >
-                <div>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                    Auto-convert future deposits
-                  </div>
-                  <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                    Every 5 min the orchestrator checks your wallet. If you have
-                    &gt; 1 USDT, it auto-swaps to USDC.e.
-                  </div>
-                </div>
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={user.autonomousMode}
-                    onChange={(e) =>
-                      onSetAutonomousMode(e.target.checked).catch(() => {})
-                    }
-                  />
-                  {user.autonomousMode ? "On" : "Off"}
-                </label>
-              </div>
-
-              {error && (
-                <p style={{ color: "#ff3b30", marginBottom: 12, fontSize: 13 }}>
-                  {error}
-                </p>
-              )}
-
-              {!user.botsRunning ? (
-                <button
-                  className="btn-primary"
-                  onClick={handleStartBots}
-                  disabled={starting}
-                >
-                  {starting ? "Starting…" : "Start My Bots"}
-                </button>
-              ) : (
-                <p style={{ color: "#4caf50", fontWeight: 600 }}>
-                  ✓ Bots are running
-                </p>
-              )}
-            </div>
-          ) : (
-            <div>
-              <p style={{ marginBottom: 16, lineHeight: 1.6 }}>
-                Please go back to Step 2 and save your Polymarket proxy wallet
-                address to continue.
-              </p>
-              <button className="btn-secondary" onClick={() => setStep(2)}>
-                Back to Step 2
+                {starting ? "Starting bots…" : "Start My Bots"}
               </button>
-            </div>
-          )}
+            ) : (
+              <p style={{ color: "#4caf50", fontWeight: 600, margin: 0 }}>
+                ✓ Bots are running
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>
