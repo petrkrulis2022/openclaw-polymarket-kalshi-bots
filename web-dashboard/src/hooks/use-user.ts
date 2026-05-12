@@ -125,6 +125,8 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
   const [balance, setBalance] = useState<BotWalletBalance | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Cache the deposit wallet address so on-chain pUSD reads survive orchestrator restarts.
+  const depositWalletRef = useRef<string | null>(null);
 
   const register = useCallback(async (address: string) => {
     setLoading(true);
@@ -164,25 +166,41 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     if (!metamaskAddress) return;
     setBalanceLoading(true);
     try {
-      const res = await fetch(
-        `/api/orchestrator/users/${metamaskAddress}/balance`,
-      );
-      if (!res.ok) return;
-      const data = (await res.json()) as BotWalletBalance;
+      // Try orchestrator balance endpoint (may be missing depositWalletPusd on old treasury).
+      let data: BotWalletBalance | null = null;
+      try {
+        const res = await fetch(
+          `/api/orchestrator/users/${metamaskAddress}/balance`,
+        );
+        if (res.ok) data = (await res.json()) as BotWalletBalance;
+      } catch { /* orchestrator may be restarting */ }
 
-      // If treasury hasn't been restarted yet, depositWalletPusd will be missing.
-      // Fall back to a direct on-chain eth_call so the UI always shows real pUSD.
-      if (data.depositWalletPusd === undefined || data.depositWalletAddress === undefined) {
-        const depositWalletAddress =
-          data.depositWalletAddress ??
-          (await fetchDepositWalletAddress(metamaskAddress));
-        if (depositWalletAddress) {
+      // Resolve deposit wallet address: use cached ref → balance response → separate endpoint.
+      const depositWalletAddress: string | null =
+        depositWalletRef.current ??
+        data?.depositWalletAddress ??
+        (await fetchDepositWalletAddress(metamaskAddress));
+
+      if (depositWalletAddress) {
+        depositWalletRef.current = depositWalletAddress;
+        const pusd = await fetchPusdBalanceDirect(depositWalletAddress);
+        if (data) {
           data.depositWalletAddress = depositWalletAddress;
-          data.depositWalletPusd = await fetchPusdBalanceDirect(depositWalletAddress);
+          data.depositWalletPusd = pusd;
+        } else {
+          // Orchestrator down but on-chain pUSD is available — show partial balance.
+          data = {
+            address: metamaskAddress,
+            usdt: "0.000000",
+            usdce: "0.000000",
+            nativePol: "0.000000",
+            depositWalletAddress,
+            depositWalletPusd: pusd,
+          };
         }
       }
 
-      setBalance(data);
+      if (data) setBalance(data);
     } catch {
     } finally {
       setBalanceLoading(false);

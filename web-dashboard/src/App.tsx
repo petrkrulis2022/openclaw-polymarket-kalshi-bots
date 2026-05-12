@@ -2557,7 +2557,7 @@ export default function App() {
     balance?.depositWalletPusd !== undefined &&
     parseFloat(balance.depositWalletPusd) > 0;
   const showOnboarding =
-    isConnected && !userLoading && user !== null && !user.botsRunning && !hasPusd;
+    isConnected && !userLoading && !balanceLoading && user !== null && !user.botsRunning && !hasPusd;
 
   const [withdrawing, setWithdrawing] = React.useState(false);
   const [withdrawResult, setWithdrawResult] = React.useState<{
