@@ -252,8 +252,9 @@ async function getOrCreateBuilderApiKey(
   if (getResp.ok) {
     const body = (await getResp.json()) as unknown;
     const first = Array.isArray(body) ? (body[0] as Record<string, string>) : (body as Record<string, string>);
-    if (first?.["apiKey"]) {
-      return { key: first["apiKey"], secret: first["secret"]!, passphrase: first["passphrase"]! };
+    const existingKey = first?.["apiKey"] ?? first?.["key"];
+    if (existingKey) {
+      return { key: existingKey, secret: first["secret"]!, passphrase: first["passphrase"]! };
     }
   }
 
@@ -264,10 +265,11 @@ async function getOrCreateBuilderApiKey(
   };
   const postResp = await fetch(`${CLOB_HOST}${path}`, { method: "POST", headers: postHeaders });
   const postBody = (await postResp.json()) as Record<string, string>;
-  if (!postResp.ok || !postBody["apiKey"]) {
+  const createdKey = postBody["apiKey"] ?? postBody["key"];
+  if (!postResp.ok || !createdKey) {
     throw new Error(`Builder createApiKey failed (${postResp.status}): ${JSON.stringify(postBody)}`);
   }
-  return { key: postBody["apiKey"], secret: postBody["secret"]!, passphrase: postBody["passphrase"]! };
+  return { key: createdKey, secret: postBody["secret"]!, passphrase: postBody["passphrase"]! };
 }
 
 // ── Relayer HTTP helpers ──────────────────────────────────────────────────────
