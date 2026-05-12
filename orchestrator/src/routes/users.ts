@@ -89,6 +89,27 @@ async function deriveWallet(
   return res.json() as Promise<{ address: string; signerKey: string }>;
 }
 
+/**
+ * Call WDK treasury to get the deterministic deposit wallet address for a given
+ * HD index. The deposit wallet is an ERC-1967 proxy deployed by the Polymarket
+ * relayer. Bots use POLY_1271 (signatureType=3) with this address as both
+ * POLYMARKET_WALLET_ADDRESS and POLYMARKET_FUNDER_ADDRESS.
+ */
+async function getDepositWalletAddress(
+  index: number,
+): Promise<{ depositWalletAddress: string; eoa: string }> {
+  const res = await fetch(
+    `${WDK_TREASURY_URL}/deposit-polymarket/address?index=${index}`,
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(
+      `Treasury /deposit-polymarket/address failed (${res.status}): ${body}`,
+    );
+  }
+  return res.json() as Promise<{ depositWalletAddress: string; eoa: string }>;
+}
+
 /** Run a shell command and return stdout (rejects on non-zero exit). */
 function runCmd(cmd: string, args: string[], cwd?: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -202,10 +223,15 @@ router.post(
       if (!user.bot_wallet_address) {
         return res.status(400).json({ error: "Bot wallet not yet derived" });
       }
-      // Get the signer key and EOA address from treasury
-      // Always use the freshly derived address so POLYMARKET_WALLET_ADDRESS is
-      // the actual EOA (not a stale proxy/Safe address stored in the DB).
-      const { signerKey, address: eoa } = await deriveWallet(user.bot_wallet_index);
+      // Get the EOA signer key + the deterministic deposit wallet address.
+      // Polymarket V2 requires a Deposit Wallet (ERC-1967 proxy) as the maker;
+      // pure EOA (POLY_EOA) is blocked for new accounts on the CLOB.
+      // The deposit wallet must be deployed and funded before starting bots
+      // by calling POST /deposit-polymarket on the treasury service.
+      const [{ signerKey }, { depositWalletAddress }] = await Promise.all([
+        deriveWallet(user.bot_wallet_index),
+        getDepositWalletAddress(user.bot_wallet_index),
+      ]);
 
       // Write per-user env files and build PM2 app configs
       if (!fs.existsSync(ENVS_DIR)) fs.mkdirSync(ENVS_DIR, { recursive: true });
@@ -225,10 +251,12 @@ router.post(
           env: {
             PORT: String(port),
             BOT_ID: String(bot.botId),
-            POLYMARKET_WALLET_ADDRESS: eoa,
+            // Deposit wallet is the maker on all orders and the balance holder.
+            // The EOA private key (BOT_SIGNER_KEY) signs on its behalf.
+            POLYMARKET_WALLET_ADDRESS: depositWalletAddress,
             BOT_SIGNER_KEY: signerKey,
-            POLYMARKET_FUNDER_ADDRESS: "",
-            POLYMARKET_SIGNATURE_TYPE: "POLY_EOA",
+            POLYMARKET_FUNDER_ADDRESS: depositWalletAddress,
+            POLYMARKET_SIGNATURE_TYPE: "POLY_1271",
             ORCHESTRATOR_URL: `http://localhost:${process.env["PORT"] ?? 3002}`,
             TREASURY_URL: WDK_TREASURY_URL,
             BOT_COUNT: String(BOT_DEFS.length),
@@ -247,21 +275,20 @@ router.post(
       await runCmd("pm2", ["start", ecosystemPath]);
       await runCmd("pm2", ["save"]);
 
-      // Auto-deposit USDC.e from bot wallet EOA to Polymarket proxy wallet
+      // Auto-run deposit wallet setup (idempotent: skips already-done steps).
+      // This deploys the deposit wallet, transfers pUSD, and sets approvals.
+      // Non-fatal: bots start regardless (they'll error if wallet not ready).
       try {
         const depRes = await fetch(`${WDK_TREASURY_URL}/deposit-polymarket`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            index: user.bot_wallet_index,
-            proxyWalletAddress: user.poly_funder_address,
-          }),
+          body: JSON.stringify({ index: user.bot_wallet_index }),
         });
         const depData = await depRes.json();
-        console.log("[start-bots] auto-deposit to Polymarket:", depData);
+        console.log("[start-bots] deposit wallet setup:", depData);
       } catch (err) {
         console.warn(
-          "[start-bots] auto-deposit to Polymarket failed (non-fatal):",
+          "[start-bots] deposit wallet setup failed (non-fatal):",
           (err as Error).message,
         );
       }
