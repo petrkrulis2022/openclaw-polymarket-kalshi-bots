@@ -2558,9 +2558,10 @@ export default function App() {
     parseFloat(balance.depositWalletPusd) > 0;
   // Skip wizard if: bots running OR pUSD detected OR funder address already set (hasApiKeys).
   // hasApiKeys = true means user completed setup step 1 even if orchestrator is temporarily down.
+  // Also wait for balance to load — prevents wizard flash before the first CREATE2/RPC fetch.
   const showOnboarding =
     isConnected && !userLoading && !balanceLoading && user !== null &&
-    !user.botsRunning && !hasPusd && !user.hasApiKeys;
+    !user.botsRunning && !hasPusd && !user.hasApiKeys && balance !== null;
 
   const [withdrawing, setWithdrawing] = React.useState(false);
   const [withdrawResult, setWithdrawResult] = React.useState<{

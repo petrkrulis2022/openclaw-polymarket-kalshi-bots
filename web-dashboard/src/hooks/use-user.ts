@@ -159,7 +159,9 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [balance, setBalance] = useState<BotWalletBalance | null>(null);
-  const [balanceLoading, setBalanceLoading] = useState(false);
+  // Start as true — prevents the onboarding wizard from flashing before the first
+  // balance fetch completes (which includes the client-side CREATE2 pUSD check).
+  const [balanceLoading, setBalanceLoading] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Cache the deposit wallet address so on-chain pUSD reads survive orchestrator restarts.
   const depositWalletRef = useRef<string | null>(null);
