@@ -64,6 +64,60 @@ interface UseUserReturn {
 
 const BALANCE_POLL_MS = 30_000; // poll bot wallet balance every 30 s
 
+// Known Polygon contract addresses (no backend needed)
+const POLYGON_RPC = "https://polygon-rpc.com";
+const PUSD_ADDRESS = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
+
+/**
+ * Direct on-chain pUSD balanceOf call via eth_call JSON-RPC.
+ * Works even when the treasury backend hasn't been restarted with the
+ * new balance.ts code that returns depositWalletPusd.
+ */
+async function fetchPusdBalanceDirect(walletAddress: string): Promise<string> {
+  // ERC20 balanceOf(address) selector = 0x70a08231, padded address
+  const data =
+    "0x70a08231" +
+    walletAddress.toLowerCase().replace("0x", "").padStart(64, "0");
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "eth_call",
+    params: [{ to: PUSD_ADDRESS, data }, "latest"],
+  });
+  const res = await fetch(POLYGON_RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  if (!res.ok) return "0.000000";
+  const json = (await res.json()) as { result?: string };
+  if (!json.result || json.result === "0x") return "0.000000";
+  const raw = BigInt(json.result);
+  // pUSD has 6 decimals
+  const whole = raw / 1_000_000n;
+  const frac = raw % 1_000_000n;
+  return `${whole}.${frac.toString().padStart(6, "0")}`;
+}
+
+/**
+ * Compute deposit wallet address deterministically via the orchestrator.
+ * Falls back gracefully if the endpoint doesn't exist yet.
+ */
+async function fetchDepositWalletAddress(
+  metamaskAddress: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `/api/orchestrator/users/${metamaskAddress}/deposit-wallet-address`,
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { depositWalletAddress?: string };
+    return data.depositWalletAddress ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function useUser(metamaskAddress: string | undefined): UseUserReturn {
   const [user, setUser] = useState<UserRecord | null>(null);
   const [loading, setLoading] = useState(false);
@@ -115,6 +169,19 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
       );
       if (!res.ok) return;
       const data = (await res.json()) as BotWalletBalance;
+
+      // If treasury hasn't been restarted yet, depositWalletPusd will be missing.
+      // Fall back to a direct on-chain eth_call so the UI always shows real pUSD.
+      if (data.depositWalletPusd === undefined || data.depositWalletAddress === undefined) {
+        const depositWalletAddress =
+          data.depositWalletAddress ??
+          (await fetchDepositWalletAddress(metamaskAddress));
+        if (depositWalletAddress) {
+          data.depositWalletAddress = depositWalletAddress;
+          data.depositWalletPusd = await fetchPusdBalanceDirect(depositWalletAddress);
+        }
+      }
+
       setBalance(data);
     } catch {
     } finally {

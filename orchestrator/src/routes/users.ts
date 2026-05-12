@@ -363,6 +363,27 @@ router.post(
   },
 );
 
+// ── GET /users/:address/deposit-wallet-address ────────────────────────────────
+// Returns the deterministic deposit wallet address for a user (no balance).
+// Used by the dashboard as a fallback when treasury hasn't been restarted yet.
+
+router.get(
+  "/:address/deposit-wallet-address",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      const { depositWalletAddress, eoa } = await getDepositWalletAddress(
+        user.bot_wallet_index,
+      );
+      return res.json({ depositWalletAddress, eoa });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
 // ── POST /users/:address/deposit-polymarket ───────────────────────────────────
 // Manually trigger deposit wallet setup (idempotent).
 // Deploys the deposit wallet, transfers pUSD, and sets approvals.
