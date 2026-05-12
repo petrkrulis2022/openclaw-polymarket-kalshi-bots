@@ -8,6 +8,16 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  keccak256,
+  encodePacked,
+  encodeAbiParameters,
+  getCreate2Address,
+  pad,
+  concat,
+  toBytes,
+  toHex,
+} from "viem";
 
 export interface UserRecord {
   metamaskAddress: string;
@@ -68,53 +78,79 @@ const BALANCE_POLL_MS = 30_000; // poll bot wallet balance every 30 s
 const POLYGON_RPC = "https://polygon-rpc.com";
 const PUSD_ADDRESS = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
 
+// Polymarket deposit wallet factory constants (Polygon mainnet)
+// Mirrors wdk-treasury/src/routes/deposit-polymarket.ts :: computeDepositWalletAddress
+const DEPOSIT_WALLET_FACTORY = "0x00000000000Fb5C9ADea0298D729A0CB3823Cc07" as const;
+const DEPOSIT_WALLET_IMPL    = "0x58CA52ebe0DadfdF531Cde7062e76746de4Db1eB" as const;
+const ERC1967_CONST1 = "0xcc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3";
+const ERC1967_CONST2 = "0x5155f3363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076";
+const ERC1967_PREFIX = 0x61003d3d8160233d3973n;
+
 /**
- * Direct on-chain pUSD balanceOf call via eth_call JSON-RPC.
- * Works even when the treasury backend hasn't been restarted with the
- * new balance.ts code that returns depositWalletPusd.
+ * Compute the deterministic Polymarket deposit wallet address for an EOA.
+ * Pure client-side — mirrors the treasury's computeDepositWalletAddress exactly.
+ * No server calls needed. Works even when orchestrator and treasury are down.
  */
-async function fetchPusdBalanceDirect(walletAddress: string): Promise<string> {
-  // ERC20 balanceOf(address) selector = 0x70a08231, padded address
-  const data =
-    "0x70a08231" +
-    walletAddress.toLowerCase().replace("0x", "").padStart(64, "0");
-  const body = JSON.stringify({
-    jsonrpc: "2.0",
-    id: 1,
-    method: "eth_call",
-    params: [{ to: PUSD_ADDRESS, data }, "latest"],
+function computeDepositWalletAddress(owner: `0x${string}`): `0x${string}` {
+  // args = abi.encode(address factory, bytes32 walletId)
+  // walletId = bytes32(owner) = left-pad 20-byte address to 32 bytes
+  const walletId = pad(owner, { size: 32 });
+  const args = encodeAbiParameters(
+    [{ type: "address" }, { type: "bytes32" }],
+    [DEPOSIT_WALLET_FACTORY, walletId],
+  );
+
+  const salt = keccak256(args);
+
+  // Solady LibClone.initCodeHashERC1967 — n = byte length of args
+  const n = BigInt((args.length - 2) / 2); // args is 0x-prefixed hex
+  const combined = ERC1967_PREFIX + (n << 56n);
+
+  // Build initCode: 10-byte prefix | impl (20 bytes) | 0x6009 | CONST2 | CONST1 | args
+  const prefixBytes = toBytes(toHex(combined, { size: 10 }));
+  const implBytes   = toBytes(DEPOSIT_WALLET_IMPL);
+  const sep         = toBytes("0x6009");
+  const c2bytes     = toBytes(ERC1967_CONST2 as `0x${string}`);
+  const c1bytes     = toBytes(ERC1967_CONST1 as `0x${string}`);
+  const argsBytes   = toBytes(args);
+
+  const initCode = concat([prefixBytes, implBytes, sep, c2bytes, c1bytes, argsBytes]);
+  const bytecodeHash = keccak256(initCode);
+
+  return getCreate2Address({
+    from: DEPOSIT_WALLET_FACTORY,
+    salt,
+    bytecodeHash,
   });
-  const res = await fetch(POLYGON_RPC, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body,
-  });
-  if (!res.ok) return "0.000000";
-  const json = (await res.json()) as { result?: string };
-  if (!json.result || json.result === "0x") return "0.000000";
-  const raw = BigInt(json.result);
-  // pUSD has 6 decimals
-  const whole = raw / 1_000_000n;
-  const frac = raw % 1_000_000n;
-  return `${whole}.${frac.toString().padStart(6, "0")}`;
 }
 
 /**
- * Compute deposit wallet address deterministically via the orchestrator.
- * Falls back gracefully if the endpoint doesn't exist yet.
+ * Direct on-chain pUSD balanceOf call via eth_call JSON-RPC.
+ * Works regardless of server state — queries Polygon directly.
  */
-async function fetchDepositWalletAddress(
-  metamaskAddress: string,
-): Promise<string | null> {
+async function fetchPusdBalanceDirect(walletAddress: string): Promise<string> {
+  const data =
+    "0x70a08231" +
+    walletAddress.toLowerCase().replace("0x", "").padStart(64, "0");
   try {
-    const res = await fetch(
-      `/api/orchestrator/users/${metamaskAddress}/deposit-wallet-address`,
-    );
-    if (!res.ok) return null;
-    const data = (await res.json()) as { depositWalletAddress?: string };
-    return data.depositWalletAddress ?? null;
+    const res = await fetch(POLYGON_RPC, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 1,
+        method: "eth_call",
+        params: [{ to: PUSD_ADDRESS, data }, "latest"],
+      }),
+    });
+    if (!res.ok) return "0.000000";
+    const json = (await res.json()) as { result?: string };
+    if (!json.result || json.result === "0x") return "0.000000";
+    const raw = BigInt(json.result);
+    const whole = raw / 1_000_000n;
+    const frac  = raw % 1_000_000n;
+    return `${whole}.${frac.toString().padStart(6, "0")}`;
   } catch {
-    return null;
+    return "0.000000";
   }
 }
 
@@ -166,41 +202,36 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     if (!metamaskAddress) return;
     setBalanceLoading(true);
     try {
-      // Try orchestrator balance endpoint (may be missing depositWalletPusd on old treasury).
-      let data: BotWalletBalance | null = null;
+      // Compute deposit wallet address purely client-side — no server needed.
+      const depositWalletAddress =
+        depositWalletRef.current ??
+        computeDepositWalletAddress(metamaskAddress as `0x${string}`);
+      depositWalletRef.current = depositWalletAddress;
+
+      // Read pUSD balance directly from Polygon — bypasses Cloudflare, orchestrator, treasury.
+      const pusd = await fetchPusdBalanceDirect(depositWalletAddress);
+
+      // Try orchestrator for the full EOA balance (USDT, USDC.e, POL).
+      // If it fails, show zeros — the pUSD is what matters for onboarding.
+      let data: BotWalletBalance = {
+        address: metamaskAddress,
+        usdt: "0.000000",
+        usdce: "0.000000",
+        nativePol: "0.000000",
+        depositWalletAddress,
+        depositWalletPusd: pusd,
+      };
       try {
         const res = await fetch(
           `/api/orchestrator/users/${metamaskAddress}/balance`,
         );
-        if (res.ok) data = (await res.json()) as BotWalletBalance;
-      } catch { /* orchestrator may be restarting */ }
-
-      // Resolve deposit wallet address: use cached ref → balance response → separate endpoint.
-      const depositWalletAddress: string | null =
-        depositWalletRef.current ??
-        data?.depositWalletAddress ??
-        (await fetchDepositWalletAddress(metamaskAddress));
-
-      if (depositWalletAddress) {
-        depositWalletRef.current = depositWalletAddress;
-        const pusd = await fetchPusdBalanceDirect(depositWalletAddress);
-        if (data) {
-          data.depositWalletAddress = depositWalletAddress;
-          data.depositWalletPusd = pusd;
-        } else {
-          // Orchestrator down but on-chain pUSD is available — show partial balance.
-          data = {
-            address: metamaskAddress,
-            usdt: "0.000000",
-            usdce: "0.000000",
-            nativePol: "0.000000",
-            depositWalletAddress,
-            depositWalletPusd: pusd,
-          };
+        if (res.ok) {
+          const remote = (await res.json()) as BotWalletBalance;
+          data = { ...remote, depositWalletAddress, depositWalletPusd: pusd };
         }
-      }
+      } catch { /* orchestrator may be restarting — pUSD already set above */ }
 
-      if (data) setBalance(data);
+      setBalance(data);
     } catch {
     } finally {
       setBalanceLoading(false);
