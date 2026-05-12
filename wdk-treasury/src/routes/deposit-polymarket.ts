@@ -31,6 +31,7 @@
  * Internal-only endpoint — not exposed via public proxy.
  */
 
+import { createHmac } from "node:crypto";
 import { Router, Request, Response, NextFunction } from "express";
 import {
   JsonRpcProvider,
@@ -65,6 +66,17 @@ const DEPOSIT_WALLET_IMPL    = "0x58CA52ebe0DadfdF531Cde7062e76746de4Db1eB";
 
 // Polymarket relayer
 const RELAYER_URL = "https://relayer-v2.polymarket.com";
+
+// CLOB API for deriving API keys used by the relayer
+const CLOB_HOST = "https://clob.polymarket.com";
+const CHAIN_ID = 137;
+const CLOB_MSG_TO_SIGN = "This message attests that I control the given wallet";
+
+interface ApiCreds {
+  key: string;
+  secret: string;
+  passphrase: string;
+}
 
 // ── ABIs ──────────────────────────────────────────────────────────────────────
 
@@ -125,6 +137,139 @@ function computeDepositWalletAddress(owner: string): string {
   return getCreate2Address(DEPOSIT_WALLET_FACTORY, salt, bytecodeHash);
 }
 
+// ── Auth helpers (CLOB API key → Builder API key → relayer HMAC) ─────────────
+
+/** HMAC-SHA256 with URL-safe base64 output (same algo used by CLOB and builder-signing-sdk). */
+function buildHmacSig(
+  secret: string,
+  ts: number,
+  method: string,
+  path: string,
+  body?: string,
+): string {
+  let message = `${ts}${method}${path}`;
+  if (body !== undefined) message += body;
+  const hmac = createHmac("sha256", Buffer.from(secret, "base64"));
+  const sig = hmac.update(message).digest("base64");
+  return sig.replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+/**
+ * Build CLOB L1 auth headers by signing an EIP-712 ClobAuth message with the EOA wallet.
+ * Used to derive/create CLOB API keys.
+ */
+async function clobL1Headers(wallet: HDNodeWallet): Promise<Record<string, string>> {
+  const ts = Math.floor(Date.now() / 1000);
+  const domain = { name: "ClobAuthDomain", version: "1", chainId: CHAIN_ID };
+  const types = {
+    ClobAuth: [
+      { name: "address", type: "address" },
+      { name: "timestamp", type: "string" },
+      { name: "nonce", type: "uint256" },
+      { name: "message", type: "string" },
+    ],
+  };
+  const value = {
+    address: wallet.address,
+    timestamp: ts.toString(),
+    nonce: 0,
+    message: CLOB_MSG_TO_SIGN,
+  };
+  const sig = await wallet.signTypedData(domain, types, value);
+  return {
+    POLY_ADDRESS: wallet.address,
+    POLY_SIGNATURE: sig,
+    POLY_TIMESTAMP: `${ts}`,
+    POLY_NONCE: "0",
+  };
+}
+
+/**
+ * Build CLOB L2 auth headers using HMAC with existing API credentials.
+ * Used for authenticated CLOB API calls (e.g. creating a builder API key).
+ */
+function clobL2Headers(
+  address: string,
+  creds: ApiCreds,
+  method: string,
+  path: string,
+  body?: string,
+): Record<string, string> {
+  const ts = Math.floor(Date.now() / 1000);
+  const sig = buildHmacSig(creds.secret, ts, method, path, body);
+  return {
+    POLY_ADDRESS: address,
+    POLY_SIGNATURE: sig,
+    POLY_TIMESTAMP: `${ts}`,
+    POLY_API_KEY: creds.key,
+    POLY_PASSPHRASE: creds.passphrase,
+  };
+}
+
+/**
+ * Derive (or create) a CLOB API key for the given EOA wallet.
+ * Try /auth/derive-api-key first (deterministic); fall back to /auth/api-key.
+ */
+async function deriveOrCreateClobApiKey(wallet: HDNodeWallet): Promise<ApiCreds> {
+  const l1 = await clobL1Headers(wallet);
+  const headers = { "Content-Type": "application/json", ...l1 };
+
+  // Try derive first (returns existing key deterministically)
+  const deriveResp = await fetch(`${CLOB_HOST}/auth/derive-api-key`, { headers });
+  if (deriveResp.ok) {
+    const body = (await deriveResp.json()) as Record<string, string>;
+    if (body["apiKey"]) {
+      return { key: body["apiKey"], secret: body["secret"]!, passphrase: body["passphrase"]! };
+    }
+  }
+
+  // Fall back to create
+  const createResp = await fetch(`${CLOB_HOST}/auth/api-key`, { method: "POST", headers });
+  const createBody = (await createResp.json()) as Record<string, string>;
+  if (!createResp.ok || !createBody["apiKey"]) {
+    throw new Error(`CLOB createApiKey failed (${createResp.status}): ${JSON.stringify(createBody)}`);
+  }
+  return { key: createBody["apiKey"], secret: createBody["secret"]!, passphrase: createBody["passphrase"]! };
+}
+
+/**
+ * Get or create a Builder API key for use with the Polymarket relayer.
+ * Requires a valid CLOB API key (L2 auth).
+ */
+async function getOrCreateBuilderApiKey(
+  wallet: HDNodeWallet,
+  clobCreds: ApiCreds,
+): Promise<ApiCreds> {
+  const path = "/auth/builder-api-key";
+  const eoa = wallet.address;
+
+  // Try GET first (returns existing builder key)
+  const getHeaders = {
+    "Content-Type": "application/json",
+    ...clobL2Headers(eoa, clobCreds, "GET", path),
+  };
+  const getResp = await fetch(`${CLOB_HOST}${path}`, { headers: getHeaders });
+  if (getResp.ok) {
+    const body = (await getResp.json()) as unknown;
+    const first = Array.isArray(body) ? (body[0] as Record<string, string>) : (body as Record<string, string>);
+    if (first?.["apiKey"]) {
+      return { key: first["apiKey"], secret: first["secret"]!, passphrase: first["passphrase"]! };
+    }
+  }
+
+  // Create new builder API key
+  const postHeaders = {
+    "Content-Type": "application/json",
+    ...clobL2Headers(eoa, clobCreds, "POST", path),
+  };
+  const postResp = await fetch(`${CLOB_HOST}${path}`, { method: "POST", headers: postHeaders });
+  const postBody = (await postResp.json()) as Record<string, string>;
+  if (!postResp.ok || !postBody["apiKey"]) {
+    throw new Error(`Builder createApiKey failed (${postResp.status}): ${JSON.stringify(postBody)}`);
+  }
+  return { key: postBody["apiKey"], secret: postBody["secret"]!, passphrase: postBody["passphrase"]! };
+}
+
 // ── Relayer HTTP helpers ──────────────────────────────────────────────────────
 
 async function relayerGet(
@@ -146,11 +291,24 @@ async function relayerGet(
 async function relayerPost(
   path: string,
   payload: unknown,
+  builderCreds?: ApiCreds,
 ): Promise<Record<string, unknown>> {
+  const bodyStr = JSON.stringify(payload);
+  const extraHeaders: Record<string, string> = {};
+
+  if (builderCreds) {
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = buildHmacSig(builderCreds.secret, ts, "POST", path, bodyStr);
+    extraHeaders["POLY_BUILDER_API_KEY"] = builderCreds.key;
+    extraHeaders["POLY_BUILDER_PASSPHRASE"] = builderCreds.passphrase;
+    extraHeaders["POLY_BUILDER_SIGNATURE"] = sig;
+    extraHeaders["POLY_BUILDER_TIMESTAMP"] = `${ts}`;
+  }
+
   const resp = await fetch(`${RELAYER_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json", ...extraHeaders },
+    body: bodyStr,
   });
   const body = (await resp.json()) as Record<string, unknown>;
   if (!resp.ok) {
@@ -255,6 +413,12 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     );
 
     // ── Step 1: Deploy deposit wallet (if not already deployed) ───────────────
+    // Derive CLOB + Builder API keys (needed to authenticate with the relayer)
+    console.log(`[deposit-polymarket] Deriving CLOB API key for ${eoa}...`);
+    const clobCreds = await deriveOrCreateClobApiKey(wallet);
+    console.log(`[deposit-polymarket] Getting Builder API key...`);
+    const builderCreds = await getOrCreateBuilderApiKey(wallet, clobCreds);
+
     const deployedResp = await relayerGet("/deployed", {
       address: depositWalletAddress,
       type: "WALLET",
@@ -270,7 +434,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         type: "WALLET-CREATE",
         from: eoa,
         to: DEPOSIT_WALLET_FACTORY,
-      });
+      }, builderCreds);
       const deployTxId = String(createResp["transactionID"] ?? "");
       if (!deployTxId) {
         throw new Error(
@@ -467,7 +631,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
           deadline,
           calls,
         },
-      });
+      }, builderCreds);
 
       const batchTxId = String(batchResp["transactionID"] ?? "");
       if (!batchTxId) {
