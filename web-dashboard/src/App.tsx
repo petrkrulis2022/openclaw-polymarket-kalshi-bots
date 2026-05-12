@@ -2551,9 +2551,13 @@ export default function App() {
     depositToPolymarket,
   } = useUser(isConnected ? address : undefined);
 
-  // Show onboarding if connected but setup not complete
+  // Show onboarding if connected but setup not complete.
+  // Bypass if deposit wallet already has pUSD — bots are running even if DB flag is stale.
+  const hasPusd =
+    balance?.depositWalletPusd !== undefined &&
+    parseFloat(balance.depositWalletPusd) > 0;
   const showOnboarding =
-    isConnected && !userLoading && user !== null && !user.botsRunning;
+    isConnected && !userLoading && user !== null && !user.botsRunning && !hasPusd;
 
   const [withdrawing, setWithdrawing] = React.useState(false);
   const [withdrawResult, setWithdrawResult] = React.useState<{

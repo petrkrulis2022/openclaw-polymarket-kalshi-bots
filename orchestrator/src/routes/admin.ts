@@ -8,7 +8,23 @@
  */
 
 import { Router, Request, Response, NextFunction } from "express";
-import { getAllUsers } from "../user-store.js";
+import { spawn } from "child_process";
+import { getAllUsers, setBotsRunning } from "../user-store.js";
+
+/** Run a shell command and return stdout. */
+function runCmd(cmd: string, args: string[], cwd?: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
+    child.stderr.on("data", (d: Buffer) => (err += d.toString()));
+    child.on("close", (code) => {
+      if (code === 0) resolve(out.trim());
+      else reject(new Error(`${cmd} exited ${code}: ${err.trim()}`));
+    });
+  });
+}
 
 const router = Router();
 
@@ -52,21 +68,53 @@ router.get(
     try {
       const users = getAllUsers();
 
-      // Fetch live balances for all users in parallel
+      // Fetch live balances + PM2 status for all users in parallel
+      let pm2List: Array<{ name: string; pm2_env?: { status?: string } }> = [];
+      try {
+        const raw = await runCmd("pm2", ["jlist"]);
+        pm2List = JSON.parse(raw) as typeof pm2List;
+      } catch {
+        // PM2 not available — leave pm2List empty
+      }
+
       const enriched = await Promise.all(
         users.map(async (user) => {
+          // Derive user slot and PM2 process names (same formula as users.ts)
+          const slot = user.bot_wallet_index - 10;
+          const botNames = [
+            "market-maker", "copy-trader", "in-market-arb",
+            "resolution-lag", "microstructure",
+          ];
+          const anyOnline = botNames.some((name) => {
+            const pmName = `${name}-u${slot}`;
+            const proc = pm2List.find((p) => p.name === pmName);
+            return proc?.pm2_env?.status === "online";
+          });
+
+          // Auto-correct the DB flag if stale
+          let botsRunning = user.bots_running === 1;
+          if (anyOnline && !botsRunning) {
+            setBotsRunning(user.metamask_address, true);
+            botsRunning = true;
+          } else if (!anyOnline && botsRunning) {
+            setBotsRunning(user.metamask_address, false);
+            botsRunning = false;
+          }
+
           const safeUser = {
             metamask_address: user.metamask_address,
             bot_wallet_address: user.bot_wallet_address,
             bot_wallet_index: user.bot_wallet_index,
             has_api_keys: !!user.poly_funder_address,
-            bots_running: user.bots_running === 1,
+            bots_running: botsRunning,
             autonomous_mode: user.autonomous_mode === 1,
             created_at: user.created_at,
             // Balance fields — populated below if wallet is derived
             usdt: null as string | null,
             usdce: null as string | null,
             native_pol: null as string | null,
+            deposit_wallet_address: null as string | null,
+            deposit_wallet_pusd: null as string | null,
           };
 
           if (!user.bot_wallet_address) return safeUser;
@@ -83,10 +131,14 @@ router.get(
                 usdt: string;
                 usdce: string;
                 nativePol: string;
+                depositWalletAddress?: string;
+                depositWalletPusd?: string;
               };
               safeUser.usdt = bal.usdt;
               safeUser.usdce = bal.usdce;
               safeUser.native_pol = bal.nativePol;
+              safeUser.deposit_wallet_address = bal.depositWalletAddress ?? null;
+              safeUser.deposit_wallet_pusd = bal.depositWalletPusd ?? null;
             }
           } catch {
             // Balance fetch failed — leave nulls
@@ -100,6 +152,24 @@ router.get(
     } catch (err) {
       return next(err);
     }
+  },
+);
+
+// ── POST /admin/users/:address/set-bots-running ───────────────────────────────
+// Admin override: manually force the bots_running flag in DB.
+// Useful when bots were started/stopped outside the REST API.
+
+router.post(
+  "/users/:address/set-bots-running",
+  requireAdminPassword,
+  (req: Request, res: Response) => {
+    const { address } = req.params;
+    const { running } = req.body as { running?: boolean };
+    if (typeof running !== "boolean") {
+      return res.status(400).json({ error: "running (boolean) is required" });
+    }
+    setBotsRunning(address, running);
+    return res.json({ ok: true, address, botsRunning: running });
   },
 );
 
