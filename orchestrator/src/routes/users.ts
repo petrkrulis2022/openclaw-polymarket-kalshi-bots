@@ -202,15 +202,10 @@ router.post(
       if (!user.bot_wallet_address) {
         return res.status(400).json({ error: "Bot wallet not yet derived" });
       }
-      if (!user.poly_funder_address) {
-        return res.status(400).json({
-          error:
-            "Polymarket funder address not configured — complete onboarding step 2 first",
-        });
-      }
-
-      // Get the signer key from treasury (needed to sign Polymarket orders)
-      const { signerKey } = await deriveWallet(user.bot_wallet_index);
+      // Get the signer key and EOA address from treasury
+      // Always use the freshly derived address so POLYMARKET_WALLET_ADDRESS is
+      // the actual EOA (not a stale proxy/Safe address stored in the DB).
+      const { signerKey, address: eoa } = await deriveWallet(user.bot_wallet_index);
 
       // Write per-user env files and build PM2 app configs
       if (!fs.existsSync(ENVS_DIR)) fs.mkdirSync(ENVS_DIR, { recursive: true });
@@ -230,7 +225,7 @@ router.post(
           env: {
             PORT: String(port),
             BOT_ID: String(bot.botId),
-            POLYMARKET_WALLET_ADDRESS: user.bot_wallet_address,
+            POLYMARKET_WALLET_ADDRESS: eoa,
             BOT_SIGNER_KEY: signerKey,
             POLYMARKET_FUNDER_ADDRESS: "",
             POLYMARKET_SIGNATURE_TYPE: "POLY_EOA",
