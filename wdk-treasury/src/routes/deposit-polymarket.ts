@@ -388,20 +388,27 @@ async function pollRelayerTx(
     try {
       result = await relayerGet("/transaction", { id: transactionId });
     } catch {
-      console.log(`[deposit-polymarket] Relayer poll error (poll ${i + 1}/${maxPolls}), retrying...`);
+      console.log(
+        `[deposit-polymarket] Relayer poll error (poll ${i + 1}/${maxPolls}), retrying...`,
+      );
       continue;
     }
     // Log the raw response on first few polls so we can see the shape
     if (i < 3) {
-      console.log(`[deposit-polymarket] Relayer poll raw: ${JSON.stringify(result)}`);
+      console.log(
+        `[deposit-polymarket] Relayer poll raw: ${JSON.stringify(result)}`,
+      );
     }
     const txns = Array.isArray(result) ? result : [result];
     const txn = txns[0] as Record<string, unknown> | undefined;
     if (!txn) continue;
     const state = String(txn["state"] ?? txn["status"] ?? "");
-    const hash = String(txn["transactionHash"] ?? txn["hash"] ?? txn["txHash"] ?? "");
+    const hash = String(
+      txn["transactionHash"] ?? txn["hash"] ?? txn["txHash"] ?? "",
+    );
     if (
       state === "CONFIRMED" ||
+      state === "STATE_CONFIRMED" ||
       state === "MINED" ||
       state === "SUCCESS" ||
       state === "confirmed" ||
@@ -409,10 +416,16 @@ async function pollRelayerTx(
       state === "success" ||
       (state === "" && hash.length > 10)
     ) {
-      console.log(`[deposit-polymarket] Relayer txID=${transactionId} confirmed hash=${hash}`);
+      console.log(
+        `[deposit-polymarket] Relayer txID=${transactionId} confirmed hash=${hash}`,
+      );
       return hash;
     }
-    if (state.toUpperCase().includes("FAIL") || state === "REVERTED" || state === "reverted") {
+    if (
+      state.toUpperCase().includes("FAIL") ||
+      state === "REVERTED" ||
+      state === "reverted"
+    ) {
       throw new Error(
         `Relayer transaction ${transactionId} failed with state: ${state}`,
       );
@@ -558,12 +571,10 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
           Math.round(parseFloat(String(amountUsdce)) * 1_000_000),
         );
         if (wrapAmount <= 0n || wrapAmount > usdceBalance) {
-          return res
-            .status(400)
-            .json({
-              error: "Invalid amountUsdce",
-              usdceBalance: String(usdceBalance),
-            });
+          return res.status(400).json({
+            error: "Invalid amountUsdce",
+            usdceBalance: String(usdceBalance),
+          });
         }
       }
       console.log(
