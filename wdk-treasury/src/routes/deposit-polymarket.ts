@@ -622,21 +622,29 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     const pusdRo = new Contract(PUSD_TOKEN_ADDRESS, ERC20_ABI, provider);
     const ctfRo = new Contract(CTF_CONTRACT_ADDRESS, ERC1155_ABI, provider);
 
-    const [pUsdAllowance, ctfApprovedExchange, ctfApprovedNegRisk] =
-      await Promise.all([
-        pusdRo.allowance(
-          depositWalletAddress,
-          CTF_CONTRACT_ADDRESS,
-        ) as Promise<bigint>,
-        ctfRo.isApprovedForAll(
-          depositWalletAddress,
-          CTF_EXCHANGE_ADDRESS,
-        ) as Promise<boolean>,
-        ctfRo.isApprovedForAll(
-          depositWalletAddress,
-          NEG_RISK_CTF_EXCHANGE,
-        ) as Promise<boolean>,
-      ]);
+    const [
+      pUsdAllowanceCTFExchange,
+      pUsdAllowanceNegRisk,
+      ctfApprovedExchange,
+      ctfApprovedNegRisk,
+    ] = await Promise.all([
+      pusdRo.allowance(
+        depositWalletAddress,
+        CTF_EXCHANGE_ADDRESS,
+      ) as Promise<bigint>,
+      pusdRo.allowance(
+        depositWalletAddress,
+        NEG_RISK_CTF_EXCHANGE,
+      ) as Promise<bigint>,
+      ctfRo.isApprovedForAll(
+        depositWalletAddress,
+        CTF_EXCHANGE_ADDRESS,
+      ) as Promise<boolean>,
+      ctfRo.isApprovedForAll(
+        depositWalletAddress,
+        NEG_RISK_CTF_EXCHANGE,
+      ) as Promise<boolean>,
+    ]);
 
     const erc20Iface = new Interface([
       "function approve(address,uint256) returns (bool)",
@@ -647,12 +655,22 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 
     const calls: Array<{ target: string; value: string; data: string }> = [];
 
-    if (pUsdAllowance < MaxUint256) {
+    if (pUsdAllowanceCTFExchange < MaxUint256) {
       calls.push({
         target: PUSD_TOKEN_ADDRESS,
         value: "0",
         data: erc20Iface.encodeFunctionData("approve", [
-          CTF_CONTRACT_ADDRESS,
+          CTF_EXCHANGE_ADDRESS,
+          MaxUint256,
+        ]),
+      });
+    }
+    if (pUsdAllowanceNegRisk < MaxUint256) {
+      calls.push({
+        target: PUSD_TOKEN_ADDRESS,
+        value: "0",
+        data: erc20Iface.encodeFunctionData("approve", [
+          NEG_RISK_CTF_EXCHANGE,
           MaxUint256,
         ]),
       });
