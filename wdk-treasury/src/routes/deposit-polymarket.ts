@@ -3,16 +3,21 @@
  *
  * POST /deposit-polymarket
  *
- * Deposits USDC.e from a user bot wallet (index >= 10) into the Polymarket
- * CTF Exchange V2, crediting the EOA's trading account directly (POLY_EOA mode).
+ * Sets up a user bot wallet (index >= 10) to trade on Polymarket V2 (POLY_EOA mode).
  *
- * Polymarket V2 (live April 28 2026) uses pUSD as collateral, not USDC.e.
+ * Polymarket V2 (live April 28 2026) uses pUSD as collateral and a new Exchange.
+ * There is NO Exchange.deposit() in V2. Instead the Exchange reads the EOA's CTF
+ * token balances directly and pulls them at fill time.
  *
  * Flow:
  *   1. USDC.e.approve(CollateralOnramp, amount)
- *   2. CollateralOnramp.wrap(USDC.e, EOA, amount)  → mints pUSD to EOA
- *   3. pUSD.approve(V2Exchange, amount)
- *   4. V2Exchange.deposit(amount)                  → credits EOA's account
+ *   2. CollateralOnramp.wrap(USDC.e, EOA, amount)   → mints pUSD to EOA
+ *   3. pUSD.approve(CTF_CONTRACT, MaxUint256)        → allows CTF to split pUSD→tokens
+ *   4. CTF.setApprovalForAll(CTF_EXCHANGE, true)     → allows Exchange to move tokens
+ *   5. CTF.setApprovalForAll(NEG_RISK_EXCHANGE, true)→ same for neg-risk markets
+ *
+ * After setup, the CLOB client calls updateBalanceAllowance() on next startup to
+ * sync the on-chain balance with the CLOB backend.
  *
  * Uses ethers.js directly (bypassing WDK signing) to avoid WDK memory-safe
  * key disposal issues that cause "Uint8Array expected" errors.
@@ -22,26 +27,24 @@
  * Body:    { index: number, proxyWalletAddress?: string, amountUsdce?: string }
  *           index               — HD wallet index (must be >= 10)
  *           proxyWalletAddress  — (legacy, ignored) was the Gnosis Safe address
- *           amountUsdce         — optional; omit to deposit the full USDC.e balance
+ *           amountUsdce         — optional; omit to wrap the full USDC.e balance
  *
- * Response: { txHash: string, from: string, exchange: string, amount: string }
+ * Response: { from, pUsdBalance, pUsdApprovedToCtf, ctfApprovedToExchange, ... }
  */
 
 import { Router, Request, Response, NextFunction } from "express";
-import {
-  JsonRpcProvider,
-  HDNodeWallet,
-  Mnemonic,
-  Contract,
-} from "ethers";
+import { JsonRpcProvider, HDNodeWallet, Mnemonic, Contract, MaxUint256 } from "ethers";
 import { SEED_PHRASE, POLYGON_RPC } from "../wdk.js";
 
-const USDCE_TOKEN_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+const USDCE_TOKEN_ADDRESS    = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
 
 // Polymarket V2 contracts (live April 28 2026)
-const PUSD_TOKEN_ADDRESS    = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
-const COLLATERAL_ONRAMP     = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
-const CTF_EXCHANGE_ADDRESS  = "0xE111180000d2663C0091e4f400237545B87B996B"; // V2
+// Source: https://docs.polymarket.com/resources/contracts
+const PUSD_TOKEN_ADDRESS     = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
+const COLLATERAL_ONRAMP      = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
+const CTF_CONTRACT_ADDRESS   = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"; // Conditional Tokens
+const CTF_EXCHANGE_ADDRESS   = "0xE111180000d2663C0091e4f400237545B87B996B"; // V2 CTF Exchange
+const NEG_RISK_CTF_EXCHANGE  = "0xe2222d279d744050d28e00520010520000310F59"; // V2 Neg Risk Exchange
 
 const ERC20_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
@@ -52,8 +55,10 @@ const ONRAMP_ABI = [
   "function wrap(address _asset, address _to, uint256 _amount) external",
 ];
 
-const EXCHANGE_ABI = [
-  "function deposit(uint256 amount) external",
+// CTF conditional tokens are ERC-1155 — approval via setApprovalForAll
+const ERC1155_ABI = [
+  "function setApprovalForAll(address operator, bool approved) external",
+  "function isApprovedForAll(address account, address operator) view returns (bool)",
 ];
 
 const router = Router();
@@ -86,7 +91,8 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     ) {
       return res.status(400).json({
         error: "Invalid proxyWalletAddress",
-        message: "proxyWalletAddress must be a valid Ethereum address (0x…) if provided.",
+        message:
+          "proxyWalletAddress must be a valid Ethereum address (0x…) if provided.",
       });
     }
 
@@ -99,16 +105,16 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     ).connect(provider);
 
     const walletAddress = wallet.address;
-    const usdce    = new Contract(USDCE_TOKEN_ADDRESS, ERC20_ABI, wallet);
-    const pusd     = new Contract(PUSD_TOKEN_ADDRESS,  ERC20_ABI, wallet);
-    const onramp   = new Contract(COLLATERAL_ONRAMP,   ONRAMP_ABI, wallet);
-    const exchange = new Contract(CTF_EXCHANGE_ADDRESS, EXCHANGE_ABI, wallet);
+    const usdce  = new Contract(USDCE_TOKEN_ADDRESS,   ERC20_ABI,   wallet);
+    const pusd   = new Contract(PUSD_TOKEN_ADDRESS,    ERC20_ABI,   wallet);
+    const onramp = new Contract(COLLATERAL_ONRAMP,     ONRAMP_ABI,  wallet);
+    const ctf    = new Contract(CTF_CONTRACT_ADDRESS,  ERC1155_ABI, wallet);
 
     // ── Fetch balances ────────────────────────────────────────────────────────
 
     const [usdceBalance, pusdBalance, nativeBalance] = await Promise.all([
       usdce.balanceOf(walletAddress) as Promise<bigint>,
-      pusd.balanceOf(walletAddress)  as Promise<bigint>,
+      pusd.balanceOf(walletAddress) as Promise<bigint>,
       provider.getBalance(walletAddress),
     ]);
 
@@ -160,42 +166,65 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 
     if (usdceBalance > 0n) {
       // How much USDC.e to wrap — respect amountUsdce cap if set
-      const wrapAmount = transferAmount <= usdceBalance ? transferAmount : usdceBalance;
+      const wrapAmount =
+        transferAmount <= usdceBalance ? transferAmount : usdceBalance;
 
       const approveTx = await usdce.approve(COLLATERAL_ONRAMP, wrapAmount);
       await approveTx.wait(1);
 
-      const wrapTx = await onramp.wrap(USDCE_TOKEN_ADDRESS, walletAddress, wrapAmount);
+      const wrapTx = await onramp.wrap(
+        USDCE_TOKEN_ADDRESS,
+        walletAddress,
+        wrapAmount,
+      );
       await wrapTx.wait(1);
 
       // After wrap, recalculate total pUSD available
-      pUsdToDeposit = await pusd.balanceOf(walletAddress) as bigint;
+      pUsdToDeposit = (await pusd.balanceOf(walletAddress)) as bigint;
     } else {
       // Only pUSD available, no wrapping needed
       pUsdToDeposit = pusdBalance;
       if (pUsdToDeposit > transferAmount) pUsdToDeposit = transferAmount;
     }
 
-    // ── Step 2: Approve + deposit pUSD into Polymarket V2 Exchange ───────────
-    // POLY_EOA mode: EOA approves Exchange, calls deposit(amount).
-    // Exchange credits the EOA's collateral account. Bots trade as maker=EOA.
+    // ── Step 2: Approve pUSD → CTF Contract (MaxUint256, set-and-forget) ─────
+    // In V2 there is NO Exchange.deposit(). The Exchange reads CTF token balances
+    // directly and pulls them at fill time. The CLOB backend splits pUSD → YES/NO
+    // CTF tokens when orders are matched. We just need the approvals in place.
 
-    const approvePusdTx = await pusd.approve(CTF_EXCHANGE_ADDRESS, pUsdToDeposit);
+    const approvePusdTx = await pusd.approve(CTF_CONTRACT_ADDRESS, MaxUint256);
     await approvePusdTx.wait(1);
 
-    const depositTx = await exchange.deposit(pUsdToDeposit);
-    const receipt = await depositTx.wait(1);
-    const hash: string = receipt?.hash ?? depositTx.hash;
+    // ── Step 3: setApprovalForAll CTF tokens → Exchanges (skip if already set) ─
+    const [isApprovedExchange, isApprovedNegRisk] = await Promise.all([
+      ctf.isApprovedForAll(walletAddress, CTF_EXCHANGE_ADDRESS)  as Promise<boolean>,
+      ctf.isApprovedForAll(walletAddress, NEG_RISK_CTF_EXCHANGE) as Promise<boolean>,
+    ]);
+
+    let approveExchangeHash: string | null = null;
+    let approveNegRiskHash:  string | null = null;
+
+    if (!isApprovedExchange) {
+      const tx = await ctf.setApprovalForAll(CTF_EXCHANGE_ADDRESS, true);
+      const receipt = await tx.wait(1);
+      approveExchangeHash = receipt?.hash ?? tx.hash;
+    }
+
+    if (!isApprovedNegRisk) {
+      const tx = await ctf.setApprovalForAll(NEG_RISK_CTF_EXCHANGE, true);
+      const receipt = await tx.wait(1);
+      approveNegRiskHash = receipt?.hash ?? tx.hash;
+    }
 
     const amountFormatted = (Number(pUsdToDeposit) / 1_000_000).toFixed(6);
 
     return res.json({
-      txHash: hash,
       from: walletAddress,
-      exchange: CTF_EXCHANGE_ADDRESS,
-      amount: amountFormatted,
-      note: "USDC.e wrapped to pUSD via CollateralOnramp, then deposited into V2 Exchange",
-      // include for callers that log proxyWalletAddress
+      pUsdBalance: amountFormatted,
+      pUsdApprovedToCtf: true,
+      ctfApprovedToExchange: isApprovedExchange ? "already set" : approveExchangeHash,
+      ctfApprovedToNegRiskExchange: isApprovedNegRisk ? "already set" : approveNegRiskHash,
+      note: "USDC.e wrapped to pUSD. Approvals set. Bot will sync CLOB balance on next updateBalanceAllowance call.",
       proxyWalletAddress: proxyWalletAddress ?? null,
     });
   } catch (err) {
