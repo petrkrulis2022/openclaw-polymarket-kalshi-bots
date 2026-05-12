@@ -216,20 +216,28 @@ async function deriveOrCreateClobApiKey(wallet: HDNodeWallet): Promise<ApiCreds>
 
   // Try derive first (returns existing key deterministically)
   const deriveResp = await fetch(`${CLOB_HOST}/auth/derive-api-key`, { headers });
+  console.log(`[deposit-polymarket] CLOB derive-api-key status=${deriveResp.status}`);
   if (deriveResp.ok) {
     const body = (await deriveResp.json()) as Record<string, string>;
-    if (body["apiKey"]) {
-      return { key: body["apiKey"], secret: body["secret"]!, passphrase: body["passphrase"]! };
+    console.log(`[deposit-polymarket] CLOB derive-api-key body keys=${Object.keys(body).join(",")}`);
+    const key = body["apiKey"] ?? body["key"];
+    const secret = body["secret"] ?? body["api_secret"];
+    const passphrase = body["passphrase"];
+    if (key && secret) {
+      return { key, secret, passphrase: passphrase ?? "" };
     }
   }
 
   // Fall back to create
   const createResp = await fetch(`${CLOB_HOST}/auth/api-key`, { method: "POST", headers });
   const createBody = (await createResp.json()) as Record<string, string>;
-  if (!createResp.ok || !createBody["apiKey"]) {
+  console.log(`[deposit-polymarket] CLOB create-api-key status=${createResp.status} keys=${Object.keys(createBody).join(",")}`);
+  const createdKey = createBody["apiKey"] ?? createBody["key"];
+  const createdSecret = createBody["secret"] ?? createBody["api_secret"];
+  if (!createResp.ok || !createdKey || !createdSecret) {
     throw new Error(`CLOB createApiKey failed (${createResp.status}): ${JSON.stringify(createBody)}`);
   }
-  return { key: createBody["apiKey"], secret: createBody["secret"]!, passphrase: createBody["passphrase"]! };
+  return { key: createdKey, secret: createdSecret, passphrase: createBody["passphrase"] ?? "" };
 }
 
 /**
@@ -249,12 +257,15 @@ async function getOrCreateBuilderApiKey(
     ...clobL2Headers(eoa, clobCreds, "GET", path),
   };
   const getResp = await fetch(`${CLOB_HOST}${path}`, { headers: getHeaders });
+  console.log(`[deposit-polymarket] Builder GET ${path} status=${getResp.status}`);
   if (getResp.ok) {
     const body = (await getResp.json()) as unknown;
     const first = Array.isArray(body) ? (body[0] as Record<string, string>) : (body as Record<string, string>);
+    console.log(`[deposit-polymarket] Builder GET body keys=${first ? Object.keys(first).join(",") : "(empty array)"}`);
     const existingKey = first?.["apiKey"] ?? first?.["key"];
-    if (existingKey) {
-      return { key: existingKey, secret: first["secret"]!, passphrase: first["passphrase"]! };
+    const existingSecret = first?.["secret"] ?? first?.["api_secret"];
+    if (existingKey && existingSecret) {
+      return { key: existingKey, secret: existingSecret, passphrase: first["passphrase"] ?? "" };
     }
   }
 
@@ -265,11 +276,13 @@ async function getOrCreateBuilderApiKey(
   };
   const postResp = await fetch(`${CLOB_HOST}${path}`, { method: "POST", headers: postHeaders });
   const postBody = (await postResp.json()) as Record<string, string>;
+  console.log(`[deposit-polymarket] Builder POST ${path} status=${postResp.status} keys=${Object.keys(postBody).join(",")}`);
   const createdKey = postBody["apiKey"] ?? postBody["key"];
-  if (!postResp.ok || !createdKey) {
+  const createdSecret = postBody["secret"] ?? postBody["api_secret"];
+  if (!postResp.ok || !createdKey || !createdSecret) {
     throw new Error(`Builder createApiKey failed (${postResp.status}): ${JSON.stringify(postBody)}`);
   }
-  return { key: createdKey, secret: postBody["secret"]!, passphrase: postBody["passphrase"]! };
+  return { key: createdKey, secret: createdSecret, passphrase: postBody["passphrase"] ?? "" };
 }
 
 // ── Relayer HTTP helpers ──────────────────────────────────────────────────────
