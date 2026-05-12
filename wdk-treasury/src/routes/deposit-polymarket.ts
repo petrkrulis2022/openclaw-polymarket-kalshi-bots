@@ -3,25 +3,29 @@
  *
  * POST /deposit-polymarket
  *
- * Transfers USDC.e from a user bot wallet (index >= 10) to the user's
- * Polymarket proxy wallet address so the bots have capital to trade.
+ * Deposits USDC.e from a user bot wallet (index >= 10) into the Polymarket
+ * CTF Exchange, crediting the EOA's trading account directly (POLY_EOA mode).
+ *
+ * Flow: EOA → approve(Exchange, amount) → Exchange.deposit(amount)
+ *
+ * The Exchange credits the EOA's internal balance. The bot then trades as
+ * maker = EOA (POLY_EOA, signatureType=0). No Gnosis Safe proxy required.
  *
  * Uses ethers.js directly (bypassing WDK signing) to avoid WDK memory-safe
  * key disposal issues that cause "Uint8Array expected" errors.
  *
  * Internal-only endpoint — not exposed via public proxy.
  *
- * Body:    { index: number, proxyWalletAddress: string, amountUsdce?: string }
+ * Body:    { index: number, proxyWalletAddress?: string, amountUsdce?: string }
  *           index               — HD wallet index (must be >= 10)
- *           proxyWalletAddress  — Polymarket proxy wallet (0x…)
- *           amountUsdce         — optional; omit to send the full USDC.e balance
+ *           proxyWalletAddress  — (legacy, ignored) was the Gnosis Safe address
+ *           amountUsdce         — optional; omit to deposit the full USDC.e balance
  *
- * Response: { txHash: string, from: string, to: string, amount: string }
+ * Response: { txHash: string, from: string, exchange: string, amount: string }
  */
 
 import { Router, Request, Response, NextFunction } from "express";
 import {
-  ethers,
   JsonRpcProvider,
   HDNodeWallet,
   Mnemonic,
@@ -31,9 +35,16 @@ import { SEED_PHRASE, POLYGON_RPC } from "../wdk.js";
 
 const USDCE_TOKEN_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
 
+// Polymarket CTF Exchange on Polygon — deposit(uint256) credits msg.sender
+const CTF_EXCHANGE_ADDRESS = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E";
+
 const ERC20_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
-  "function transfer(address to, uint256 amount) returns (bool)",
+  "function approve(address spender, uint256 amount) returns (bool)",
+];
+
+const EXCHANGE_ABI = [
+  "function deposit(uint256 amount) external",
 ];
 
 const router = Router();
@@ -55,13 +66,18 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       });
     }
 
+    // proxyWalletAddress is accepted but no longer used in the transaction
+    // (kept for backward compat with callers that still send it)
     if (
-      typeof proxyWalletAddress !== "string" ||
-      !/^0x[0-9a-fA-F]{40}$/.test(proxyWalletAddress)
+      proxyWalletAddress !== undefined &&
+      proxyWalletAddress !== null &&
+      proxyWalletAddress !== "" &&
+      (typeof proxyWalletAddress !== "string" ||
+        !/^0x[0-9a-fA-F]{40}$/.test(proxyWalletAddress))
     ) {
       return res.status(400).json({
         error: "Invalid proxyWalletAddress",
-        message: "proxyWalletAddress must be a valid Ethereum address (0x…).",
+        message: "proxyWalletAddress must be a valid Ethereum address (0x…) if provided.",
       });
     }
 
@@ -75,6 +91,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 
     const walletAddress = wallet.address;
     const usdce = new Contract(USDCE_TOKEN_ADDRESS, ERC20_ABI, wallet);
+    const exchange = new Contract(CTF_EXCHANGE_ADDRESS, EXCHANGE_ABI, wallet);
 
     // ── Fetch balances ────────────────────────────────────────────────────────
 
@@ -97,7 +114,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       });
     }
 
-    // ── Determine transfer amount ─────────────────────────────────────────────
+    // ── Determine deposit amount ──────────────────────────────────────────────
 
     let transferAmount: bigint;
     if (
@@ -115,23 +132,30 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         });
       }
     } else {
-      // Default: transfer entire USDC.e balance
+      // Default: deposit entire USDC.e balance
       transferAmount = balance;
     }
 
-    // ── Execute transfer ──────────────────────────────────────────────────────
+    // ── Approve + deposit into Polymarket CTF Exchange ────────────────────────
+    // POLY_EOA mode: EOA approves Exchange, calls deposit(amount).
+    // Exchange credits the EOA's collateral account. Bots trade as maker=EOA.
 
-    const tx = await usdce.transfer(proxyWalletAddress, transferAmount);
-    const receipt = await tx.wait();
-    const hash: string = receipt?.hash ?? tx.hash;
+    const approveTx = await usdce.approve(CTF_EXCHANGE_ADDRESS, transferAmount);
+    await approveTx.wait(1);
+
+    const depositTx = await exchange.deposit(transferAmount);
+    const receipt = await depositTx.wait(1);
+    const hash: string = receipt?.hash ?? depositTx.hash;
 
     const amountFormatted = (Number(transferAmount) / 1_000_000).toFixed(6);
 
     return res.json({
       txHash: hash,
       from: walletAddress,
-      to: proxyWalletAddress,
+      exchange: CTF_EXCHANGE_ADDRESS,
       amount: amountFormatted,
+      // include for callers that log proxyWalletAddress
+      proxyWalletAddress: proxyWalletAddress ?? null,
     });
   } catch (err) {
     return next(err);

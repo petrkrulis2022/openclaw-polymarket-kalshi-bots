@@ -9,6 +9,10 @@ function req(name: string): string {
 
 function signatureTypeFromEnv(): SignatureTypeV2 {
   switch (process.env["POLYMARKET_SIGNATURE_TYPE"]) {
+    case "POLY_EOA":
+    case "EOA":
+    case "0":
+      return SignatureTypeV2.EOA;
     case "POLY_PROXY":
       return SignatureTypeV2.POLY_PROXY;
     case "POLY_1271":

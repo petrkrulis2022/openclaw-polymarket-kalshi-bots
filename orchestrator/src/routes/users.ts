@@ -230,10 +230,10 @@ router.post(
           env: {
             PORT: String(port),
             BOT_ID: String(bot.botId),
-            POLYMARKET_WALLET_ADDRESS: user.poly_funder_address,
+            POLYMARKET_WALLET_ADDRESS: user.bot_wallet_address,
             BOT_SIGNER_KEY: signerKey,
-            POLYMARKET_FUNDER_ADDRESS: user.poly_funder_address,
-            POLYMARKET_SIGNATURE_TYPE: "POLY_GNOSIS_SAFE",
+            POLYMARKET_FUNDER_ADDRESS: "",
+            POLYMARKET_SIGNATURE_TYPE: "POLY_EOA",
             ORCHESTRATOR_URL: `http://localhost:${process.env["PORT"] ?? 3002}`,
             TREASURY_URL: WDK_TREASURY_URL,
             BOT_COUNT: String(BOT_DEFS.length),

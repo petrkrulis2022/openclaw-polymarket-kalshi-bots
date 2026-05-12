@@ -25,6 +25,7 @@ import swapRouter from "./routes/swap.js";
 import swapReverseRouter from "./routes/swap-reverse.js";
 import withdrawRouter from "./routes/withdraw.js";
 import depositPolymarketRouter from "./routes/deposit-polymarket.js";
+import rescueSafeUsdcRouter from "./routes/rescue-safe-usdc.js";
 
 const app = express();
 
@@ -47,6 +48,7 @@ app.use("/swap", swapRouter);
 app.use("/swap-reverse", swapReverseRouter);
 app.use("/withdraw", withdrawRouter);
 app.use("/deposit-polymarket", depositPolymarketRouter);
+app.use("/rescue-safe-usdc", rescueSafeUsdcRouter);
 
 // ── 404 catch-all ─────────────────────────────────────────────────────────────
 

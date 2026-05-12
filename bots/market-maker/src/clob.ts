@@ -36,9 +36,9 @@ async function getSigningClient(): Promise<ClobClient> {
     (key.startsWith("0x") ? key : `0x${key}`) as `0x${string}`,
   );
 
-  // For POLY_PROXY (signatureType=1), POLY_ADDRESS must be the EOA address.
-  // The SDK passes funderAddress as the maker on orders, but the signature
-  // verification in L1 headers uses POLY_ADDRESS = EOA.
+  // For POLY_EOA (signatureType=0), funderAddress is undefined — the EOA IS
+  // the maker. For POLY_GNOSIS_SAFE (signatureType=2), funderAddress is the
+  // Safe address. Empty string is treated as undefined (POLY_EOA mode).
   const signer = createWalletClient({
     account,
     chain: polygon,
@@ -50,7 +50,7 @@ async function getSigningClient(): Promise<ClobClient> {
     chain: Chain.POLYGON,
     signer: signer as any,
     signatureType: config.polymarket.signatureType,
-    funderAddress: config.polymarket.funderAddress,
+    funderAddress: config.polymarket.funderAddress || undefined,
   });
   console.log(
     `[clob] creating API key sig_type=${config.polymarket.signatureType} poly_address=${account.address} funder=${config.polymarket.funderAddress || "(none)"}`,
@@ -73,7 +73,7 @@ async function getSigningClient(): Promise<ClobClient> {
     signer: signer as any,
     creds,
     signatureType: config.polymarket.signatureType,
-    funderAddress: config.polymarket.funderAddress ?? undefined,
+    funderAddress: config.polymarket.funderAddress || undefined,
   });
   return _signingClient;
 }
