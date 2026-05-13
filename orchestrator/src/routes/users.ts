@@ -63,6 +63,7 @@ function safeUser(user: User) {
   return {
     metamaskAddress: user.metamask_address,
     botWalletAddress: user.bot_wallet_address,
+    botWalletIndex: user.bot_wallet_index,
     // hasApiKeys now reflects whether Polymarket funder address (proxy wallet) is configured.
     // Bots auto-derive their API creds from the private key via clob-client-v2.
     hasApiKeys: !!user.poly_funder_address,
@@ -162,41 +163,44 @@ router.post(
 // Also syncs bots_running from actual PM2 state so the flag stays accurate
 // even if bots were started/stopped outside the REST API.
 
-router.get("/:address", async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { address } = req.params;
-    const user = getUser(address);
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    // Cross-check PM2 status so the DB flag is always accurate.
+router.get(
+  "/:address",
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const slot = userSlot(user.bot_wallet_index);
-      const raw = await runCmd("pm2", ["jlist"]);
-      const list = JSON.parse(raw) as Array<{
-        name: string;
-        pm2_env?: { status?: string };
-      }>;
-      const anyOnline = BOT_DEFS.some((bot) => {
-        const pmName = `${bot.name}-u${slot}`;
-        const proc = list.find((p) => p.name === pmName);
-        return proc?.pm2_env?.status === "online";
-      });
-      if (anyOnline && user.bots_running !== 1) {
-        setBotsRunning(address, true);
-        user.bots_running = 1;
-      } else if (!anyOnline && user.bots_running === 1) {
-        setBotsRunning(address, false);
-        user.bots_running = 0;
-      }
-    } catch {
-      // PM2 not available or no processes yet — ignore, use DB value
-    }
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
 
-    return res.json(safeUser(user));
-  } catch (err) {
-    return next(err);
-  }
-});
+      // Cross-check PM2 status so the DB flag is always accurate.
+      try {
+        const slot = userSlot(user.bot_wallet_index);
+        const raw = await runCmd("pm2", ["jlist"]);
+        const list = JSON.parse(raw) as Array<{
+          name: string;
+          pm2_env?: { status?: string };
+        }>;
+        const anyOnline = BOT_DEFS.some((bot) => {
+          const pmName = `${bot.name}-u${slot}`;
+          const proc = list.find((p) => p.name === pmName);
+          return proc?.pm2_env?.status === "online";
+        });
+        if (anyOnline && user.bots_running !== 1) {
+          setBotsRunning(address, true);
+          user.bots_running = 1;
+        } else if (!anyOnline && user.bots_running === 1) {
+          setBotsRunning(address, false);
+          user.bots_running = 0;
+        }
+      } catch {
+        // PM2 not available or no processes yet — ignore, use DB value
+      }
+
+      return res.json(safeUser(user));
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
 
 // ── PUT /users/:address/api-keys ──────────────────────────────────────────────
 // Kept for backward-compat; stores API key/secret/passphrase if provided.

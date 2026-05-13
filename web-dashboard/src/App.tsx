@@ -26,8 +26,10 @@ import { useResolutionLag } from "./hooks/use-resolution-lag";
 import { useMicrostructure } from "./hooks/use-microstructure";
 import { useUser } from "./hooks/use-user";
 import { useBotStatus } from "./hooks/use-bot-status";
+import { usePositions, type SharePosition } from "./hooks/use-positions";
 import { UserOnboarding } from "./components/UserOnboarding";
 import { AdminPanel } from "./components/AdminPanel";
+import { Toaster, toast } from "sonner";
 import "./index.css";
 
 function abbrev(addr: string) {
@@ -1768,15 +1770,69 @@ function InMarketArbView({
 function ResolutionLagView({
   bot,
   onBack,
+  depositWallet,
+  botWalletIndex,
 }: {
   bot: BotSummary;
   onBack: () => void;
+  depositWallet?: string;
+  botWalletIndex?: number | null;
 }) {
   const { data, loading, error } = useResolutionLag();
+  const {
+    positions: sharePositions,
+    summary: sharesSummary,
+    loading: sharesLoading,
+    refresh: refreshShares,
+  } = usePositions(depositWallet);
+  const [redeemingId, setRedeemingId] = React.useState<string | null>(null);
   const { positions, totalRealizedPnl, opportunities, scannedAt, metrics } =
     data;
   const equity = metrics?.equity ?? bot.equity;
   const openPositions = positions.filter((p) => p.status === "open").length;
+
+  const handleRedeem = async (pos: SharePosition) => {
+    if (botWalletIndex == null) {
+      toast.error("Bot wallet index not available — refresh the page");
+      return;
+    }
+    const key = pos.conditionId + ":" + pos.outcomeIndex;
+    setRedeemingId(key);
+    try {
+      const res = await fetch("/api/treasury/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          index: botWalletIndex,
+          conditionId: pos.conditionId,
+          outcomeIndex: pos.outcomeIndex,
+          negativeRisk: pos.negativeRisk,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const result = (await res.json()) as { txHash: string };
+      toast.success(
+        `Redeemed "${pos.title}" (${pos.outcome}) — tx ${result.txHash.slice(0, 10)}…`,
+      );
+      void refreshShares();
+    } catch (err) {
+      toast.error(
+        `Redeem failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setRedeemingId(null);
+    }
+  };
+
+  const handleRedeemAll = async () => {
+    const redeemable = sharePositions.filter((p) => p.redeemable);
+    for (const p of redeemable) {
+      await handleRedeem(p);
+    }
+  };
 
   return (
     <div>
@@ -2065,6 +2121,182 @@ function ResolutionLagView({
           </div>
         )}
       </div>
+
+      {/* Share Balances (CTF positions) */}
+      {depositWallet && (
+        <div style={{ marginBottom: 32 }}>
+          <div
+            className="section-label"
+            style={{
+              marginBottom: 10,
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            Share Balances
+            {sharesLoading && (
+              <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+                loading…
+              </span>
+            )}
+            {!sharesLoading && sharesSummary.totalSharesValue > 0 && (
+              <span
+                style={{
+                  color: "var(--text-secondary)",
+                  fontSize: 11,
+                  fontWeight: 400,
+                }}
+              >
+                total value ${sharesSummary.totalSharesValue.toFixed(2)}
+              </span>
+            )}
+            {sharesSummary.redeemableCount > 1 && (
+              <button
+                className="btn-primary"
+                style={{ fontSize: 11, padding: "3px 12px" }}
+                onClick={() => void handleRedeemAll()}
+              >
+                Redeem All ({sharesSummary.redeemableCount})
+              </button>
+            )}
+          </div>
+          {sharePositions.length === 0 && !sharesLoading ? (
+            <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+              No ERC-1155 share positions found for this deposit wallet.
+            </p>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12,
+                  background: "var(--card)",
+                  borderRadius: 10,
+                  overflow: "hidden",
+                }}
+              >
+                <thead>
+                  <tr
+                    style={{
+                      background: "var(--background)",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    {[
+                      "Market",
+                      "Outcome",
+                      "Shares",
+                      "Avg Price",
+                      "Cur Price",
+                      "Value",
+                      "PnL",
+                      "Action",
+                    ].map((h) => (
+                      <th
+                        key={h}
+                        style={{
+                          padding: "8px 10px",
+                          textAlign: h === "Market" ? "left" : "right",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sharePositions.map((sp) => {
+                    const key = sp.conditionId + ":" + sp.outcomeIndex;
+                    const isRedeeming = redeemingId === key;
+                    return (
+                      <tr
+                        key={key}
+                        style={{ borderTop: "1px solid var(--border)" }}
+                      >
+                        <td
+                          style={{
+                            padding: "8px 10px",
+                            maxWidth: 240,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={sp.title}
+                        >
+                          {sp.title}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px 10px",
+                            textAlign: "right",
+                            color:
+                              sp.outcome.toUpperCase() === "YES"
+                                ? "#4caf50"
+                                : sp.outcome.toUpperCase() === "NO"
+                                  ? "#ff6b6b"
+                                  : "var(--text)",
+                          }}
+                        >
+                          {sp.outcome}
+                        </td>
+                        <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                          {sp.size.toFixed(2)}
+                        </td>
+                        <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                          {sp.avgPrice.toFixed(4)}
+                        </td>
+                        <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                          {sp.curPrice.toFixed(4)}
+                        </td>
+                        <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                          ${sp.currentValue.toFixed(2)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px 10px",
+                            textAlign: "right",
+                            color: sp.cashPnl >= 0 ? "#4caf50" : "#ff6b6b",
+                          }}
+                        >
+                          {sp.cashPnl >= 0 ? "+" : ""}${sp.cashPnl.toFixed(2)}
+                        </td>
+                        <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                          {sp.redeemable ? (
+                            <button
+                              className="btn-primary"
+                              style={{
+                                fontSize: 11,
+                                padding: "3px 12px",
+                                opacity: isRedeeming ? 0.6 : 1,
+                              }}
+                              disabled={isRedeeming}
+                              onClick={() => void handleRedeem(sp)}
+                            >
+                              {isRedeeming ? "…" : "Redeem"}
+                            </button>
+                          ) : (
+                            <span
+                              style={{
+                                color: "var(--text-secondary)",
+                                fontSize: 11,
+                              }}
+                            >
+                              pending
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Config */}
       <div className="card" style={{ marginBottom: 24 }}>
@@ -2480,10 +2712,13 @@ function MicrostructureView({
 // ── Portfolio section ─────────────────────────────────────────────────────────
 function PortfolioSection({
   onSelectBot,
+  depositWallet,
 }: {
   onSelectBot: (bot: BotSummary) => void;
+  depositWallet?: string;
 }) {
   const { portfolio, loading, error } = usePortfolio();
+  const { summary } = usePositions(depositWallet);
 
   return (
     <div>
@@ -2502,7 +2737,14 @@ function PortfolioSection({
         </p>
       ) : portfolio ? (
         <>
-          <div className="grid-2">
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 12,
+              marginBottom: 12,
+            }}
+          >
             <div className="card" style={{ textAlign: "center" }}>
               <div className="balance-label">Total Equity</div>
               <div className="balance-big">
@@ -2515,6 +2757,35 @@ function PortfolioSection({
                 {portfolio.totalPnl >= 0 ? "+" : ""}$
                 {portfolio.totalPnl.toFixed(2)}
               </div>
+            </div>
+            <div
+              className="card"
+              style={{ textAlign: "center", position: "relative" }}
+            >
+              <div className="balance-label">Shares Value</div>
+              <div
+                className={`balance-big ${pnlClass(summary.totalSharesValue)}`}
+              >
+                ${summary.totalSharesValue.toFixed(2)}
+              </div>
+              {summary.redeemableCount > 0 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 8,
+                    right: 8,
+                    background: "#ff9500",
+                    color: "#000",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    borderRadius: 10,
+                    padding: "2px 7px",
+                    animation: "pulse 1.5s infinite",
+                  }}
+                >
+                  🔔 {summary.redeemableCount} redeemable
+                </div>
+              )}
             </div>
           </div>
           <div className="bot-grid">
@@ -2530,6 +2801,80 @@ function PortfolioSection({
       ) : null}
     </div>
   );
+}
+
+// ── Notification Poller ───────────────────────────────────────────────────────
+const SEEN_KEY = "openclaw:seen-redeemable";
+
+function NotificationPoller({
+  depositWallet,
+  onSelectResolutionLag,
+}: {
+  depositWallet: string;
+  onSelectResolutionLag: () => void;
+}) {
+  const seen = React.useRef<Set<string>>(
+    new Set(
+      (() => {
+        try {
+          return JSON.parse(localStorage.getItem(SEEN_KEY) ?? "[]") as string[];
+        } catch {
+          return [];
+        }
+      })(),
+    ),
+  );
+
+  const check = React.useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/orchestrator/positions?depositWallet=${encodeURIComponent(depositWallet)}`,
+      );
+      if (!res.ok) return;
+      const raw = (await res.json()) as {
+        positions?: Array<{
+          redeemable: boolean;
+          conditionId: string;
+          title: string;
+          outcome: string;
+          size: number;
+          cashPnl: number;
+        }>;
+      };
+      const positions = raw.positions ?? [];
+      let changed = false;
+      for (const p of positions) {
+        const id = `${p.conditionId}:redeemable`;
+        if (p.redeemable && !seen.current.has(id)) {
+          seen.current.add(id);
+          changed = true;
+          toast.success(
+            `Redeemable: "${p.title}" (${p.outcome}) — ${p.size.toFixed(0)} shares (+$${p.cashPnl.toFixed(2)})`,
+            {
+              duration: 10_000,
+              action: {
+                label: "View",
+                onClick: onSelectResolutionLag,
+              },
+            },
+          );
+        }
+      }
+      if (changed) {
+        localStorage.setItem(SEEN_KEY, JSON.stringify([...seen.current]));
+      }
+    } catch {
+      // silently ignore polling errors
+    }
+  }, [depositWallet, onSelectResolutionLag]);
+
+  React.useEffect(() => {
+    void check();
+    const id = setInterval(() => void check(), 60_000);
+    return () => clearInterval(id);
+  }, [check]);
+
+  return null;
 }
 
 // ── Root App ──────────────────────────────────────────────────────────────────
@@ -2560,8 +2905,14 @@ export default function App() {
   // hasApiKeys = true means user completed setup step 1 even if orchestrator is temporarily down.
   // Also wait for balance to load — prevents wizard flash before the first CREATE2/RPC fetch.
   const showOnboarding =
-    isConnected && !userLoading && !balanceLoading && user !== null &&
-    !user.botsRunning && !hasPusd && !user.hasApiKeys && balance !== null;
+    isConnected &&
+    !userLoading &&
+    !balanceLoading &&
+    user !== null &&
+    !user.botsRunning &&
+    !hasPusd &&
+    !user.hasApiKeys &&
+    balance !== null;
 
   const [withdrawing, setWithdrawing] = React.useState(false);
   const [withdrawResult, setWithdrawResult] = React.useState<{
@@ -2678,6 +3029,16 @@ export default function App() {
 
   return (
     <>
+      <Toaster theme="dark" richColors position="top-right" />
+      {balance?.depositWalletAddress && (
+        <NotificationPoller
+          depositWallet={balance.depositWalletAddress}
+          onSelectResolutionLag={() => {
+            // Find bot id=5 from portfolio if needed — for now just navigate back
+            setSelectedBot(null);
+          }}
+        />
+      )}
       <div className="header">
         <div className="logo">
           🤖 <span>OpenClaw</span> Agent Dashboard
@@ -2702,6 +3063,8 @@ export default function App() {
           <ResolutionLagView
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
+            depositWallet={balance?.depositWalletAddress}
+            botWalletIndex={user?.botWalletIndex}
           />
         ) : selectedBot.id === "6" ? (
           <MicrostructureView
@@ -2744,7 +3107,9 @@ export default function App() {
                   <div className="section-label" style={{ margin: 0 }}>
                     Agent Wallet
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 10 }}
+                  >
                     <span
                       style={{
                         fontSize: 12,
@@ -2770,7 +3135,13 @@ export default function App() {
                 {/* Deposit wallet address (primary trading account) */}
                 {balance?.depositWalletAddress && (
                   <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 3 }}>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: "var(--text-secondary)",
+                        marginBottom: 3,
+                      }}
+                    >
                       Deposit Wallet (Polymarket POLY_1271)
                     </div>
                     <div
@@ -2796,9 +3167,15 @@ export default function App() {
                       </span>
                       <button
                         className="btn-secondary"
-                        style={{ flexShrink: 0, fontSize: 11, padding: "3px 8px" }}
+                        style={{
+                          flexShrink: 0,
+                          fontSize: 11,
+                          padding: "3px 8px",
+                        }}
                         onClick={() =>
-                          navigator.clipboard.writeText(balance.depositWalletAddress!)
+                          navigator.clipboard.writeText(
+                            balance.depositWalletAddress!,
+                          )
                         }
                       >
                         Copy
@@ -2809,7 +3186,13 @@ export default function App() {
                 {/* EOA address */}
                 {user?.botWalletAddress && (
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 3 }}>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: "var(--text-secondary)",
+                        marginBottom: 3,
+                      }}
+                    >
                       Bot EOA (send USDT here)
                     </div>
                     <div
@@ -2835,7 +3218,11 @@ export default function App() {
                       </span>
                       <button
                         className="btn-secondary"
-                        style={{ flexShrink: 0, fontSize: 11, padding: "3px 8px" }}
+                        style={{
+                          flexShrink: 0,
+                          fontSize: 11,
+                          padding: "3px 8px",
+                        }}
                         onClick={() =>
                           navigator.clipboard.writeText(user.botWalletAddress!)
                         }
@@ -2848,7 +3235,16 @@ export default function App() {
                 <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
                   <div>
                     <div className="balance-label">pUSD (trading)</div>
-                    <div className="balance-big" style={{ color: balance?.depositWalletPusd && parseFloat(balance.depositWalletPusd) > 0 ? "#4caf50" : undefined }}>
+                    <div
+                      className="balance-big"
+                      style={{
+                        color:
+                          balance?.depositWalletPusd &&
+                          parseFloat(balance.depositWalletPusd) > 0
+                            ? "#4caf50"
+                            : undefined,
+                      }}
+                    >
                       {balance?.depositWalletPusd
                         ? parseFloat(balance.depositWalletPusd).toFixed(2)
                         : "—"}
@@ -3240,7 +3636,10 @@ export default function App() {
           {/* Only show legacy portfolio/chat when user is not mid-onboarding */}
           {(!isConnected || !user || user.botsRunning) && (
             <>
-              <PortfolioSection onSelectBot={setSelectedBot} />
+              <PortfolioSection
+                onSelectBot={setSelectedBot}
+                depositWallet={balance?.depositWalletAddress}
+              />
               <div style={{ padding: "0 24px 24px" }}>
                 <OpenClawChat />
               </div>

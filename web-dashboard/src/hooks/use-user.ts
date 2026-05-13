@@ -22,6 +22,7 @@ import {
 export interface UserRecord {
   metamaskAddress: string;
   botWalletAddress: string | null;
+  botWalletIndex: number | null;
   hasApiKeys: boolean; // true when funderAddress is set
   funderAddress: string | null;
   botsRunning: boolean;
@@ -80,10 +81,14 @@ const PUSD_ADDRESS = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
 
 // Polymarket deposit wallet factory constants (Polygon mainnet)
 // Mirrors wdk-treasury/src/routes/deposit-polymarket.ts :: computeDepositWalletAddress
-const DEPOSIT_WALLET_FACTORY = "0x00000000000Fb5C9ADea0298D729A0CB3823Cc07" as const;
-const DEPOSIT_WALLET_IMPL    = "0x58CA52ebe0DadfdF531Cde7062e76746de4Db1eB" as const;
-const ERC1967_CONST1 = "0xcc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3";
-const ERC1967_CONST2 = "0x5155f3363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076";
+const DEPOSIT_WALLET_FACTORY =
+  "0x00000000000Fb5C9ADea0298D729A0CB3823Cc07" as const;
+const DEPOSIT_WALLET_IMPL =
+  "0x58CA52ebe0DadfdF531Cde7062e76746de4Db1eB" as const;
+const ERC1967_CONST1 =
+  "0xcc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3";
+const ERC1967_CONST2 =
+  "0x5155f3363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076";
 const ERC1967_PREFIX = 0x61003d3d8160233d3973n;
 
 /**
@@ -108,13 +113,20 @@ function computeDepositWalletAddress(owner: `0x${string}`): `0x${string}` {
 
   // Build initCode: 10-byte prefix | impl (20 bytes) | 0x6009 | CONST2 | CONST1 | args
   const prefixBytes = toBytes(toHex(combined, { size: 10 }));
-  const implBytes   = toBytes(DEPOSIT_WALLET_IMPL);
-  const sep         = toBytes("0x6009");
-  const c2bytes     = toBytes(ERC1967_CONST2 as `0x${string}`);
-  const c1bytes     = toBytes(ERC1967_CONST1 as `0x${string}`);
-  const argsBytes   = toBytes(args);
+  const implBytes = toBytes(DEPOSIT_WALLET_IMPL);
+  const sep = toBytes("0x6009");
+  const c2bytes = toBytes(ERC1967_CONST2 as `0x${string}`);
+  const c1bytes = toBytes(ERC1967_CONST1 as `0x${string}`);
+  const argsBytes = toBytes(args);
 
-  const initCode = concat([prefixBytes, implBytes, sep, c2bytes, c1bytes, argsBytes]);
+  const initCode = concat([
+    prefixBytes,
+    implBytes,
+    sep,
+    c2bytes,
+    c1bytes,
+    argsBytes,
+  ]);
   const bytecodeHash = keccak256(initCode);
 
   return getCreate2Address({
@@ -137,7 +149,8 @@ async function fetchPusdBalanceDirect(walletAddress: string): Promise<string> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        jsonrpc: "2.0", id: 1,
+        jsonrpc: "2.0",
+        id: 1,
         method: "eth_call",
         params: [{ to: PUSD_ADDRESS, data }, "latest"],
       }),
@@ -147,7 +160,7 @@ async function fetchPusdBalanceDirect(walletAddress: string): Promise<string> {
     if (!json.result || json.result === "0x") return "0.000000";
     const raw = BigInt(json.result);
     const whole = raw / 1_000_000n;
-    const frac  = raw % 1_000_000n;
+    const frac = raw % 1_000_000n;
     return `${whole}.${frac.toString().padStart(6, "0")}`;
   } catch {
     return "0.000000";
@@ -231,7 +244,9 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
           const remote = (await res.json()) as BotWalletBalance;
           data = { ...remote, depositWalletAddress, depositWalletPusd: pusd };
         }
-      } catch { /* orchestrator may be restarting — pUSD already set above */ }
+      } catch {
+        /* orchestrator may be restarting — pUSD already set above */
+      }
 
       setBalance(data);
     } catch {
