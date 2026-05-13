@@ -34,7 +34,7 @@ export const config = {
   treasuryUrl: process.env["TREASURY_URL"] ?? "http://localhost:3001",
   // How often to poll Gamma for newly closed but unresolved markets
   monitorIntervalMs: parseInt(
-    process.env["MONITOR_INTERVAL_MS"] ?? "300000",
+    process.env["MONITOR_INTERVAL_MS"] ?? "60000",
     10,
   ),
   // Minimum annualised yield (%) to enter a resolution-lag trade

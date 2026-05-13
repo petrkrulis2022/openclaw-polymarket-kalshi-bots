@@ -2326,7 +2326,7 @@ function ResolutionLagView({
             },
             {
               label: "Monitor Interval",
-              value: "5 min",
+              value: "1 min",
               hint: "Scan frequency",
             },
           ].map((item) => (
