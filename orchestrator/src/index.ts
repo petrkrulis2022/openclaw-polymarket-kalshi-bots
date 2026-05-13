@@ -20,7 +20,7 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/wallets-content", (_req, res) => {
   try {
     const __dirname = dirname(fileURLToPath(import.meta.url));
-    const mdPath = resolve(__dirname, "../../../wallets.md");
+    const mdPath = resolve(__dirname, "../../wallets.md");
     const content = readFileSync(mdPath, "utf8");
     res.type("text/plain").send(content);
   } catch {
