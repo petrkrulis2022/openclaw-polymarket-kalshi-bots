@@ -37,6 +37,7 @@ export interface BotWalletBalance {
   nativePol: string;
   depositWalletAddress?: string;
   depositWalletPusd?: string;
+  depositWalletUsdce?: string;
 }
 
 interface UseUserReturn {
@@ -78,6 +79,7 @@ const BALANCE_POLL_MS = 30_000; // poll bot wallet balance every 30 s
 // Known Polygon contract addresses (no backend needed)
 const POLYGON_RPC = "https://polygon-bor-rpc.publicnode.com";
 const PUSD_ADDRESS = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
+const USDCE_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
 
 // Polymarket deposit wallet factory constants (Polygon mainnet)
 // Mirrors wdk-treasury/src/routes/deposit-polymarket.ts :: computeDepositWalletAddress
@@ -136,11 +138,7 @@ function computeDepositWalletAddress(owner: `0x${string}`): `0x${string}` {
   });
 }
 
-/**
- * Direct on-chain pUSD balanceOf call via eth_call JSON-RPC.
- * Works regardless of server state — queries Polygon directly.
- */
-async function fetchPusdBalanceDirect(walletAddress: string): Promise<string> {
+async function fetchErc20BalanceDirect(tokenAddress: string, walletAddress: string): Promise<string> {
   const data =
     "0x70a08231" +
     walletAddress.toLowerCase().replace("0x", "").padStart(64, "0");
@@ -152,7 +150,7 @@ async function fetchPusdBalanceDirect(walletAddress: string): Promise<string> {
         jsonrpc: "2.0",
         id: 1,
         method: "eth_call",
-        params: [{ to: PUSD_ADDRESS, data }, "latest"],
+        params: [{ to: tokenAddress, data }, "latest"],
       }),
     });
     if (!res.ok) return "0.000000";
@@ -223,8 +221,11 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
         computeDepositWalletAddress(metamaskAddress as `0x${string}`);
       depositWalletRef.current = depositWalletAddress;
 
-      // Read pUSD balance directly from Polygon — bypasses Cloudflare, orchestrator, treasury.
-      const pusd = await fetchPusdBalanceDirect(depositWalletAddress);
+      // Read pUSD and USDC.e balances of deposit wallet directly from Polygon.
+      const [pusd, depositWalletUsdce] = await Promise.all([
+        fetchErc20BalanceDirect(PUSD_ADDRESS, depositWalletAddress),
+        fetchErc20BalanceDirect(USDCE_ADDRESS, depositWalletAddress),
+      ]);
 
       // Try orchestrator for the full EOA balance (USDT, USDC.e, POL).
       // If it fails, show zeros — the pUSD is what matters for onboarding.
@@ -235,6 +236,7 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
         nativePol: "0.000000",
         depositWalletAddress,
         depositWalletPusd: pusd,
+        depositWalletUsdce,
       };
       try {
         const res = await fetch(
@@ -242,7 +244,7 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
         );
         if (res.ok) {
           const remote = (await res.json()) as BotWalletBalance;
-          data = { ...remote, depositWalletAddress, depositWalletPusd: pusd };
+          data = { ...remote, depositWalletAddress, depositWalletPusd: pusd, depositWalletUsdce };
         }
       } catch {
         /* orchestrator may be restarting — pUSD already set above */

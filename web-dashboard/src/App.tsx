@@ -3252,6 +3252,23 @@ export default function App() {
                     </div>
                   </div>
                   <div>
+                    <div className="balance-label">USDC.e (wallet)</div>
+                    <div
+                      className="balance-big"
+                      style={{
+                        color:
+                          balance?.depositWalletUsdce &&
+                          parseFloat(balance.depositWalletUsdce) > 0
+                            ? "#4caf50"
+                            : undefined,
+                      }}
+                    >
+                      {balance?.depositWalletUsdce
+                        ? parseFloat(balance.depositWalletUsdce).toFixed(2)
+                        : "—"}
+                    </div>
+                  </div>
+                  <div>
                     <div className="balance-label">USDT (EOA)</div>
                     <div className="balance-big">
                       {balance ? parseFloat(balance.usdt).toFixed(2) : "—"}
