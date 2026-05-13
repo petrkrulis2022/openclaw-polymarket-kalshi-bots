@@ -1807,6 +1807,7 @@ function ResolutionLagView({
           conditionId: pos.conditionId,
           outcomeIndex: pos.outcomeIndex,
           negativeRisk: pos.negativeRisk,
+          tokenId: pos.tokenId,
         }),
       });
       if (!res.ok) {

@@ -21,6 +21,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import {
   JsonRpcProvider,
+  Contract,
   HDNodeWallet,
   Mnemonic,
   Interface,
@@ -37,6 +38,7 @@ import { SEED_PHRASE, POLYGON_RPC } from "../wdk.js";
 // ── Contract addresses (Polygon mainnet) ─────────────────────────────────────
 
 const PUSD_TOKEN_ADDRESS = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
+const USDCE_TOKEN_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
 const CTF_CONTRACT_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045";
 
 const DEPOSIT_WALLET_FACTORY = "0x00000000000Fb5C9ADea0298D729A0CB3823Cc07";
@@ -56,6 +58,8 @@ const CLOB_MSG_TO_SIGN = "This message attests that I control the given wallet";
 
 const CTF_ABI = [
   "function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] calldata indexSets) external",
+  "function getCollectionId(bytes32 parentCollectionId, bytes32 conditionId, uint256 indexSet) view returns (bytes32)",
+  "function getPositionId(address collateralToken, bytes32 collectionId) view returns (uint256)",
 ];
 
 // ── Deposit wallet address derivation ────────────────────────────────────────
@@ -342,12 +346,14 @@ const router = Router();
 
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { index, conditionId, outcomeIndex, negativeRisk } = req.body as {
-      index?: unknown;
-      conditionId?: unknown;
-      outcomeIndex?: unknown;
-      negativeRisk?: unknown;
-    };
+    const { index, conditionId, outcomeIndex, negativeRisk, tokenId } =
+      req.body as {
+        index?: unknown;
+        conditionId?: unknown;
+        outcomeIndex?: unknown;
+        negativeRisk?: unknown;
+        tokenId?: unknown;
+      };
 
     // ── Input validation ──────────────────────────────────────────────────────
 
@@ -399,9 +405,53 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     const indexSets = [BigInt(1) << BigInt(outcomeIndex)];
     const parentCollectionId = zeroPadValue("0x00", 32); // bytes32(0)
 
+    // Detect which collateral token the position was created with.
+    // Polymarket uses pUSD for new markets and USDC.e for older markets.
+    // We determine this by asking the CTF contract which collateral token
+    // produces a positionId matching the known tokenId.
+    const ctfReader = new Contract(CTF_CONTRACT_ADDRESS, CTF_ABI, provider);
+    let collateralToken = PUSD_TOKEN_ADDRESS; // default
+    if (typeof tokenId === "string" && tokenId.length > 0) {
+      const knownTokenId = BigInt(tokenId);
+      const collectionId = await (
+        ctfReader.getCollectionId as (
+          p: string,
+          c: string,
+          i: bigint,
+        ) => Promise<string>
+      )(parentCollectionId, conditionId, indexSets[0]);
+      const pusdPosId = await (
+        ctfReader.getPositionId as (
+          col: string,
+          colId: string,
+        ) => Promise<bigint>
+      )(PUSD_TOKEN_ADDRESS, collectionId);
+      const usdcePosId = await (
+        ctfReader.getPositionId as (
+          col: string,
+          colId: string,
+        ) => Promise<bigint>
+      )(USDCE_TOKEN_ADDRESS, collectionId);
+      if (usdcePosId === knownTokenId) {
+        collateralToken = USDCE_TOKEN_ADDRESS;
+        console.log(`[redeem] Detected collateral: USDC.e`);
+      } else if (pusdPosId === knownTokenId) {
+        collateralToken = PUSD_TOKEN_ADDRESS;
+        console.log(`[redeem] Detected collateral: pUSD`);
+      } else {
+        console.warn(
+          `[redeem] tokenId ${tokenId} did not match pUSD or USDC.e for indexSet=${indexSets[0]} — defaulting to pUSD`,
+        );
+      }
+    } else {
+      console.warn(
+        `[redeem] No tokenId provided — defaulting collateral to pUSD`,
+      );
+    }
+
     const ctfInterface = new Interface(CTF_ABI);
     const redeemCalldata = ctfInterface.encodeFunctionData("redeemPositions", [
-      PUSD_TOKEN_ADDRESS,
+      collateralToken,
       parentCollectionId,
       conditionId,
       indexSets,
