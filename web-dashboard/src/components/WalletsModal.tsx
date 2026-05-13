@@ -1,13 +1,10 @@
 /**
- * WalletsModal — renders wallets.md (repo root) as a styled modal.
- * Content is imported at build time via Vite ?raw — just rebuild after
- * editing wallets.md to update the dashboard.
+ * WalletsModal — fetches wallets.md from the orchestrator at runtime and
+ * renders it as a styled modal. Always shows the latest content without
+ * needing a frontend rebuild — just edit wallets.md and restart orchestrator.
  */
 
 import React from "react";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore — Vite raw import
-import walletsContent from "../../../../wallets.md?raw";
 
 // ── Inline markdown renderer (handles what's in wallets.md) ──────────────────
 
@@ -102,9 +99,7 @@ function renderMarkdown(md: string): React.ReactNode[] {
         tableLines.push(lines[i]);
         i++;
       }
-      const rows = tableLines.filter(
-        (l) => !/^\|[\s|:-]+\|$/.test(l.trim()),
-      );
+      const rows = tableLines.filter((l) => !/^\|[\s|:-]+\|$/.test(l.trim()));
       nodes.push(
         <table
           key={key++}
@@ -272,6 +267,16 @@ interface Props {
 }
 
 export function WalletsModal({ onClose }: Props) {
+  const [content, setContent] = React.useState<string | null>(null);
+
+  // Fetch wallets.md from orchestrator on open
+  React.useEffect(() => {
+    fetch("/api/orchestrator/wallets-content")
+      .then((r) => r.text())
+      .then(setContent)
+      .catch(() => setContent("# Error\nCould not load wallets content."));
+  }, []);
+
   // Close on Escape
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -341,7 +346,11 @@ export function WalletsModal({ onClose }: Props) {
             lineHeight: 1.6,
           }}
         >
-          {renderMarkdown(walletsContent as string)}
+          {content === null ? (
+            <p style={{ color: "var(--text-secondary)" }}>Loading…</p>
+          ) : (
+            renderMarkdown(content)
+          )}
         </div>
       </div>
     </div>

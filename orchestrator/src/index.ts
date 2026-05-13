@@ -1,5 +1,8 @@
 import "dotenv/config";
 import express from "express";
+import { readFileSync } from "fs";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 import { metricsRouter } from "./routes/metrics.js";
 import { portfolioRouter } from "./routes/portfolio.js";
 import { chatRouter } from "./routes/chat.js";
@@ -12,6 +15,19 @@ const app = express();
 app.use(express.json());
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// Serve wallets.md content as plain text (always fresh, no rebuild needed)
+app.get("/wallets-content", (_req, res) => {
+  try {
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const mdPath = resolve(__dirname, "../../../wallets.md");
+    const content = readFileSync(mdPath, "utf8");
+    res.type("text/plain").send(content);
+  } catch {
+    res.status(404).send("# wallets.md not found");
+  }
+});
+
 app.use("/metrics", metricsRouter);
 app.use("/portfolio", portfolioRouter);
 app.use("/chat", chatRouter);
