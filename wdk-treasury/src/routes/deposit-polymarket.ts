@@ -545,6 +545,120 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       );
     }
 
+    // ── Step 1.5: Wrap any USDC.e sitting in the deposit wallet → pUSD ────────
+    // USDC.e can land in the deposit wallet directly (e.g. sent by the user or
+    // a previous partial flow). We wrap it via a relayer batch so pUSD lands
+    // directly in the deposit wallet, ready for trading.
+    const usdceRo = new Contract(USDCE_TOKEN_ADDRESS, ERC20_ABI, provider);
+    const depositWalletUsdceBalance = (await usdceRo.balanceOf(depositWalletAddress)) as bigint;
+
+    let depositWalletWrapTxHash: string | null = null;
+    if (depositWalletUsdceBalance > 0n) {
+      console.log(
+        `[deposit-polymarket] Deposit wallet has ${depositWalletUsdceBalance} USDC.e — wrapping via relayer batch...`,
+      );
+      const erc20Iface = new Interface([
+        "function approve(address,uint256) returns (bool)",
+      ]);
+      const onrampIface = new Interface([
+        "function wrap(address,address,uint256) external",
+      ]);
+      const wrapCalls = [
+        {
+          target: USDCE_TOKEN_ADDRESS,
+          value: "0",
+          data: erc20Iface.encodeFunctionData("approve", [
+            COLLATERAL_ONRAMP,
+            depositWalletUsdceBalance,
+          ]),
+        },
+        {
+          target: COLLATERAL_ONRAMP,
+          value: "0",
+          // pUSD goes directly back to deposit wallet (no EOA hop needed)
+          data: onrampIface.encodeFunctionData("wrap", [
+            USDCE_TOKEN_ADDRESS,
+            depositWalletAddress,
+            depositWalletUsdceBalance,
+          ]),
+        },
+      ];
+
+      const wrapNonceResp = await relayerGet("/nonce", {
+        address: eoa,
+        type: "WALLET",
+      });
+      const wrapNonce = String(wrapNonceResp["nonce"] ?? "0");
+      const wrapDeadline = String(Math.floor(Date.now() / 1000) + 3600);
+
+      const wrapDomain = {
+        name: "DepositWallet",
+        version: "1",
+        chainId: 137,
+        verifyingContract: depositWalletAddress,
+      };
+      const wrapTypes = {
+        Call: [
+          { name: "target", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "data", type: "bytes" },
+        ],
+        Batch: [
+          { name: "wallet", type: "address" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+          { name: "calls", type: "Call[]" },
+        ],
+      };
+      const wrapMessage = {
+        wallet: depositWalletAddress,
+        nonce: BigInt(wrapNonce),
+        deadline: BigInt(wrapDeadline),
+        calls: wrapCalls.map((c) => ({
+          target: c.target,
+          value: 0n,
+          data: c.data,
+        })),
+      };
+
+      const wrapSig = await wallet.signTypedData(
+        wrapDomain,
+        wrapTypes,
+        wrapMessage,
+      );
+
+      const wrapBatchResp = await relayerPost(
+        "/submit",
+        {
+          type: "WALLET",
+          from: eoa,
+          to: DEPOSIT_WALLET_FACTORY,
+          nonce: wrapNonce,
+          signature: wrapSig,
+          depositWalletParams: {
+            depositWallet: depositWalletAddress,
+            deadline: wrapDeadline,
+            calls: wrapCalls,
+          },
+        },
+        builderCreds,
+      );
+
+      const wrapTxId = String(wrapBatchResp["transactionID"] ?? "");
+      if (!wrapTxId) {
+        throw new Error(
+          `Deposit-wallet wrap batch did not return a transactionID: ${JSON.stringify(wrapBatchResp)}`,
+        );
+      }
+      console.log(
+        `[deposit-polymarket] Wrap batch submitted txID=${wrapTxId}, polling...`,
+      );
+      depositWalletWrapTxHash = await pollRelayerTx(wrapTxId);
+      console.log(
+        `[deposit-polymarket] Deposit wallet USDC.e wrapped → pUSD txHash=${depositWalletWrapTxHash}`,
+      );
+    }
+
     // ── Step 2: Wrap USDC.e → pUSD (if EOA has USDC.e) ───────────────────────
     const usdce = new Contract(USDCE_TOKEN_ADDRESS, ERC20_ABI, wallet);
     const onramp = new Contract(COLLATERAL_ONRAMP, ONRAMP_ABI, wallet);
@@ -791,6 +905,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       eoa,
       isDeployed,
       deployTxHash,
+      depositWalletWrapTxHash,
       pUsdTransferTxHash,
       approvalTxHash,
       depositWalletPusdBalance: (Number(finalPusdBalance) / 1_000_000).toFixed(
