@@ -76,7 +76,7 @@ interface UseUserReturn {
 const BALANCE_POLL_MS = 30_000; // poll bot wallet balance every 30 s
 
 // Known Polygon contract addresses (no backend needed)
-const POLYGON_RPC = "https://polygon-rpc.com";
+const POLYGON_RPC = "https://polygon-bor-rpc.publicnode.com";
 const PUSD_ADDRESS = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
 
 // Polymarket deposit wallet factory constants (Polygon mainnet)
