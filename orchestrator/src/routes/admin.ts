@@ -82,8 +82,11 @@ router.get(
           // Derive user slot and PM2 process names (same formula as users.ts)
           const slot = user.bot_wallet_index - 10;
           const botNames = [
-            "market-maker", "copy-trader", "in-market-arb",
-            "resolution-lag", "microstructure",
+            "market-maker",
+            "copy-trader",
+            "in-market-arb",
+            "resolution-lag",
+            "microstructure",
           ];
           const anyOnline = botNames.some((name) => {
             const pmName = `${name}-u${slot}`;
@@ -115,6 +118,7 @@ router.get(
             native_pol: null as string | null,
             deposit_wallet_address: null as string | null,
             deposit_wallet_pusd: null as string | null,
+            deposit_wallet_usdce: null as string | null,
           };
 
           if (!user.bot_wallet_address) return safeUser;
@@ -133,12 +137,15 @@ router.get(
                 nativePol: string;
                 depositWalletAddress?: string;
                 depositWalletPusd?: string;
+                depositWalletUsdce?: string;
               };
               safeUser.usdt = bal.usdt;
               safeUser.usdce = bal.usdce;
               safeUser.native_pol = bal.nativePol;
-              safeUser.deposit_wallet_address = bal.depositWalletAddress ?? null;
+              safeUser.deposit_wallet_address =
+                bal.depositWalletAddress ?? null;
               safeUser.deposit_wallet_pusd = bal.depositWalletPusd ?? null;
+              safeUser.deposit_wallet_usdce = bal.depositWalletUsdce ?? null;
             }
           } catch {
             // Balance fetch failed — leave nulls

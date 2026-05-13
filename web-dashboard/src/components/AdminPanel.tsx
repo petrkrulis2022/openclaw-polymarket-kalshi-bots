@@ -23,6 +23,7 @@ interface AdminUser {
   native_pol: string | null;
   deposit_wallet_address: string | null;
   deposit_wallet_pusd: string | null;
+  deposit_wallet_usdce: string | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -110,11 +111,13 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
     0,
   );
   const totalUsdce = users.reduce(
-    (s, u) => s + (u.usdce ? parseFloat(u.usdce) : 0),
+    (s, u) =>
+      s + (u.deposit_wallet_usdce ? parseFloat(u.deposit_wallet_usdce) : 0),
     0,
   );
   const totalPusd = users.reduce(
-    (s, u) => s + (u.deposit_wallet_pusd ? parseFloat(u.deposit_wallet_pusd) : 0),
+    (s, u) =>
+      s + (u.deposit_wallet_pusd ? parseFloat(u.deposit_wallet_pusd) : 0),
     0,
   );
 
@@ -257,7 +260,10 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
           </span>
           <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
             {users.length} users · {botsRunningCount} bots running · pUSD:{" "}
-            <span style={{ color: "#4caf50", fontWeight: 700 }}>{totalPusd.toFixed(2)}</span>{" "}· USDT: {totalUsdt.toFixed(2)} · USDC.e: {totalUsdce.toFixed(2)}
+            <span style={{ color: "#4caf50", fontWeight: 700 }}>
+              {totalPusd.toFixed(2)}
+            </span>{" "}
+            · USDT: {totalUsdt.toFixed(2)} · USDC.e: {totalUsdce.toFixed(2)}
           </span>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
@@ -337,10 +343,16 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                   </span>
                 </td>
                 <td style={td}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <div
+                    style={{ display: "flex", flexDirection: "column", gap: 2 }}
+                  >
                     <span
                       title={u.bot_wallet_address ?? ""}
-                      style={{ cursor: "pointer", fontFamily: "monospace", fontSize: 12 }}
+                      style={{
+                        cursor: "pointer",
+                        fontFamily: "monospace",
+                        fontSize: 12,
+                      }}
                       onClick={() =>
                         u.bot_wallet_address &&
                         void navigator.clipboard.writeText(u.bot_wallet_address)
@@ -351,9 +363,16 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                     {u.deposit_wallet_address && (
                       <span
                         title={u.deposit_wallet_address}
-                        style={{ cursor: "pointer", fontFamily: "monospace", fontSize: 11, color: "#4caf50" }}
+                        style={{
+                          cursor: "pointer",
+                          fontFamily: "monospace",
+                          fontSize: 11,
+                          color: "#4caf50",
+                        }}
                         onClick={() =>
-                          void navigator.clipboard.writeText(u.deposit_wallet_address!)
+                          void navigator.clipboard.writeText(
+                            u.deposit_wallet_address!,
+                          )
                         }
                       >
                         DEP: {abbrevAddr(u.deposit_wallet_address)}
@@ -366,11 +385,19 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                 </td>
                 <td style={td}>
                   {u.bots_running ? (
-                    <span style={{ color: "#4caf50", fontWeight: 600, fontSize: 12 }}>
+                    <span
+                      style={{
+                        color: "#4caf50",
+                        fontWeight: 600,
+                        fontSize: 12,
+                      }}
+                    >
                       ● RUNNING
                     </span>
                   ) : (
-                    <span style={{ color: "#666", fontSize: 12 }}>● stopped</span>
+                    <span style={{ color: "#666", fontSize: 12 }}>
+                      ● stopped
+                    </span>
                   )}
                 </td>
                 <td style={td}>
@@ -380,14 +407,21 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                     <span style={{ color: "#666" }}>—</span>
                   )}
                 </td>
-                <td style={{ ...td, color: "#4caf50", fontWeight: 800, fontSize: 14 }}>
+                <td
+                  style={{
+                    ...td,
+                    color: "#4caf50",
+                    fontWeight: 800,
+                    fontSize: 14,
+                  }}
+                >
                   {fmtToken(u.deposit_wallet_pusd)}
                 </td>
                 <td style={{ ...td, color: "#4caf50", fontWeight: 600 }}>
                   {fmtToken(u.usdt)}
                 </td>
                 <td style={{ ...td, color: "#2196f3", fontWeight: 600 }}>
-                  {fmtToken(u.usdce)}
+                  {fmtToken(u.deposit_wallet_usdce)}
                 </td>
                 <td style={{ ...td, color: "#ff9800" }}>
                   {polToEther(u.native_pol)}
@@ -396,8 +430,14 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                   {u.bots_running ? (
                     <button
                       className="btn-secondary"
-                      style={{ fontSize: 11, padding: "2px 8px", color: "#ff3b30" }}
-                      onClick={() => void forceBotsRunning(u.metamask_address, false)}
+                      style={{
+                        fontSize: 11,
+                        padding: "2px 8px",
+                        color: "#ff3b30",
+                      }}
+                      onClick={() =>
+                        void forceBotsRunning(u.metamask_address, false)
+                      }
                     >
                       ■ Stop
                     </button>
@@ -405,13 +445,21 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                     <button
                       className="btn-primary"
                       style={{ fontSize: 11, padding: "2px 8px" }}
-                      onClick={() => void forceBotsRunning(u.metamask_address, true)}
+                      onClick={() =>
+                        void forceBotsRunning(u.metamask_address, true)
+                      }
                     >
                       ▶ Set Running
                     </button>
                   )}
                 </td>
-                <td style={{ ...td, color: "var(--text-secondary)", fontSize: 12 }}>
+                <td
+                  style={{
+                    ...td,
+                    color: "var(--text-secondary)",
+                    fontSize: 12,
+                  }}
+                >
                   {fmtDate(u.created_at)}
                 </td>
               </tr>
@@ -447,7 +495,14 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                   TOTAL
                 </td>
                 <td style={td} />
-                <td style={{ ...td, color: "#4caf50", fontWeight: 800, fontSize: 14 }}>
+                <td
+                  style={{
+                    ...td,
+                    color: "#4caf50",
+                    fontWeight: 800,
+                    fontSize: 14,
+                  }}
+                >
                   {totalPusd.toFixed(2)}
                 </td>
                 <td style={{ ...td, color: "#4caf50", fontWeight: 700 }}>

@@ -12,8 +12,25 @@
  */
 
 import { Router, Request, Response, NextFunction } from "express";
-import { JsonRpcProvider, Contract, HDNodeWallet, Mnemonic, keccak256, AbiCoder, concat, getCreate2Address, zeroPadValue, toBeHex } from "ethers";
-import { getAccount, USDT_TOKEN_ADDRESS, formatUsdT, SEED_PHRASE, POLYGON_RPC } from "../wdk.js";
+import {
+  JsonRpcProvider,
+  Contract,
+  HDNodeWallet,
+  Mnemonic,
+  keccak256,
+  AbiCoder,
+  concat,
+  getCreate2Address,
+  zeroPadValue,
+  toBeHex,
+} from "ethers";
+import {
+  getAccount,
+  USDT_TOKEN_ADDRESS,
+  formatUsdT,
+  SEED_PHRASE,
+  POLYGON_RPC,
+} from "../wdk.js";
 
 const USDCE_TOKEN_ADDRESS =
   process.env["USDCE_TOKEN_ADDRESS"] ??
@@ -23,8 +40,10 @@ const PUSD_TOKEN_ADDRESS = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
 const DEPOSIT_WALLET_FACTORY = "0x00000000000Fb5C9ADea0298D729A0CB3823Cc07";
 const DEPOSIT_WALLET_IMPL = "0x58CA52ebe0DadfdF531Cde7062e76746de4Db1eB";
 
-const ERC1967_CONST1 = "0xcc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3";
-const ERC1967_CONST2 = "0x5155f3363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076";
+const ERC1967_CONST1 =
+  "0xcc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3";
+const ERC1967_CONST2 =
+  "0x5155f3363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076";
 const ERC1967_PREFIX = 0x61003d3d8160233d3973n;
 
 function initCodeHashERC1967(implementation: string, args: string): string {
@@ -42,13 +61,22 @@ function initCodeHashERC1967(implementation: string, args: string): string {
   );
 }
 
+/**
+ * Correct Polymarket deposit wallet derivation.
+ * Matches deposit-polymarket.ts and the frontend's computeDepositWalletAddress.
+ * salt = keccak256(abi.encode(FACTORY, bytes32(owner)))
+ * args = abi.encode(FACTORY, bytes32(owner))
+ */
 function computeDepositWalletAddress(eoaAddress: string): string {
-  const salt = zeroPadValue(eoaAddress, 32);
-  const initCodeHash = initCodeHashERC1967(
-    DEPOSIT_WALLET_IMPL,
-    AbiCoder.defaultAbiCoder().encode(["address"], [eoaAddress]),
+  const abiCoder = AbiCoder.defaultAbiCoder();
+  const walletId = zeroPadValue(eoaAddress, 32); // bytes32(owner)
+  const args = abiCoder.encode(
+    ["address", "bytes32"],
+    [DEPOSIT_WALLET_FACTORY, walletId],
   );
-  return getCreate2Address(DEPOSIT_WALLET_FACTORY, salt, initCodeHash);
+  const salt = keccak256(args);
+  const bytecodeHash = initCodeHashERC1967(DEPOSIT_WALLET_IMPL, args);
+  return getCreate2Address(DEPOSIT_WALLET_FACTORY, salt, bytecodeHash);
 }
 
 const ERC20_ABI = ["function balanceOf(address owner) view returns (uint256)"];
@@ -72,21 +100,36 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 
     // Derive EOA address for deposit wallet calculation
     const mnemonic = Mnemonic.fromPhrase(SEED_PHRASE);
-    const eoaWallet = HDNodeWallet.fromMnemonic(mnemonic, `m/44'/60'/0'/0/${index}`);
+    const eoaWallet = HDNodeWallet.fromMnemonic(
+      mnemonic,
+      `m/44'/60'/0'/0/${index}`,
+    );
     const eoaAddress = eoaWallet.address;
     const depositWalletAddress = computeDepositWalletAddress(eoaAddress);
 
     const provider = new JsonRpcProvider(POLYGON_RPC);
     const pusdContract = new Contract(PUSD_TOKEN_ADDRESS, ERC20_ABI, provider);
-    const usdceContract = new Contract(USDCE_TOKEN_ADDRESS, ERC20_ABI, provider);
+    const usdceContract = new Contract(
+      USDCE_TOKEN_ADDRESS,
+      ERC20_ABI,
+      provider,
+    );
     const usdtContract = new Contract(USDT_TOKEN_ADDRESS, ERC20_ABI, provider);
 
-    const [address, usdt, usdce, native, depositWalletPusd] = await Promise.all([
+    const [
+      address,
+      usdt,
+      usdce,
+      native,
+      depositWalletPusd,
+      depositWalletUsdce,
+    ] = await Promise.all([
       account.getAddress() as Promise<string>,
       usdtContract.balanceOf(eoaAddress) as Promise<bigint>,
       usdceContract.balanceOf(eoaAddress) as Promise<bigint>,
       account.getBalance() as Promise<bigint>,
       pusdContract.balanceOf(depositWalletAddress) as Promise<bigint>,
+      usdceContract.balanceOf(depositWalletAddress) as Promise<bigint>,
     ]);
 
     return res.json({
@@ -96,6 +139,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       nativePol: native.toString(),
       depositWalletAddress,
       depositWalletPusd: formatUsdT(depositWalletPusd),
+      depositWalletUsdce: formatUsdT(depositWalletUsdce),
     });
   } catch (err) {
     return next(err);
