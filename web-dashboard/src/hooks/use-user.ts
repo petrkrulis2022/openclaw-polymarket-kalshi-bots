@@ -64,7 +64,7 @@ interface UseUserReturn {
     amountWithdrawn: string;
     to: string;
   }>;
-  depositToPolymarket: () => Promise<{
+  depositToPolymarket: (opts?: { amountUsdce?: string }) => Promise<{
     txHash: string;
     from: string;
     to: string;
@@ -409,31 +409,34 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     [metamaskAddress, refreshBalance],
   );
 
-  const depositToPolymarket = useCallback(async (opts?: { amountUsdce?: string }) => {
-    if (!metamaskAddress) throw new Error("Not connected");
-    const res = await fetch(
-      `/api/orchestrator/users/${metamaskAddress}/deposit-polymarket`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(opts ?? {}),
-      },
-    );
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(
-        (body as { error?: string }).error ?? "Deposit to Polymarket failed",
+  const depositToPolymarket = useCallback(
+    async (opts?: { amountUsdce?: string }) => {
+      if (!metamaskAddress) throw new Error("Not connected");
+      const res = await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/deposit-polymarket`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(opts ?? {}),
+        },
       );
-    }
-    const result = await res.json();
-    await refreshBalance();
-    return result as {
-      txHash: string;
-      from: string;
-      to: string;
-      amount: string;
-    };
-  }, [metamaskAddress, refreshBalance]);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string }).error ?? "Deposit to Polymarket failed",
+        );
+      }
+      const result = await res.json();
+      await refreshBalance();
+      return result as {
+        txHash: string;
+        from: string;
+        to: string;
+        amount: string;
+      };
+    },
+    [metamaskAddress, refreshBalance],
+  );
 
   return {
     user,
