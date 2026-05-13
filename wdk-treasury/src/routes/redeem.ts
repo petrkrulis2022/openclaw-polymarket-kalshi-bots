@@ -50,8 +50,7 @@ const ERC1967_PREFIX = 0x61003d3d8160233d3973n;
 const CHAIN_ID = 137;
 const CLOB_HOST = "https://clob.polymarket.com";
 const RELAYER_URL = "https://relayer-v2.polymarket.com";
-const CLOB_MSG_TO_SIGN =
-  "This message attests that I control the given wallet";
+const CLOB_MSG_TO_SIGN = "This message attests that I control the given wallet";
 
 // ── ABIs ──────────────────────────────────────────────────────────────────────
 
@@ -77,10 +76,15 @@ function initCodeHashERC1967(implementation: string, args: string): string {
 }
 
 function computeDepositWalletAddress(eoaAddress: string): string {
-  const args = AbiCoder.defaultAbiCoder().encode(["address"], [eoaAddress]);
-  const salt = zeroPadValue(eoaAddress, 32);
-  const initCodeHash = initCodeHashERC1967(DEPOSIT_WALLET_IMPL, args);
-  return getCreate2Address(DEPOSIT_WALLET_FACTORY, salt, initCodeHash);
+  const abiCoder = AbiCoder.defaultAbiCoder();
+  const walletId = zeroPadValue(eoaAddress, 32);
+  const args = abiCoder.encode(
+    ["address", "bytes32"],
+    [DEPOSIT_WALLET_FACTORY, walletId],
+  );
+  const salt = keccak256(args);
+  const bytecodeHash = initCodeHashERC1967(DEPOSIT_WALLET_IMPL, args);
+  return getCreate2Address(DEPOSIT_WALLET_FACTORY, salt, bytecodeHash);
 }
 
 // ── Auth & relayer helpers (mirrors deposit-polymarket.ts) ────────────────────
@@ -309,7 +313,9 @@ async function pollRelayerTx(
       state === "success" ||
       (state === "" && hash.length > 10)
     ) {
-      console.log(`[redeem] Relayer txID=${transactionId} confirmed hash=${hash}`);
+      console.log(
+        `[redeem] Relayer txID=${transactionId} confirmed hash=${hash}`,
+      );
       return hash;
     }
     if (
@@ -473,7 +479,9 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         `WALLET batch did not return a transactionID: ${JSON.stringify(batchResp)}`,
       );
     }
-    console.log(`[redeem] WALLET batch submitted txID=${batchTxId}, polling...`);
+    console.log(
+      `[redeem] WALLET batch submitted txID=${batchTxId}, polling...`,
+    );
     const txHash = await pollRelayerTx(batchTxId);
 
     return res.json({
