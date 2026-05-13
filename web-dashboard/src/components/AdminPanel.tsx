@@ -61,6 +61,14 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ── Fund transfer state ───────────────────────────────────────────────────
+  const [xferFrom, setXferFrom] = useState("");
+  const [xferTo, setXferTo] = useState("");
+  const [xferAmount, setXferAmount] = useState("");
+  const [xferLoading, setXferLoading] = useState(false);
+  const [xferResult, setXferResult] = useState<string | null>(null);
+  const [xferError, setXferError] = useState<string | null>(null);
+
   const fetchUsers = useCallback(async (pw: string) => {
     setLoading(true);
     setError(null);
@@ -132,6 +140,48 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
       body: JSON.stringify({ running }),
     });
     void fetchUsers(pw);
+  };
+
+  const transferFunds = async () => {
+    if (!xferFrom || !xferTo) {
+      setXferError("Select both source and destination.");
+      return;
+    }
+    const pw = sessionStorage.getItem(SESSION_KEY) ?? password;
+    setXferLoading(true);
+    setXferResult(null);
+    setXferError(null);
+    try {
+      const body: Record<string, string> = {
+        fromMetamask: xferFrom,
+        toMetamask: xferTo,
+      };
+      if (xferAmount.trim()) body["amountUsdce"] = xferAmount.trim();
+      const res = await fetch("/api/orchestrator/admin/transfer-funds", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${pw}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json()) as Record<string, string>;
+      if (!res.ok) {
+        setXferError(
+          (data["error"] as string) ?? `Error ${res.status}`,
+        );
+      } else {
+        setXferResult(
+          `✓ Transferred ${data["amount"]} USDC.e · tx ${String(data["txHash"]).slice(0, 18)}…`,
+        );
+        setXferAmount("");
+        void fetchUsers(pw);
+      }
+    } catch (e) {
+      setXferError(e instanceof Error ? e.message : "Transfer failed");
+    } finally {
+      setXferLoading(false);
+    }
   };
 
   // ── Styles ────────────────────────────────────────────────────────────────
@@ -516,6 +566,130 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             </tfoot>
           )}
         </table>
+      </div>
+
+      {/* ── Fund Transfer Panel ─────────────────────────────────────────── */}
+      <div
+        style={{
+          padding: "16px 24px 24px",
+          borderTop: "1px solid var(--border)",
+          background: "var(--surface)",
+          flexShrink: 0,
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 700,
+            fontSize: 13,
+            marginBottom: 12,
+            color: "var(--text-secondary)",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+          }}
+        >
+          Transfer USDC.e between bot wallets
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          <select
+            value={xferFrom}
+            onChange={(e) => setXferFrom(e.target.value)}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--background)",
+              color: "var(--text)",
+              fontSize: 13,
+              minWidth: 200,
+            }}
+          >
+            <option value="">From user…</option>
+            {users
+              .filter((u) => u.bot_wallet_address)
+              .map((u) => (
+                <option key={u.metamask_address} value={u.metamask_address}>
+                  {abbrevAddr(u.metamask_address)} · USDC.e{" "}
+                  {fmtToken(u.usdce)}
+                </option>
+              ))}
+          </select>
+
+          <span style={{ color: "var(--text-secondary)", fontSize: 16 }}>→</span>
+
+          <select
+            value={xferTo}
+            onChange={(e) => setXferTo(e.target.value)}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--background)",
+              color: "var(--text)",
+              fontSize: 13,
+              minWidth: 200,
+            }}
+          >
+            <option value="">To user…</option>
+            {users
+              .filter(
+                (u) =>
+                  u.bot_wallet_address &&
+                  u.metamask_address !== xferFrom,
+              )
+              .map((u) => (
+                <option key={u.metamask_address} value={u.metamask_address}>
+                  {abbrevAddr(u.metamask_address)} · pUSD{" "}
+                  {fmtToken(u.deposit_wallet_pusd)}
+                </option>
+              ))}
+          </select>
+
+          <input
+            type="text"
+            placeholder="Amount USDC.e (blank = all)"
+            value={xferAmount}
+            onChange={(e) => setXferAmount(e.target.value)}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--background)",
+              color: "var(--text)",
+              fontSize: 13,
+              width: 200,
+            }}
+          />
+
+          <button
+            className="btn-primary"
+            style={{ padding: "8px 18px", fontSize: 13 }}
+            disabled={xferLoading || !xferFrom || !xferTo}
+            onClick={() => void transferFunds()}
+          >
+            {xferLoading ? "Transferring…" : "Transfer"}
+          </button>
+        </div>
+
+        {xferResult && (
+          <p style={{ color: "#4caf50", fontSize: 13, marginTop: 8 }}>
+            {xferResult}
+          </p>
+        )}
+        {xferError && (
+          <p style={{ color: "#ff3b30", fontSize: 13, marginTop: 8 }}>
+            {xferError}
+          </p>
+        )}
+        <p style={{ color: "var(--text-secondary)", fontSize: 11, marginTop: 6 }}>
+          Moves USDC.e from the source bot EOA to the destination bot EOA. Source must have USDC.e (withdraw pUSD first if needed). After transfer, click Deposit to Polymarket in the destination user's dashboard.
+        </p>
       </div>
     </div>
   );

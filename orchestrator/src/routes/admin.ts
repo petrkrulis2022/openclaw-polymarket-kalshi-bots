@@ -9,7 +9,7 @@
 
 import { Router, Request, Response, NextFunction } from "express";
 import { spawn } from "child_process";
-import { getAllUsers, setBotsRunning } from "../user-store.js";
+import { getAllUsers, getUser, setBotsRunning } from "../user-store.js";
 
 /** Run a shell command and return stdout. */
 function runCmd(cmd: string, args: string[], cwd?: string): Promise<string> {
@@ -156,6 +156,84 @@ router.get(
       );
 
       return res.json(enriched);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── POST /admin/transfer-funds ───────────────────────────────────────────────
+// Move USDC.e from one bot's EOA to another bot's EOA.
+// The source EOA must have USDC.e (e.g. after a pUSD withdrawal/redemption).
+// After the transfer, the admin can trigger "Deposit to Polymarket" for the
+// destination user from their own dashboard.
+
+router.post(
+  "/transfer-funds",
+  requireAdminPassword,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { fromMetamask, toMetamask, amountUsdce } = req.body as {
+        fromMetamask?: unknown;
+        toMetamask?: unknown;
+        amountUsdce?: unknown;
+      };
+
+      if (
+        typeof fromMetamask !== "string" ||
+        !/^0x[0-9a-fA-F]{40}$/.test(fromMetamask)
+      ) {
+        return res
+          .status(400)
+          .json({ error: "Invalid fromMetamask address" });
+      }
+      if (
+        typeof toMetamask !== "string" ||
+        !/^0x[0-9a-fA-F]{40}$/.test(toMetamask)
+      ) {
+        return res.status(400).json({ error: "Invalid toMetamask address" });
+      }
+      if (fromMetamask.toLowerCase() === toMetamask.toLowerCase()) {
+        return res
+          .status(400)
+          .json({ error: "Source and destination are the same user" });
+      }
+
+      const fromUser = getUser(fromMetamask);
+      if (!fromUser?.bot_wallet_address) {
+        return res
+          .status(404)
+          .json({ error: "Source user not found or has no bot wallet" });
+      }
+      const toUser = getUser(toMetamask);
+      if (!toUser?.bot_wallet_address) {
+        return res
+          .status(404)
+          .json({ error: "Destination user not found or has no bot wallet" });
+      }
+
+      const body: Record<string, unknown> = {
+        fromIndex: fromUser.bot_wallet_index,
+        toAddress: toUser.bot_wallet_address,
+      };
+      if (amountUsdce !== undefined && amountUsdce !== null) {
+        body["amountUsdce"] = String(amountUsdce);
+      }
+
+      const treasuryRes = await fetch(
+        `${WDK_TREASURY_URL}/transfer-usdce`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+
+      const data = (await treasuryRes.json()) as Record<string, unknown>;
+      if (!treasuryRes.ok) {
+        return res.status(treasuryRes.status).json(data);
+      }
+      return res.json(data);
     } catch (err) {
       return next(err);
     }
