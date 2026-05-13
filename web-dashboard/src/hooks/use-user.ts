@@ -138,7 +138,10 @@ function computeDepositWalletAddress(owner: `0x${string}`): `0x${string}` {
   });
 }
 
-async function fetchErc20BalanceDirect(tokenAddress: string, walletAddress: string): Promise<string> {
+async function fetchErc20BalanceDirect(
+  tokenAddress: string,
+  walletAddress: string,
+): Promise<string> {
   const data =
     "0x70a08231" +
     walletAddress.toLowerCase().replace("0x", "").padStart(64, "0");
@@ -244,7 +247,12 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
         );
         if (res.ok) {
           const remote = (await res.json()) as BotWalletBalance;
-          data = { ...remote, depositWalletAddress, depositWalletPusd: pusd, depositWalletUsdce };
+          data = {
+            ...remote,
+            depositWalletAddress,
+            depositWalletPusd: pusd,
+            depositWalletUsdce,
+          };
         }
       } catch {
         /* orchestrator may be restarting — pUSD already set above */
@@ -401,11 +409,15 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     [metamaskAddress, refreshBalance],
   );
 
-  const depositToPolymarket = useCallback(async () => {
+  const depositToPolymarket = useCallback(async (opts?: { amountUsdce?: string }) => {
     if (!metamaskAddress) throw new Error("Not connected");
     const res = await fetch(
       `/api/orchestrator/users/${metamaskAddress}/deposit-polymarket`,
-      { method: "POST" },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(opts ?? {}),
+      },
     );
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));

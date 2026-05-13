@@ -400,11 +400,14 @@ router.post(
       const user = getUser(address);
       if (!user) return res.status(404).json({ error: "User not found" });
 
+      const { amountUsdce } = req.body as { amountUsdce?: string };
+
       const depRes = await fetch(`${WDK_TREASURY_URL}/deposit-polymarket`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           index: user.bot_wallet_index,
+          ...(amountUsdce ? { amountUsdce } : {}),
         }),
       });
       const depData = await depRes.json();

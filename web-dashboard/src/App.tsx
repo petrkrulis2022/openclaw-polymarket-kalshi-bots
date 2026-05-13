@@ -2934,6 +2934,7 @@ export default function App() {
     amount: string;
   } | null>(null);
   const [depositError, setDepositError] = React.useState<string | null>(null);
+  const [depositAmount, setDepositAmount] = React.useState("");
 
   // Fund Agent
   const [fundAmount, setFundAmount] = React.useState("");
@@ -3020,8 +3021,19 @@ export default function App() {
     setDepositError(null);
     setDepositResult(null);
     try {
-      const result = await depositToPolymarket();
-      setDepositResult({ txHash: result.txHash, amount: result.amount });
+      const result = await depositToPolymarket(
+        depositAmount ? { amountUsdce: depositAmount } : undefined,
+      );
+      // backend returns pUsdTransferTxHash (the wrap+transfer tx) and depositWalletPusdBalance
+      const txHash =
+        (result as Record<string, string>).pUsdTransferTxHash ??
+        (result as Record<string, string>).approvalTxHash ??
+        "";
+      const amount =
+        (result as Record<string, string>).depositWalletPusdBalance ??
+        depositAmount ??
+        "";
+      setDepositResult({ txHash, amount });
       refreshBalance();
     } catch (err) {
       setDepositError(err instanceof Error ? err.message : String(err));
@@ -3436,6 +3448,25 @@ export default function App() {
                     marginBottom: 10,
                   }}
                 >
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="Amount USDC.e (blank = all)"
+                    value={depositAmount}
+                    onChange={(e) => setDepositAmount(e.target.value)}
+                    style={{
+                      flex: 1,
+                      minWidth: 180,
+                      padding: "8px 12px",
+                      borderRadius: 6,
+                      border: "1px solid var(--border)",
+                      background: "var(--surface)",
+                      color: "var(--text-primary)",
+                      fontSize: 14,
+                    }}
+                    disabled={depositing}
+                  />
                   <button
                     className="btn-primary"
                     style={{ flexShrink: 0 }}
@@ -3452,15 +3483,20 @@ export default function App() {
                 )}
                 {depositResult && (
                   <p style={{ color: "#4caf50", fontSize: 12, margin: 0 }}>
-                    ✓ Deposited {depositResult.amount} USDC.e —{" "}
-                    <a
-                      href={`https://polygonscan.com/tx/${depositResult.txHash}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: "#4caf50" }}
-                    >
-                      View on PolygonScan ↗
-                    </a>
+                    ✓ Deposited {depositResult.amount} USDC.e{" "}
+                    {depositResult.txHash ? (
+                      <>
+                        —{" "}
+                        <a
+                          href={`https://polygonscan.com/tx/${depositResult.txHash}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: "#4caf50" }}
+                        >
+                          View on PolygonScan ↗
+                        </a>
+                      </>
+                    ) : null}
                   </p>
                 )}
               </div>
@@ -3543,7 +3579,9 @@ export default function App() {
                   </p>
                 )}
                 {withdrawResult && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div
+                    style={{ display: "flex", flexDirection: "column", gap: 4 }}
+                  >
                     <p style={{ color: "#4caf50", fontSize: 12, margin: 0 }}>
                       ✓ Withdrew {withdrawResult.amountWithdrawn} USDT —{" "}
                       <a
@@ -3557,7 +3595,8 @@ export default function App() {
                     </p>
                     {withdrawResult.depositWithdrawTxHash && (
                       <p style={{ color: "#4caf50", fontSize: 12, margin: 0 }}>
-                        ✓ Withdrew {withdrawResult.depositAmountWithdrawn} USDC.e from deposit wallet —{" "}
+                        ✓ Withdrew {withdrawResult.depositAmountWithdrawn}{" "}
+                        USDC.e from deposit wallet —{" "}
                         <a
                           href={`https://polygonscan.com/tx/${withdrawResult.depositWithdrawTxHash}`}
                           target="_blank"
