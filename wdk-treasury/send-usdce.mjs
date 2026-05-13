@@ -23,6 +23,8 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// Try wdk-treasury/.env first (where pm2 saves it), then repo-root fallback
+dotenv.config({ path: join(__dirname, ".env") });
 dotenv.config({ path: join(__dirname, "../.env") });
 
 const SEED_PHRASE = process.env.SEED_PHRASE ?? process.env.MNEMONIC;
@@ -122,46 +124,67 @@ function clobL2Headers(address, creds, method, path, body) {
 async function deriveOrCreateClobApiKey(wallet) {
   const l1 = await clobL1Headers(wallet);
   const headers = { "Content-Type": "application/json", ...l1 };
-  const deriveResp = await fetch(`${CLOB_HOST}/auth/derive-api-key`, { headers });
+  const deriveResp = await fetch(`${CLOB_HOST}/auth/derive-api-key`, {
+    headers,
+  });
   if (deriveResp.ok) {
     const body = await deriveResp.json();
     const key = body["apiKey"] ?? body["key"];
     const secret = body["secret"] ?? body["api_secret"];
-    if (key && secret) return { key, secret, passphrase: body["passphrase"] ?? "" };
+    if (key && secret)
+      return { key, secret, passphrase: body["passphrase"] ?? "" };
   }
-  const createResp = await fetch(`${CLOB_HOST}/auth/api-key`, { method: "POST", headers });
+  const createResp = await fetch(`${CLOB_HOST}/auth/api-key`, {
+    method: "POST",
+    headers,
+  });
   const createBody = await createResp.json();
   const createdKey = createBody["apiKey"] ?? createBody["key"];
   const createdSecret = createBody["secret"] ?? createBody["api_secret"];
   if (!createResp.ok || !createdKey || !createdSecret)
     throw new Error(`CLOB createApiKey failed: ${JSON.stringify(createBody)}`);
-  return { key: createdKey, secret: createdSecret, passphrase: createBody["passphrase"] ?? "" };
+  return {
+    key: createdKey,
+    secret: createdSecret,
+    passphrase: createBody["passphrase"] ?? "",
+  };
 }
 
 async function getOrCreateBuilderApiKey(wallet, clobCreds) {
   const path = "/auth/builder-api-key";
   const eoa = wallet.address;
   const getResp = await fetch(`${CLOB_HOST}${path}`, {
-    headers: { "Content-Type": "application/json", ...clobL2Headers(eoa, clobCreds, "GET", path) },
+    headers: {
+      "Content-Type": "application/json",
+      ...clobL2Headers(eoa, clobCreds, "GET", path),
+    },
   });
   if (getResp.ok) {
     const body = await getResp.json();
     const first = Array.isArray(body) ? body[0] : body;
     const key = first?.["apiKey"] ?? first?.["key"];
     const secret = first?.["secret"] ?? first?.["api_secret"];
-    if (key && secret) return { key, secret, passphrase: first["passphrase"] ?? "" };
+    if (key && secret)
+      return { key, secret, passphrase: first["passphrase"] ?? "" };
   }
   const bodyStr = "";
   const postResp = await fetch(`${CLOB_HOST}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...clobL2Headers(eoa, clobCreds, "POST", path, bodyStr) },
+    headers: {
+      "Content-Type": "application/json",
+      ...clobL2Headers(eoa, clobCreds, "POST", path, bodyStr),
+    },
   });
   const postBody = await postResp.json();
   const createdKey = postBody["apiKey"] ?? postBody["key"];
   const createdSecret = postBody["secret"] ?? postBody["api_secret"];
   if (!postResp.ok || !createdKey || !createdSecret)
     throw new Error(`Builder createApiKey failed: ${JSON.stringify(postBody)}`);
-  return { key: createdKey, secret: createdSecret, passphrase: postBody["passphrase"] ?? "" };
+  return {
+    key: createdKey,
+    secret: createdSecret,
+    passphrase: postBody["passphrase"] ?? "",
+  };
 }
 
 async function relayerGet(path, params) {
@@ -169,7 +192,10 @@ async function relayerGet(path, params) {
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   const resp = await fetch(url.toString());
   const body = await resp.json();
-  if (!resp.ok) throw new Error(`Relayer GET ${path} failed (${resp.status}): ${JSON.stringify(body)}`);
+  if (!resp.ok)
+    throw new Error(
+      `Relayer GET ${path} failed (${resp.status}): ${JSON.stringify(body)}`,
+    );
   return body;
 }
 
@@ -190,7 +216,10 @@ async function relayerPost(path, payload, builderCreds) {
     body: bodyStr,
   });
   const body = await resp.json();
-  if (!resp.ok) throw new Error(`Relayer POST ${path} failed (${resp.status}): ${JSON.stringify(body)}`);
+  if (!resp.ok)
+    throw new Error(
+      `Relayer POST ${path} failed (${resp.status}): ${JSON.stringify(body)}`,
+    );
   return body;
 }
 
@@ -198,26 +227,50 @@ async function pollRelayerTx(transactionId, maxPolls = 120, intervalMs = 5000) {
   for (let i = 0; i < maxPolls; i++) {
     await new Promise((r) => setTimeout(r, intervalMs));
     let result;
-    try { result = await relayerGet("/transaction", { id: transactionId }); } catch { continue; }
+    try {
+      result = await relayerGet("/transaction", { id: transactionId });
+    } catch {
+      continue;
+    }
     const txns = Array.isArray(result) ? result : [result];
     const txn = txns[0];
     if (!txn) continue;
     const state = String(txn["state"] ?? txn["status"] ?? "");
-    const hash = String(txn["transactionHash"] ?? txn["hash"] ?? txn["txHash"] ?? "");
-    if (["CONFIRMED","STATE_CONFIRMED","MINED","SUCCESS","confirmed","mined","success"].includes(state) || (state === "" && hash.length > 10)) {
+    const hash = String(
+      txn["transactionHash"] ?? txn["hash"] ?? txn["txHash"] ?? "",
+    );
+    if (
+      [
+        "CONFIRMED",
+        "STATE_CONFIRMED",
+        "MINED",
+        "SUCCESS",
+        "confirmed",
+        "mined",
+        "success",
+      ].includes(state) ||
+      (state === "" && hash.length > 10)
+    ) {
       console.log(`[send] Confirmed! hash=${hash}`);
       return hash;
     }
-    if (state.toUpperCase().includes("FAIL") || ["REVERTED","reverted"].includes(state))
+    if (
+      state.toUpperCase().includes("FAIL") ||
+      ["REVERTED", "reverted"].includes(state)
+    )
       throw new Error(`Transaction failed: ${state}`);
-    console.log(`[send] state=${state} hash=${hash} (poll ${i + 1}/${maxPolls})`);
+    console.log(
+      `[send] state=${state} hash=${hash} (poll ${i + 1}/${maxPolls})`,
+    );
   }
   throw new Error(`Transaction timed out after ${maxPolls} polls`);
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-const ERC20_IFACE = new Interface(["function transfer(address to, uint256 amount) returns (bool)"]);
+const ERC20_IFACE = new Interface([
+  "function transfer(address to, uint256 amount) returns (bool)",
+]);
 
 async function main() {
   const provider = new JsonRpcProvider(POLYGON_RPC);
@@ -235,34 +288,60 @@ async function main() {
   console.log(`Amount:         ${AMOUNT_USDCE} (17 USDC.e)`);
 
   // Check current balance
-  const usdce = new Interface(["function balanceOf(address) view returns (uint256)"]);
+  const usdce = new Interface([
+    "function balanceOf(address) view returns (uint256)",
+  ]);
   const balResult = await provider.call({
     to: USDCE_ADDRESS,
     data: usdce.encodeFunctionData("balanceOf", [depositWalletAddress]),
   });
   const balance = BigInt(balResult);
-  console.log(`Deposit wallet USDC.e balance: ${balance} (${Number(balance) / 1e6} USDC.e)`);
+  console.log(
+    `Deposit wallet USDC.e balance: ${balance} (${Number(balance) / 1e6} USDC.e)`,
+  );
 
   if (balance < AMOUNT_USDCE) {
-    throw new Error(`Insufficient balance: have ${balance}, need ${AMOUNT_USDCE}`);
+    throw new Error(
+      `Insufficient balance: have ${balance}, need ${AMOUNT_USDCE}`,
+    );
   }
 
   // Build transfer calldata
-  const transferCalldata = ERC20_IFACE.encodeFunctionData("transfer", [RECIPIENT, AMOUNT_USDCE]);
+  const transferCalldata = ERC20_IFACE.encodeFunctionData("transfer", [
+    RECIPIENT,
+    AMOUNT_USDCE,
+  ]);
   const calls = [{ target: USDCE_ADDRESS, value: "0", data: transferCalldata }];
 
   console.log(`\nDeriving CLOB API key...`);
   const clobCreds = await deriveOrCreateClobApiKey(wallet);
   const builderCreds = await getOrCreateBuilderApiKey(wallet, clobCreds);
 
-  const nonceResp = await relayerGet("/nonce", { address: eoaAddress, type: "WALLET" });
+  const nonceResp = await relayerGet("/nonce", {
+    address: eoaAddress,
+    type: "WALLET",
+  });
   const nonce = String(nonceResp["nonce"] ?? "0");
   const deadline = String(Math.floor(Date.now() / 1000) + 3600);
 
-  const domain = { name: "DepositWallet", version: "1", chainId: 137, verifyingContract: depositWalletAddress };
+  const domain = {
+    name: "DepositWallet",
+    version: "1",
+    chainId: 137,
+    verifyingContract: depositWalletAddress,
+  };
   const types = {
-    Call: [{ name: "target", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }],
-    Batch: [{ name: "wallet", type: "address" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }, { name: "calls", type: "Call[]" }],
+    Call: [
+      { name: "target", type: "address" },
+      { name: "value", type: "uint256" },
+      { name: "data", type: "bytes" },
+    ],
+    Batch: [
+      { name: "wallet", type: "address" },
+      { name: "nonce", type: "uint256" },
+      { name: "deadline", type: "uint256" },
+      { name: "calls", type: "Call[]" },
+    ],
   };
   const message = {
     wallet: depositWalletAddress,
@@ -283,13 +362,18 @@ async function main() {
       to: DEPOSIT_WALLET_FACTORY,
       nonce,
       signature,
-      depositWalletParams: { depositWallet: depositWalletAddress, deadline, calls },
+      depositWalletParams: {
+        depositWallet: depositWalletAddress,
+        deadline,
+        calls,
+      },
     },
     builderCreds,
   );
 
   const txId = String(batchResp["transactionID"] ?? "");
-  if (!txId) throw new Error(`No transactionID returned: ${JSON.stringify(batchResp)}`);
+  if (!txId)
+    throw new Error(`No transactionID returned: ${JSON.stringify(batchResp)}`);
   console.log(`Submitted! txID=${txId}  Polling...`);
 
   const txHash = await pollRelayerTx(txId);
@@ -297,4 +381,7 @@ async function main() {
   console.log(`   TX: https://polygonscan.com/tx/${txHash}`);
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
