@@ -51,11 +51,13 @@ export default defineConfig({
     host: true,
     allowedHosts: true,
     proxy: proxyConfig,
+    fs: { allow: [".."] },
   },
   preview: {
     port: 4000,
     host: true,
     allowedHosts: true,
     proxy: proxyConfig,
+    fs: { allow: [".."] },
   },
 });

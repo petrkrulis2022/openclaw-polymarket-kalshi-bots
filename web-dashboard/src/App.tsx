@@ -29,6 +29,7 @@ import { useBotStatus } from "./hooks/use-bot-status";
 import { usePositions, type SharePosition } from "./hooks/use-positions";
 import { UserOnboarding } from "./components/UserOnboarding";
 import { AdminPanel } from "./components/AdminPanel";
+import { WalletsModal } from "./components/WalletsModal";
 import { Toaster, toast } from "sonner";
 import "./index.css";
 
@@ -2926,6 +2927,7 @@ export default function App() {
   const [withdrawAmount, setWithdrawAmount] = React.useState("");
   const [withdrawStopBots, setWithdrawStopBots] = React.useState(true);
   const [showAdmin, setShowAdmin] = React.useState(false);
+  const [showWallets, setShowWallets] = React.useState(false);
 
   // Deposit to Polymarket
   const [depositing, setDepositing] = React.useState(false);
@@ -3726,8 +3728,25 @@ export default function App() {
               padding: "24px 0 16px",
               borderTop: "1px solid var(--border)",
               marginTop: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 16,
             }}
           >
+            <button
+              onClick={() => setShowWallets(true)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-secondary)",
+                fontSize: 12,
+                cursor: "pointer",
+                opacity: 0.6,
+              }}
+            >
+              💼 Wallets &amp; Flow
+            </button>
             <button
               onClick={() => setShowAdmin(true)}
               style={{
@@ -3745,6 +3764,7 @@ export default function App() {
         </>
       )}
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
+      {showWallets && <WalletsModal onClose={() => setShowWallets(false)} />}
     </>
   );
 }
