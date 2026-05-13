@@ -2919,6 +2919,8 @@ export default function App() {
   const [withdrawResult, setWithdrawResult] = React.useState<{
     withdrawTxHash: string;
     amountWithdrawn: string;
+    depositWithdrawTxHash?: string;
+    depositAmountWithdrawn?: string;
   } | null>(null);
   const [withdrawError, setWithdrawError] = React.useState<string | null>(null);
   const [withdrawAmount, setWithdrawAmount] = React.useState("");
@@ -3541,17 +3543,32 @@ export default function App() {
                   </p>
                 )}
                 {withdrawResult && (
-                  <p style={{ color: "#4caf50", fontSize: 12, margin: 0 }}>
-                    ✓ Withdrew {withdrawResult.amountWithdrawn} USDT —{" "}
-                    <a
-                      href={`https://polygonscan.com/tx/${withdrawResult.withdrawTxHash}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: "#4caf50" }}
-                    >
-                      View on PolygonScan ↗
-                    </a>
-                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <p style={{ color: "#4caf50", fontSize: 12, margin: 0 }}>
+                      ✓ Withdrew {withdrawResult.amountWithdrawn} USDT —{" "}
+                      <a
+                        href={`https://polygonscan.com/tx/${withdrawResult.withdrawTxHash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: "#4caf50" }}
+                      >
+                        View on PolygonScan ↗
+                      </a>
+                    </p>
+                    {withdrawResult.depositWithdrawTxHash && (
+                      <p style={{ color: "#4caf50", fontSize: 12, margin: 0 }}>
+                        ✓ Withdrew {withdrawResult.depositAmountWithdrawn} USDC.e from deposit wallet —{" "}
+                        <a
+                          href={`https://polygonscan.com/tx/${withdrawResult.depositWithdrawTxHash}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: "#4caf50" }}
+                        >
+                          View on PolygonScan ↗
+                        </a>
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

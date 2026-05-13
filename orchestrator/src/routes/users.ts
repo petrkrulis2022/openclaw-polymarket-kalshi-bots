@@ -695,6 +695,43 @@ router.post(
         amount: string;
       };
 
+      // ── Step 4: Drain USDC.e from deposit wallet → MetaMask (gasless) ──────
+      // The deposit wallet holds any USDC.e received from redeemed positions.
+      // It can only be moved via the Polymarket gasless relayer (no POL needed).
+
+      let depositWithdrawTxHash: string | undefined;
+      let depositAmountWithdrawn: string | undefined;
+
+      const depositWithdrawRes = await fetch(
+        `${WDK_TREASURY_URL}/withdraw-deposit`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            index: user.bot_wallet_index,
+            toAddress: address,
+            // amountUsdce omitted → sends full balance
+          }),
+        },
+      );
+
+      if (depositWithdrawRes.ok) {
+        const dr = (await depositWithdrawRes.json()) as {
+          txHash: string;
+          amount: string;
+        };
+        depositWithdrawTxHash = dr.txHash;
+        depositAmountWithdrawn = dr.amount;
+      } else {
+        const body = await depositWithdrawRes.text();
+        // "No USDC.e balance" is fine — deposit wallet may already be empty
+        if (!body.includes("No USDC.e balance")) {
+          console.error(
+            `[withdraw] deposit wallet drain failed (${depositWithdrawRes.status}): ${body}`,
+          );
+        }
+      }
+
       return res.json({
         swapTxHash,
         usdceSwapped,
@@ -702,6 +739,8 @@ router.post(
         withdrawTxHash: withdrawResult.txHash,
         amountWithdrawn: withdrawResult.amount,
         to: withdrawResult.to,
+        depositWithdrawTxHash,
+        depositAmountWithdrawn,
       });
     } catch (err) {
       return next(err);

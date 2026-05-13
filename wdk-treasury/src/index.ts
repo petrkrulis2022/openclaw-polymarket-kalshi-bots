@@ -27,6 +27,7 @@ import withdrawRouter from "./routes/withdraw.js";
 import depositPolymarketRouter from "./routes/deposit-polymarket.js";
 import rescueSafeUsdcRouter from "./routes/rescue-safe-usdc.js";
 import redeemRouter from "./routes/redeem.js";
+import withdrawDepositRouter from "./routes/withdraw-deposit.js";
 
 const app = express();
 
@@ -51,6 +52,7 @@ app.use("/withdraw", withdrawRouter);
 app.use("/deposit-polymarket", depositPolymarketRouter);
 app.use("/rescue-safe-usdc", rescueSafeUsdcRouter);
 app.use("/redeem", redeemRouter);
+app.use("/withdraw-deposit", withdrawDepositRouter);
 
 // ── 404 catch-all ─────────────────────────────────────────────────────────────
 
