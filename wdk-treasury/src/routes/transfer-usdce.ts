@@ -77,8 +77,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     if (nativeBalance === 0n) {
       return res.status(400).json({
         error: "No gas",
-        message:
-          "Source bot wallet has no POL to pay the transaction fee.",
+        message: "Source bot wallet has no POL to pay the transaction fee.",
       });
     }
 

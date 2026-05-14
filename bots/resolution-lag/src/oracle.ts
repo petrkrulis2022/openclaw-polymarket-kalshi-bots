@@ -6,8 +6,9 @@
  * buy the winning token cheap before the CLOB resolves it to $1.
  */
 
-import { getBestAsk } from "./clob.js";
+import { getBestAsk, getResolvedWinnerTokenId } from "./clob.js";
 import type { ClosedMarket } from "./monitor.js";
+import { config } from "./config.js";
 
 export interface ResolutionOpportunity {
   market: ClosedMarket;
@@ -19,6 +20,8 @@ export interface ResolutionOpportunity {
   expectedYield: number;
 }
 
+const confirmationCounts = new Map<string, number>();
+
 /**
  * For each Gamma-resolved market, check CLOB ask price on the winning token.
  * Return opportunities where the CLOB ask is meaningfully below $1.
@@ -28,20 +31,41 @@ export async function findResolutionOpportunities(
 ): Promise<ResolutionOpportunity[]> {
   const opportunities: ResolutionOpportunity[] = [];
 
-  // Only process markets where Gamma is resolved and winner is known
+  // Only process markets where Gamma is resolved and winner token is mapped.
   const actionable = markets.filter(
-    (m) => m.gammaResolved && m.gammaOutcome !== "UNKNOWN",
+    (m) => m.gammaResolved && !!m.winnerTokenId,
   );
+  const seenThisScan = new Set<string>();
 
   await Promise.allSettled(
     actionable.map(async (m) => {
-      const winningTokenId =
-        m.gammaOutcome === "YES" ? m.yesTokenId : m.noTokenId;
+      const winningTokenId = m.winnerTokenId;
+      const confirmKey = `${m.id}:${winningTokenId}`;
+      seenThisScan.add(confirmKey);
+
+      if (config.requireClobWinnerConfirmation) {
+        const clobWinnerTokenId = await getResolvedWinnerTokenId(m.conditionId);
+        if (!clobWinnerTokenId || clobWinnerTokenId !== winningTokenId) {
+          confirmationCounts.delete(confirmKey);
+          return;
+        }
+      }
 
       const ask = await getBestAsk(winningTokenId);
+      if (ask <= 0) {
+        confirmationCounts.delete(confirmKey);
+        return;
+      }
 
-      // CLOB is already resolved if ask ≥ 0.99
-      if (ask >= 0.99) return;
+      // Ignore obvious live-market pricing and fully settled pricing.
+      if (ask < config.minAskPrice || ask >= config.maxAskPrice) {
+        confirmationCounts.delete(confirmKey);
+        return;
+      }
+
+      const nextConfirmCount = (confirmationCounts.get(confirmKey) ?? 0) + 1;
+      confirmationCounts.set(confirmKey, nextConfirmCount);
+      if (nextConfirmCount < config.requiredResolutionConfirmations) return;
 
       const expectedYield = (1 - ask) / ask;
       opportunities.push({
@@ -52,6 +76,10 @@ export async function findResolutionOpportunities(
       });
     }),
   );
+
+  for (const key of confirmationCounts.keys()) {
+    if (!seenThisScan.has(key)) confirmationCounts.delete(key);
+  }
 
   return opportunities;
 }

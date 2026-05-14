@@ -141,6 +141,11 @@ app.get("/config", (_req: Request, res: Response) => {
     botId: config.botId,
     monitorIntervalMs: config.monitorIntervalMs,
     minYieldPct: config.minYieldPct,
+    minAskPrice: config.minAskPrice,
+    maxAskPrice: config.maxAskPrice,
+    minPostEndMinutes: config.minPostEndMinutes,
+    requiredResolutionConfirmations: config.requiredResolutionConfirmations,
+    requireClobWinnerConfirmation: config.requireClobWinnerConfirmation,
     maxPositionUsd: config.maxPositionUsd,
     maxOpenPositions: config.maxOpenPositions,
   });

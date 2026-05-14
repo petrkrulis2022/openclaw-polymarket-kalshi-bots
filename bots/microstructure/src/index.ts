@@ -12,7 +12,78 @@ import { runScreener, getScreenedMarkets } from "./screener.js";
 import { refreshQuote } from "./quoter.js";
 import { getAllPositions, getTotalRealizedPnl } from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
-import { getCollateralBalance } from "./clob.js";
+import {
+  fetchTradeHistory,
+  getCollateralBalance,
+  getOpenOrders,
+  type OpenOrder,
+} from "./clob.js";
+
+type TradeFill = {
+  side: "BUY" | "SELL";
+  size: number;
+  price: number;
+};
+
+const seenTradeKeys = new Set<string>();
+
+function tradeKey(t: {
+  id: string;
+  orderId: string;
+  assetId: string;
+  side: string;
+  size: number;
+  price: number;
+  createdAt: string;
+}): string {
+  if (t.id) return t.id;
+  return [
+    t.orderId,
+    t.assetId,
+    t.side,
+    t.size.toFixed(8),
+    t.price.toFixed(8),
+    t.createdAt,
+  ].join("|");
+}
+
+async function getNewFillsByOrderId(): Promise<Map<string, TradeFill>> {
+  const fills = new Map<string, TradeFill>();
+  const trades = await fetchTradeHistory();
+
+  for (const t of trades) {
+    if (t.status !== "CONFIRMED") continue;
+    const key = tradeKey(t);
+    if (seenTradeKeys.has(key)) continue;
+    seenTradeKeys.add(key);
+
+    if (!t.orderId || t.size <= 0 || t.price <= 0) continue;
+    const side = t.side.toUpperCase();
+    if (side !== "BUY" && side !== "SELL") continue;
+
+    const prev = fills.get(t.orderId);
+    if (prev) {
+      const combined = prev.size + t.size;
+      const weightedPrice =
+        combined > 0
+          ? (prev.price * prev.size + t.price * t.size) / combined
+          : t.price;
+      fills.set(t.orderId, {
+        side: prev.side,
+        size: combined,
+        price: weightedPrice,
+      });
+    } else {
+      fills.set(t.orderId, {
+        side: side as "BUY" | "SELL",
+        size: t.size,
+        price: t.price,
+      });
+    }
+  }
+
+  return fills;
+}
 
 // ── Equity helper ─────────────────────────────────────────────────────────────
 
@@ -49,10 +120,28 @@ async function runQuoteCycle(): Promise<void> {
     return;
   }
 
+  const allocatedEquity = await fetchAllocatedEquity();
+  const maxByCapital = Math.max(
+    1,
+    Math.floor((allocatedEquity * 0.8) / config.maxUsdPerMarket),
+  );
+  const cappedMarkets = markets.slice(
+    0,
+    Math.min(markets.length, maxByCapital),
+  );
+
+  const openOrders = await getOpenOrders();
+  const openOrdersById = new Map<string, OpenOrder>(
+    openOrders.map((o) => [o.id, o]),
+  );
+  const fillsByOrderId = await getNewFillsByOrderId();
+
   // Refresh quotes in small concurrent batches to avoid CLOB rate limits
-  for (let i = 0; i < markets.length; i += 10) {
-    const batch = markets.slice(i, i + 10);
-    await Promise.allSettled(batch.map((m) => refreshQuote(m)));
+  for (let i = 0; i < cappedMarkets.length; i += 10) {
+    const batch = cappedMarkets.slice(i, i + 10);
+    await Promise.allSettled(
+      batch.map((m) => refreshQuote(m, openOrdersById, fillsByOrderId)),
+    );
   }
 }
 

@@ -1,24 +1,29 @@
 /**
- * monitor.ts — polls Gamma API for markets that are closed but not yet
- * resolved on the CLOB (the "resolution lag" window).
+ * monitor.ts — polls Gamma API for recently closed markets and maps the
+ * winner to a concrete tokenId. Gamma is treated as candidate discovery,
+ * not as the final source of truth.
  */
+
+import { config } from "./config.js";
 
 const GAMMA_API = "https://gamma-api.polymarket.com/markets";
 
 export interface ClosedMarket {
   id: string;
+  conditionId: string;
   question: string;
-  /** The outcome Gamma believes is correct (1 = YES winner, 0 = NO winner) */
-  gammaOutcome: "YES" | "NO" | "UNKNOWN";
+  /** Winner label reported by Gamma (for diagnostics). */
+  gammaOutcome: string;
   gammaResolved: boolean;
   clobResolved: boolean;
-  yesTokenId: string;
-  noTokenId: string;
+  winnerTokenId: string;
   endDate: string;
 }
 
 interface GammaMarket {
   id: string;
+  conditionId?: string;
+  condition_id?: string;
   question: string;
   closed: boolean;
   active: boolean;
@@ -28,9 +33,61 @@ interface GammaMarket {
   end_date_iso?: string;
 }
 
+function normalizeLabel(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function mapWinnerToTokenId(
+  winner: string,
+  tokens: Array<{ token_id: string; outcome: string }>,
+): string | null {
+  if (!winner || !tokens.length) return null;
+
+  const normalizedWinner = normalizeLabel(winner);
+  const normalizedTokens = tokens.map((t) => ({
+    tokenId: t.token_id,
+    outcome: t.outcome,
+    normalizedOutcome: normalizeLabel(t.outcome),
+  }));
+
+  const yes = normalizedTokens.find((t) => t.normalizedOutcome === "yes");
+  const no = normalizedTokens.find((t) => t.normalizedOutcome === "no");
+
+  if (normalizedWinner === "yes" && yes) return yes.tokenId;
+  if (normalizedWinner === "no" && no) return no.tokenId;
+
+  const exact = normalizedTokens.find(
+    (t) => t.normalizedOutcome === normalizedWinner,
+  );
+  if (exact) return exact.tokenId;
+
+  const partial = normalizedTokens.filter(
+    (t) =>
+      t.normalizedOutcome.includes(normalizedWinner) ||
+      normalizedWinner.includes(t.normalizedOutcome),
+  );
+  if (partial.length === 1) return partial[0].tokenId;
+
+  return null;
+}
+
+function hasPassedEndDateBuffer(endDateIso: string | undefined): boolean {
+  if (!endDateIso) return false;
+  const end = Date.parse(endDateIso);
+  if (Number.isNaN(end)) return false;
+
+  const cutoff = Date.now() - config.minPostEndMinutes * 60_000;
+  return end <= cutoff;
+}
+
 export async function fetchClosedUnresolvedMarkets(): Promise<ClosedMarket[]> {
   try {
-    // Fetch recently closed markets
+    // Fetch recently closed and inactive markets; we still re-check resolved,
+    // winner mapping and end-time safety locally.
     const url = `${GAMMA_API}?closed=true&active=false&limit=100`;
     const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
     if (!res.ok) throw new Error(`Gamma API ${res.status}`);
@@ -40,26 +97,21 @@ export async function fetchClosedUnresolvedMarkets(): Promise<ClosedMarket[]> {
 
     const result: ClosedMarket[] = [];
     for (const m of markets) {
-      const tokens = m.tokens ?? [];
-      const yes = tokens.find((t) => t.outcome?.toLowerCase() === "yes");
-      const no = tokens.find((t) => t.outcome?.toLowerCase() === "no");
-      if (!yes || !no) continue;
+      if (!m.resolved || !m.winner) continue;
+      if (!hasPassedEndDateBuffer(m.end_date_iso)) continue;
 
-      // Gamma says resolved but CLOB may not have processed it yet
-      // We mark clobResolved=false here; the oracle module confirms via CLOB
-      let gammaOutcome: ClosedMarket["gammaOutcome"] = "UNKNOWN";
-      if (m.winner) {
-        gammaOutcome = m.winner.toLowerCase() === "yes" ? "YES" : "NO";
-      }
+      const tokens = m.tokens ?? [];
+      const winnerTokenId = mapWinnerToTokenId(m.winner, tokens);
+      if (!winnerTokenId) continue;
 
       result.push({
         id: m.id,
+        conditionId: m.conditionId ?? m.condition_id ?? "",
         question: m.question,
-        gammaOutcome,
+        gammaOutcome: m.winner,
         gammaResolved: !!m.resolved,
         clobResolved: false, // oracle.ts will fill this in
-        yesTokenId: yes.token_id,
-        noTokenId: no.token_id,
+        winnerTokenId,
         endDate: m.end_date_iso ?? "",
       });
     }

@@ -14,7 +14,10 @@ export interface ArbSignal {
   noTokenId: string;
   marketId: string;
   marketQuestion: string;
+  /** Total USD notional needed to buy both legs at computed entry prices. */
   profitableVolumeUsd: number;
+  /** Expected gross profit in USD for the computed notional. */
+  expectedProfitUsd: number;
   yesEntryPrice: number;
   noEntryPrice: number;
   netSpread: number;
@@ -43,9 +46,10 @@ export async function computeArbSignal(
 
   // Walk depth: pair up ask levels and find overlapping profitable volume
   let profitableVolumeUsd = 0;
+  let expectedProfitUsd = 0;
   let totalYesSpend = 0;
   let totalNoSpend = 0;
-  let totalVolume = 0;
+  let totalShares = 0;
 
   let yi = 0;
   let ni = 0;
@@ -64,23 +68,26 @@ export async function computeArbSignal(
     }
 
     const stepSize = Math.min(yesRemaining, noRemaining);
-    const stepUsd = stepSize * ((yesPrice + noPrice) / 2);
+    const stepNotionalUsd = stepSize * (yesPrice + noPrice);
 
-    if (totalVolume + stepUsd > config.maxPositionUsd) {
-      const remainingBudget = config.maxPositionUsd - totalVolume;
+    if (profitableVolumeUsd + stepNotionalUsd > config.maxPositionUsd) {
+      const remainingBudget = config.maxPositionUsd - profitableVolumeUsd;
       if (remainingBudget > 0) {
-        profitableVolumeUsd += remainingBudget * netSpread;
-        totalYesSpend += remainingBudget;
-        totalNoSpend += remainingBudget;
-        totalVolume = config.maxPositionUsd;
+        const partialShares = remainingBudget / (yesPrice + noPrice);
+        totalYesSpend += partialShares * yesPrice;
+        totalNoSpend += partialShares * noPrice;
+        totalShares += partialShares;
+        profitableVolumeUsd = config.maxPositionUsd;
+        expectedProfitUsd += remainingBudget * netSpread;
       }
       break;
     }
 
-    profitableVolumeUsd += stepUsd * netSpread;
+    profitableVolumeUsd += stepNotionalUsd;
+    expectedProfitUsd += stepNotionalUsd * netSpread;
     totalYesSpend += stepSize * yesPrice;
     totalNoSpend += stepSize * noPrice;
-    totalVolume += stepUsd;
+    totalShares += stepSize;
 
     yesRemaining -= stepSize;
     noRemaining -= stepSize;
@@ -95,7 +102,7 @@ export async function computeArbSignal(
     }
   }
 
-  if (profitableVolumeUsd <= 0 || totalVolume <= 0) return null;
+  if (profitableVolumeUsd <= 0 || totalShares <= 0) return null;
 
   return {
     yesTokenId,
@@ -103,8 +110,9 @@ export async function computeArbSignal(
     marketId,
     marketQuestion: question,
     profitableVolumeUsd,
-    yesEntryPrice: totalYesSpend / totalVolume,
-    noEntryPrice: totalNoSpend / totalVolume,
-    netSpread: 1 - (totalYesSpend + totalNoSpend) / totalVolume,
+    expectedProfitUsd,
+    yesEntryPrice: totalYesSpend / totalShares,
+    noEntryPrice: totalNoSpend / totalShares,
+    netSpread: 1 - (totalYesSpend + totalNoSpend) / totalShares,
   };
 }

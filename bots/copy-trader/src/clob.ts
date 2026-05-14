@@ -163,6 +163,8 @@ export async function getCollateralBalance(): Promise<number> {
 }
 
 export interface TradeRecord {
+  id: string;
+  created_at: string;
   asset_id: string;
   side: string;
   size: string;
@@ -189,6 +191,8 @@ export async function fetchTradeHistory(): Promise<TradeRecord[]> {
       .map((t: unknown) => {
         const trade = t as Record<string, string>;
         return {
+          id: trade["id"] ?? "",
+          created_at: trade["created_at"] ?? "",
           asset_id: trade["asset_id"] ?? "",
           side: trade["side"] ?? "BUY",
           size: trade["size"] ?? "0",

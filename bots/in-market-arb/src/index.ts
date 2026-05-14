@@ -11,9 +11,15 @@ import { config } from "./config.js";
 import { scanActiveMarkets } from "./scanner.js";
 import { computeArbSignal, type ArbSignal } from "./orderbook.js";
 import { executeArbPair } from "./executor.js";
-import { getAllPairs, getTotalRealizedPnl } from "./inventory.js";
+import {
+  getAllPairs,
+  getOpenPairs,
+  getTotalRealizedPnl,
+  settlePair,
+  updatePair,
+} from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
-import { getCollateralBalance } from "./clob.js";
+import { cancelOrder, getCollateralBalance, getOpenOrders } from "./clob.js";
 
 // ── Track most-recent scan results for the dashboard ──────────────────────────
 
@@ -84,11 +90,74 @@ async function runScanCycle(): Promise<void> {
     activeMarkets.add(signal.marketId);
     console.log(
       `[arb] Signal: ${signal.marketQuestion} | spread=${signal.netSpread.toFixed(4)} ` +
-        `profitableUsd=${signal.profitableVolumeUsd.toFixed(4)}`,
+        `notionalUsd=${signal.profitableVolumeUsd.toFixed(4)} ` +
+        `expectedPnlUsd=${signal.expectedProfitUsd.toFixed(4)}`,
     );
     await executeArbPair(signal).catch((err) => {
       console.error("[arb] executeArbPair error:", (err as Error).message);
       activeMarkets.delete(signal.marketId);
+    });
+
+    // Release market lock after the pair timeout window so the market
+    // can be reconsidered on later scans.
+    setTimeout(
+      () => activeMarkets.delete(signal.marketId),
+      config.pairTimeoutMs + 1_000,
+    );
+  }
+}
+
+function estimateLockedProfitUsd(pair: {
+  sizeUsd: number;
+  yesPrice: number;
+  noPrice: number;
+}): number {
+  const combinedPrice = pair.yesPrice + pair.noPrice;
+  if (combinedPrice <= 0 || pair.sizeUsd <= 0) return 0;
+  const shares = pair.sizeUsd / combinedPrice;
+  return shares - pair.sizeUsd;
+}
+
+async function reconcilePairs(): Promise<void> {
+  const openPairs = getOpenPairs();
+  if (openPairs.length === 0) return;
+
+  const openOrdersById = new Map((await getOpenOrders()).map((o) => [o.id, o]));
+
+  for (const pair of openPairs) {
+    const yesOrder = openOrdersById.get(pair.yesOrderId);
+    const noOrder = openOrdersById.get(pair.noOrderId);
+    const yesOpen = Boolean(yesOrder);
+    const noOpen = Boolean(noOrder);
+
+    if (yesOrder || noOrder) {
+      updatePair(pair.id, {
+        yesRemainingSize: yesOrder?.remainingSize ?? 0,
+        noRemainingSize: noOrder?.remainingSize ?? 0,
+        status: yesOpen && noOpen ? "pending" : "partial",
+      });
+    }
+
+    if (yesOpen && noOpen) continue;
+
+    if (!yesOpen && !noOpen) {
+      // Both orders are off-book; assume hedged pair is completed.
+      settlePair(pair.id, estimateLockedProfitUsd(pair));
+      continue;
+    }
+
+    // One leg is off-book while the other remains open: cancel remaining leg
+    // and mark pair as partial so it is visible in API/metrics.
+    const remainingOrderId = yesOpen ? pair.yesOrderId : pair.noOrderId;
+    await cancelOrder(remainingOrderId);
+    updatePair(pair.id, {
+      status: "partial",
+      yesRemainingSize: yesOpen
+        ? (yesOrder?.remainingSize ?? pair.yesRemainingSize)
+        : 0,
+      noRemainingSize: noOpen
+        ? (noOrder?.remainingSize ?? pair.noRemainingSize)
+        : 0,
     });
   }
 }
@@ -98,6 +167,7 @@ async function runScanCycle(): Promise<void> {
 async function scheduleScan(): Promise<void> {
   try {
     await runScanCycle();
+    await reconcilePairs();
   } catch (err) {
     console.error("[arb] Scan error:", (err as Error).message);
   }

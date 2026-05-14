@@ -183,9 +183,7 @@ router.post(
         typeof fromMetamask !== "string" ||
         !/^0x[0-9a-fA-F]{40}$/.test(fromMetamask)
       ) {
-        return res
-          .status(400)
-          .json({ error: "Invalid fromMetamask address" });
+        return res.status(400).json({ error: "Invalid fromMetamask address" });
       }
       if (
         typeof toMetamask !== "string" ||
@@ -220,14 +218,11 @@ router.post(
         body["amountUsdce"] = String(amountUsdce);
       }
 
-      const treasuryRes = await fetch(
-        `${WDK_TREASURY_URL}/transfer-usdce`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
+      const treasuryRes = await fetch(`${WDK_TREASURY_URL}/transfer-usdce`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
       const data = (await treasuryRes.json()) as Record<string, unknown>;
       if (!treasuryRes.ok) {

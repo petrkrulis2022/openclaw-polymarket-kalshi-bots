@@ -37,8 +37,41 @@ import {
   getAllPositions,
   getTotalRealizedPnl,
   initFromTrades,
+  recordFill,
 } from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
+
+const seenTradeKeys = new Set<string>();
+
+function tradeKey(t: {
+  id: string;
+  created_at: string;
+  asset_id: string;
+  side: string;
+  size: string;
+  price: string;
+}): string {
+  if (t.id) return t.id;
+  return [t.created_at, t.asset_id, t.side, t.size, t.price].join("|");
+}
+
+async function reconcileInventoryFromTrades(): Promise<void> {
+  const trades = await fetchTradeHistory();
+  for (const t of trades) {
+    if (t.status !== "CONFIRMED") continue;
+    const key = tradeKey(t);
+    if (seenTradeKeys.has(key)) continue;
+
+    seenTradeKeys.add(key);
+    const side = t.side.toUpperCase() === "SELL" ? "SELL" : "BUY";
+    const price = parseFloat(t.price);
+    const size = parseFloat(t.size);
+    if (!Number.isFinite(price) || !Number.isFinite(size) || size <= 0) {
+      continue;
+    }
+    recordFill(t.asset_id, "exchange-reconcile", side, price, size);
+  }
+}
 
 // ── Equity helper ──────────────────────────────────────────────────────────────
 
@@ -137,6 +170,7 @@ async function runCycle(): Promise<void> {
 async function schedulePolling(): Promise<void> {
   try {
     await runCycle();
+    await reconcileInventoryFromTrades();
   } catch (err) {
     console.error("[copy] Cycle error:", (err as Error).message);
   }
@@ -376,6 +410,11 @@ async function main(): Promise<void> {
     const trades = await fetchTradeHistory();
     if (trades.length > 0) {
       initFromTrades(trades);
+      for (const t of trades) {
+        if (t.status === "CONFIRMED") {
+          seenTradeKeys.add(tradeKey(t));
+        }
+      }
       console.log(`[copy-trader] Restored ${trades.length} trade records`);
     }
   } catch (err) {

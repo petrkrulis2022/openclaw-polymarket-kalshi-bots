@@ -56,7 +56,7 @@ async function getSigningClient(): Promise<ClobClient> {
     `[clob] creating API key sig_type=${config.polymarket.signatureType} poly_address=${account.address} funder=${config.polymarket.funderAddress || "(none)"}`,
   );
   const creds = await tempClient.createOrDeriveApiKey();
-  if (!creds || !(creds as Record<string, unknown>)["key"]) {
+  if (!creds || !(creds as unknown as Record<string, unknown>)["key"]) {
     throw new Error(
       `createOrDeriveApiKey returned empty creds: ${JSON.stringify(creds)}. ` +
         `sig_type=${config.polymarket.signatureType}, funder=${config.polymarket.funderAddress || "(none)"}. ` +
@@ -64,7 +64,7 @@ async function getSigningClient(): Promise<ClobClient> {
     );
   }
   console.log(
-    `[clob] API key created/derived ok: key=${(creds as Record<string, unknown>)["key"]}`,
+    `[clob] API key created/derived ok: key=${(creds as unknown as Record<string, unknown>)["key"]}`,
   );
 
   _signingClient = new ClobClient({
@@ -174,6 +174,8 @@ export async function getOpenOrders(): Promise<
     side: string;
     price: number;
     size: number;
+    remainingSize: number;
+    originalSize: number;
   }>
 > {
   if (config.paperTrading) return [];
@@ -185,12 +187,23 @@ export async function getOpenOrders(): Promise<
       : ((result as { data?: unknown[] }).data ?? []);
     return orders.map((o: unknown) => {
       const order = o as Record<string, string>;
+      const originalSize = parseFloat(
+        order["original_size"] ?? order["size"] ?? "0",
+      );
+      const remainingSize = parseFloat(
+        order["size_remaining"] ??
+          order["remaining_size"] ??
+          order["size"] ??
+          "0",
+      );
       return {
         id: order["id"] ?? "",
         tokenId: order["asset_id"] ?? "",
         side: order["side"] ?? "",
         price: parseFloat(order["price"] ?? "0"),
-        size: parseFloat(order["original_size"] ?? "0"),
+        size: Number.isFinite(remainingSize) ? remainingSize : 0,
+        remainingSize: Number.isFinite(remainingSize) ? remainingSize : 0,
+        originalSize: Number.isFinite(originalSize) ? originalSize : 0,
       };
     });
   } catch (err) {
@@ -200,6 +213,8 @@ export async function getOpenOrders(): Promise<
 }
 
 export interface TradeRecord {
+  id: string;
+  created_at: string;
   asset_id: string;
   side: string;
   size: string;
@@ -227,6 +242,8 @@ export async function fetchTradeHistory(): Promise<TradeRecord[]> {
       .map((t: unknown) => {
         const trade = t as Record<string, string>;
         return {
+          id: trade["id"] ?? "",
+          created_at: trade["created_at"] ?? "",
           asset_id: trade["asset_id"] ?? "",
           side: trade["side"] ?? "BUY",
           size: trade["size"] ?? "0",

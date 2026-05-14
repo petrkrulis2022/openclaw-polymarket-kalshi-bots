@@ -487,9 +487,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       calls: calls.map((c) => ({ target: c.target, value: 0n, data: c.data })),
     };
 
-    console.log(
-      `[withdraw-deposit] Signing EIP-712 batch (nonce=${nonce})...`,
-    );
+    console.log(`[withdraw-deposit] Signing EIP-712 batch (nonce=${nonce})...`);
     const signature = await wallet.signTypedData(domain, types, message);
 
     // ── Submit to relayer ─────────────────────────────────────────────────────

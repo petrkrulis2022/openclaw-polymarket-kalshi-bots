@@ -39,6 +39,19 @@ export const config = {
   ),
   // Minimum annualised yield (%) to enter a resolution-lag trade
   minYieldPct: parseFloat(process.env["MIN_YIELD_PCT"] ?? "0.5"),
+  // Price band for stale resolved markets. Lower asks are usually live/in-play risk.
+  minAskPrice: parseFloat(process.env["MIN_ASK_PRICE"] ?? "0.85"),
+  maxAskPrice: parseFloat(process.env["MAX_ASK_PRICE"] ?? "0.99"),
+  // Safety buffer after market end time before considering it actionable.
+  minPostEndMinutes: parseInt(process.env["MIN_POST_END_MINUTES"] ?? "45", 10),
+  // Require the same candidate to pass checks in N consecutive scans.
+  requiredResolutionConfirmations: parseInt(
+    process.env["REQUIRED_RESOLUTION_CONFIRMATIONS"] ?? "2",
+    10,
+  ),
+  // Require CLOB market endpoint to confirm the exact winning token.
+  requireClobWinnerConfirmation:
+    (process.env["REQUIRE_CLOB_WINNER_CONFIRMATION"] ?? "true") === "true",
   maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "100"),
   maxOpenPositions: parseInt(process.env["MAX_OPEN_POSITIONS"] ?? "20", 10),
 } as const;

@@ -17,17 +17,9 @@ function makeId(): string {
  * On any failure, attempt to cancel the successful leg.
  */
 export async function executeArbPair(signal: ArbSignal): Promise<void> {
-  const sizeYes =
-    signal.yesEntryPrice > 0
-      ? Math.min(config.maxPositionUsd, signal.profitableVolumeUsd) /
-        signal.yesEntryPrice
-      : 0;
-  const sizeNo =
-    signal.noEntryPrice > 0
-      ? Math.min(config.maxPositionUsd, signal.profitableVolumeUsd) /
-        signal.noEntryPrice
-      : 0;
-  const size = Math.min(sizeYes, sizeNo);
+  const budgetUsd = Math.min(config.maxPositionUsd, signal.profitableVolumeUsd);
+  const combinedPrice = signal.yesEntryPrice + signal.noEntryPrice;
+  const size = combinedPrice > 0 ? budgetUsd / combinedPrice : 0;
 
   if (size < 0.01) {
     console.warn(
@@ -43,15 +35,26 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
       `spread=${signal.netSpread.toFixed(4)} size=${size.toFixed(2)}`,
   );
 
-  let yesOrderId = "";
-  let noOrderId = "";
+  let yesOrderId: string | null = null;
+  let noOrderId: string | null = null;
 
   try {
-    const [yesResult, noResult] = await Promise.all([
-      placeLimitOrder(signal.yesTokenId, "BUY", signal.yesEntryPrice, size),
-      placeLimitOrder(signal.noTokenId, "BUY", signal.noEntryPrice, size),
-    ]);
+    // Place first leg, then second leg. If second leg fails, immediately
+    // cancel the first to avoid naked directional exposure.
+    const yesResult = await placeLimitOrder(
+      signal.yesTokenId,
+      "BUY",
+      signal.yesEntryPrice,
+      size,
+    );
     yesOrderId = yesResult.orderId;
+
+    const noResult = await placeLimitOrder(
+      signal.noTokenId,
+      "BUY",
+      signal.noEntryPrice,
+      size,
+    );
     noOrderId = noResult.orderId;
   } catch (err) {
     console.error(
@@ -74,7 +77,9 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
     noOrderId,
     yesPrice: signal.yesEntryPrice,
     noPrice: signal.noEntryPrice,
-    sizeUsd: size * ((signal.yesEntryPrice + signal.noEntryPrice) / 2),
+    yesRemainingSize: size,
+    noRemainingSize: size,
+    sizeUsd: size * (signal.yesEntryPrice + signal.noEntryPrice),
     status: "pending",
     createdAt: new Date().toISOString(),
   };

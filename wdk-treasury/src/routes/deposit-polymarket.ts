@@ -550,7 +550,9 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     // a previous partial flow). We wrap it via a relayer batch so pUSD lands
     // directly in the deposit wallet, ready for trading.
     const usdceRo = new Contract(USDCE_TOKEN_ADDRESS, ERC20_ABI, provider);
-    const depositWalletUsdceBalance = (await usdceRo.balanceOf(depositWalletAddress)) as bigint;
+    const depositWalletUsdceBalance = (await usdceRo.balanceOf(
+      depositWalletAddress,
+    )) as bigint;
 
     let depositWalletWrapTxHash: string | null = null;
     if (depositWalletUsdceBalance > 0n) {

@@ -17,6 +17,14 @@ export interface OrderResult {
   orderId: string;
 }
 
+export interface OpenOrder {
+  id: string;
+  side: string;
+  tokenId: string;
+  remainingSize: number;
+  originalSize: number;
+}
+
 let _client: ClobClient | null = null;
 
 function getClient(): ClobClient {
@@ -134,5 +142,37 @@ export async function getCollateralBalance(): Promise<number> {
   } catch (err) {
     console.warn("[clob] getCollateralBalance error:", (err as Error).message);
     return 0;
+  }
+}
+
+export async function getOpenOrders(): Promise<OpenOrder[]> {
+  try {
+    const c = await getSigningClient();
+    const result = await c.getOpenOrders();
+    const orders = Array.isArray(result)
+      ? result
+      : ((result as { data?: unknown[] }).data ?? []);
+    return orders.map((o: unknown) => {
+      const order = o as Record<string, string>;
+      const originalSize = parseFloat(
+        order["original_size"] ?? order["size"] ?? "0",
+      );
+      const remainingSize = parseFloat(
+        order["size_remaining"] ??
+          order["remaining_size"] ??
+          order["size"] ??
+          "0",
+      );
+      return {
+        id: order["id"] ?? "",
+        side: order["side"] ?? "",
+        tokenId: order["asset_id"] ?? "",
+        originalSize: Number.isFinite(originalSize) ? originalSize : 0,
+        remainingSize: Number.isFinite(remainingSize) ? remainingSize : 0,
+      };
+    });
+  } catch (err) {
+    console.warn("[clob] getOpenOrders error:", (err as Error).message);
+    return [];
   }
 }

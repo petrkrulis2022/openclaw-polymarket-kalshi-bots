@@ -6,6 +6,7 @@ import {
   placeLimitOrder,
   cancelOrder,
   getLastTradeMid,
+  getOpenOrders,
 } from "./clob.js";
 import { getSkew, recordFill, getPosition } from "./inventory.js";
 
@@ -17,8 +18,10 @@ export interface MarketState {
   spread: number;
   ourBidId: string | null;
   ourBidPrice: number;
+  ourBidRemainingSize: number;
   ourAskId: string | null;
   ourAskPrice: number;
+  ourAskRemainingSize: number;
   openPositions: number;
 }
 
@@ -44,10 +47,39 @@ export function getStates(): MarketState[] {
   return Array.from(states.values());
 }
 
+function syncStatesFromOpenOrders(
+  openOrdersById: Map<
+    string,
+    {
+      id: string;
+      tokenId: string;
+      side: string;
+      price: number;
+      size: number;
+      remainingSize: number;
+      originalSize: number;
+    }
+  >,
+): void {
+  for (const [conditionId, st] of states.entries()) {
+    const bid = st.ourBidId ? openOrdersById.get(st.ourBidId) : undefined;
+    const ask = st.ourAskId ? openOrdersById.get(st.ourAskId) : undefined;
+
+    states.set(conditionId, {
+      ...st,
+      ourBidId: bid ? st.ourBidId : null,
+      ourAskId: ask ? st.ourAskId : null,
+      ourBidRemainingSize: bid?.remainingSize ?? 0,
+      ourAskRemainingSize: ask?.remainingSize ?? 0,
+      openPositions: (bid ? 1 : 0) + (ask ? 1 : 0),
+    });
+  }
+}
+
 export async function quoteMarket(
   market: GammaMarket,
   equityPerMarket: number,
-  totalEquity: number,
+  freeCollateralUsd: number,
 ): Promise<void> {
   const yesTokenId = market.yesTokenId;
   const noTokenId = market.noTokenId;
@@ -119,7 +151,15 @@ export async function quoteMarket(
       yesRatio > params.maxInventorySkew ||
       yesRatio < 1 - params.maxInventorySkew;
 
-    if (!midMoved && !bidStale && !askStale && !inventorySkewed) {
+    const hasAnyLiveOrder = Boolean(existing.ourBidId || existing.ourAskId);
+
+    if (
+      hasAnyLiveOrder &&
+      !midMoved &&
+      !bidStale &&
+      !askStale &&
+      !inventorySkewed
+    ) {
       return; // nothing to do
     }
 
@@ -169,9 +209,9 @@ export async function quoteMarket(
   if (bidPrice >= askPrice) return;
 
   // Affordability: can we fund the BUY with available equity?
-  // Use total equity for the threshold check (so MIN_ORDER_SIZE is achievable
+  // Use free collateral for the threshold check (so MIN_ORDER_SIZE is achievable
   // even when per-market allocation is small), but size from per-market budget.
-  const maxAffordableShares = (totalEquity * 0.95) / bidPrice;
+  const maxAffordableShares = (freeCollateralUsd * 0.95) / bidPrice;
   const canBuy = maxAffordableShares >= MIN_ORDER_SIZE;
   const rawBuySize = Math.min(equityPerMarket / 2 / mid, maxAffordableShares);
   const bidSize = canBuy
@@ -210,8 +250,10 @@ export async function quoteMarket(
     spread,
     ourBidId: bidResult?.orderId ?? null,
     ourBidPrice: bidPrice,
+    ourBidRemainingSize: bidResult ? bidSize : 0,
     ourAskId: askResult?.orderId ?? null,
     ourAskPrice: askPrice,
+    ourAskRemainingSize: askResult ? Math.min(askSize, heldYes) : 0,
     openPositions,
   });
 }
@@ -223,9 +265,35 @@ export async function runQuotingCycle(allocatedEquity: number): Promise<void> {
     return;
   }
 
+  let freeCollateralUsd = allocatedEquity;
+  let openOrdersById = new Map<
+    string,
+    {
+      id: string;
+      tokenId: string;
+      side: string;
+      price: number;
+      size: number;
+      remainingSize: number;
+      originalSize: number;
+    }
+  >();
+  try {
+    const openOrders = await getOpenOrders();
+    openOrdersById = new Map(openOrders.map((o) => [o.id, o]));
+    const reservedBuyUsd = openOrders
+      .filter((o) => o.side === "BUY")
+      .reduce((s, o) => s + o.price * o.size, 0);
+    freeCollateralUsd = Math.max(0, allocatedEquity - reservedBuyUsd);
+  } catch {
+    // Keep fallback value
+  }
+
+  syncStatesFromOpenOrders(openOrdersById);
+
   const equityPerMarket = allocatedEquity / markets.length;
 
   await Promise.allSettled(
-    markets.map((m) => quoteMarket(m, equityPerMarket, allocatedEquity)),
+    markets.map((m) => quoteMarket(m, equityPerMarket, freeCollateralUsd)),
   );
 }

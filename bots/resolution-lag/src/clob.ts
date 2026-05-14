@@ -17,6 +17,19 @@ export interface OrderResult {
   orderId: string;
 }
 
+interface ClobToken {
+  token_id: string;
+  winner?: boolean;
+}
+
+interface ClobMarket {
+  condition_id?: string;
+  active?: boolean;
+  closed?: boolean;
+  accepting_orders?: boolean;
+  tokens?: ClobToken[];
+}
+
 let _client: ClobClient | null = null;
 
 function getClient(): ClobClient {
@@ -102,6 +115,36 @@ export async function getBestAsk(tokenId: string): Promise<number> {
   const { asks } = await getOrderBook(tokenId);
   if (!asks.length) return 0.99;
   return asks[0].price;
+}
+
+export async function getClobMarket(
+  conditionId: string,
+): Promise<ClobMarket | null> {
+  if (!conditionId) return null;
+  try {
+    const url = `${config.polymarket.host}/markets/${conditionId}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) return null;
+    return (await res.json()) as ClobMarket;
+  } catch (err) {
+    console.warn("[clob] getClobMarket error:", (err as Error).message);
+    return null;
+  }
+}
+
+export async function getResolvedWinnerTokenId(
+  conditionId: string,
+): Promise<string | null> {
+  const market = await getClobMarket(conditionId);
+  if (!market) return null;
+
+  // If CLOB still shows open/active market state, treat as unresolved.
+  if (market.active || market.accepting_orders) return null;
+
+  const tokens = market.tokens ?? [];
+  const winners = tokens.filter((t) => t.winner === true);
+  if (winners.length !== 1) return null;
+  return winners[0].token_id;
 }
 
 export async function placeLimitOrder(

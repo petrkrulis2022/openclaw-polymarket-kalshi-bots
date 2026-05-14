@@ -18,7 +18,7 @@ export function buildSnapshot(allocatedEquity: number): MetricsSnapshot {
   const openPositions = getOpenPositionsCount();
   const utilization =
     allocatedEquity > 0
-      ? Math.min(100, (openPositions * 25) / allocatedEquity) * 100
+      ? Math.min(1, (openPositions * config.maxPositionUsd) / allocatedEquity)
       : 0;
 
   return {

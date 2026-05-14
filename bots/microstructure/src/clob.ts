@@ -17,6 +17,25 @@ export interface OrderResult {
   orderId: string;
 }
 
+export interface OpenOrder {
+  id: string;
+  side: string;
+  tokenId: string;
+  remainingSize: number;
+  originalSize: number;
+}
+
+export interface TradeRecord {
+  id: string;
+  orderId: string;
+  assetId: string;
+  side: string;
+  size: number;
+  price: number;
+  status: string;
+  createdAt: string;
+}
+
 let _client: ClobClient | null = null;
 
 function getClient(): ClobClient {
@@ -146,5 +165,95 @@ export async function getCollateralBalance(): Promise<number> {
   } catch (err) {
     console.warn("[clob] getCollateralBalance error:", (err as Error).message);
     return 0;
+  }
+}
+
+export async function getOpenOrders(): Promise<OpenOrder[]> {
+  try {
+    const c = await getSigningClient();
+    const result = await c.getOpenOrders();
+    const orders = Array.isArray(result)
+      ? result
+      : ((result as { data?: unknown[] }).data ?? []);
+    return orders.map((o: unknown) => {
+      const order = o as Record<string, string>;
+      const originalSize = parseFloat(
+        order["original_size"] ?? order["size"] ?? "0",
+      );
+      const remainingSize = parseFloat(
+        order["size_remaining"] ??
+          order["remaining_size"] ??
+          order["size"] ??
+          "0",
+      );
+      return {
+        id: order["id"] ?? "",
+        side: order["side"] ?? "",
+        tokenId: order["asset_id"] ?? "",
+        originalSize: Number.isFinite(originalSize) ? originalSize : 0,
+        remainingSize: Number.isFinite(remainingSize) ? remainingSize : 0,
+      };
+    });
+  } catch (err) {
+    console.warn("[clob] getOpenOrders error:", (err as Error).message);
+    return [];
+  }
+}
+
+function extractOrderId(trade: Record<string, unknown>): string {
+  const direct =
+    (trade["order_id"] as string | undefined) ??
+    (trade["maker_order_id"] as string | undefined);
+  if (direct) return direct;
+
+  const makerOrders = trade["maker_orders"];
+  if (Array.isArray(makerOrders) && makerOrders.length > 0) {
+    const first = makerOrders[0] as Record<string, unknown>;
+    return (
+      (first["order_id"] as string | undefined) ??
+      (first["id"] as string | undefined) ??
+      ""
+    );
+  }
+
+  return "";
+}
+
+export async function fetchTradeHistory(): Promise<TradeRecord[]> {
+  try {
+    const c = await getSigningClient();
+    const result = await c.getTrades({
+      maker_address: config.polymarket.walletAddress,
+    });
+    const trades = Array.isArray(result)
+      ? result
+      : ((result as { data?: unknown[] }).data ?? []);
+    const ourAddress = config.polymarket.walletAddress.toLowerCase();
+
+    return trades
+      .map((t) => t as Record<string, unknown>)
+      .filter(
+        (trade) =>
+          (
+            (trade["maker_address"] as string | undefined) ?? ""
+          ).toLowerCase() === ourAddress,
+      )
+      .map((trade) => {
+        const size = parseFloat(String(trade["size"] ?? "0"));
+        const price = parseFloat(String(trade["price"] ?? "0"));
+        return {
+          id: String(trade["id"] ?? ""),
+          orderId: extractOrderId(trade),
+          assetId: String(trade["asset_id"] ?? ""),
+          side: String(trade["side"] ?? ""),
+          size: Number.isFinite(size) ? size : 0,
+          price: Number.isFinite(price) ? price : 0,
+          status: String(trade["status"] ?? ""),
+          createdAt: String(trade["created_at"] ?? ""),
+        };
+      });
+  } catch (err) {
+    console.warn("[clob] fetchTradeHistory error:", (err as Error).message);
+    return [];
   }
 }

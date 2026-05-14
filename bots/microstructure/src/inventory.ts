@@ -11,9 +11,13 @@ export interface MicroPosition {
   /** Current resting bid order ID (null if not placed) */
   bidOrderId: string | null;
   bidPrice: number;
+  /** Estimated remaining size on currently open bid order */
+  bidOrderRemainingSize: number;
   /** Current resting ask order ID after fill (null if not placed) */
   askOrderId: string | null;
   askPrice: number;
+  /** Estimated remaining size on currently open ask order */
+  askOrderRemainingSize: number;
   /** Total shares held from fills */
   heldShares: number;
   /** Total USD spent on buys */
@@ -46,8 +50,10 @@ export function upsertPosition(
       daysToExpiry: 0,
       bidOrderId: null,
       bidPrice: 0,
+      bidOrderRemainingSize: 0,
       askOrderId: null,
       askPrice: 0,
+      askOrderRemainingSize: 0,
       heldShares: 0,
       totalCost: 0,
       totalRevenue: 0,
@@ -70,6 +76,7 @@ export function recordFill(
   marketId: string,
   fillPrice: number,
   fillSize: number,
+  options?: { clearBidOrderId?: boolean },
 ): void {
   const pos = positions.get(marketId);
   if (!pos) return;
@@ -78,7 +85,11 @@ export function recordFill(
     ...pos,
     heldShares: pos.heldShares + fillSize,
     totalCost: pos.totalCost + cost,
-    bidOrderId: null, // filled — clear bid
+    bidOrderId: options?.clearBidOrderId === false ? pos.bidOrderId : null,
+    bidOrderRemainingSize:
+      options?.clearBidOrderId === false
+        ? Math.max(0, pos.bidOrderRemainingSize - fillSize)
+        : 0,
     lastUpdated: new Date().toISOString(),
   });
 }
@@ -87,6 +98,7 @@ export function recordSell(
   marketId: string,
   sellPrice: number,
   sellSize: number,
+  options?: { clearAskOrderId?: boolean },
 ): void {
   const pos = positions.get(marketId);
   if (!pos) return;
@@ -99,7 +111,11 @@ export function recordSell(
     heldShares: Math.max(0, pos.heldShares - sellSize),
     totalRevenue: pos.totalRevenue + revenue,
     realizedPnl: pos.realizedPnl + pnl,
-    askOrderId: null,
+    askOrderId: options?.clearAskOrderId === false ? pos.askOrderId : null,
+    askOrderRemainingSize:
+      options?.clearAskOrderId === false
+        ? Math.max(0, pos.askOrderRemainingSize - sellSize)
+        : 0,
     lastUpdated: new Date().toISOString(),
   });
 }

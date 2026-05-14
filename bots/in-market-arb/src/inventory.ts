@@ -15,6 +15,8 @@ export interface ArbPair {
   noOrderId: string;
   yesPrice: number;
   noPrice: number;
+  yesRemainingSize: number;
+  noRemainingSize: number;
   sizeUsd: number;
   status: PairStatus;
   createdAt: string;
@@ -54,6 +56,8 @@ export function settlePair(id: string, realizedPnl: number): void {
   pairs.set(id, {
     ...pair,
     status: "filled",
+    yesRemainingSize: 0,
+    noRemainingSize: 0,
     settledAt: new Date().toISOString(),
     realizedPnl,
   });

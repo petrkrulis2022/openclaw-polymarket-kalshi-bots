@@ -167,9 +167,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
       });
       const data = (await res.json()) as Record<string, string>;
       if (!res.ok) {
-        setXferError(
-          (data["error"] as string) ?? `Error ${res.status}`,
-        );
+        setXferError((data["error"] as string) ?? `Error ${res.status}`);
       } else {
         setXferResult(
           `✓ Transferred ${data["amount"]} USDC.e · tx ${String(data["txHash"]).slice(0, 18)}…`,
@@ -615,13 +613,14 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
               .filter((u) => u.bot_wallet_address)
               .map((u) => (
                 <option key={u.metamask_address} value={u.metamask_address}>
-                  {abbrevAddr(u.metamask_address)} · USDC.e{" "}
-                  {fmtToken(u.usdce)}
+                  {abbrevAddr(u.metamask_address)} · USDC.e {fmtToken(u.usdce)}
                 </option>
               ))}
           </select>
 
-          <span style={{ color: "var(--text-secondary)", fontSize: 16 }}>→</span>
+          <span style={{ color: "var(--text-secondary)", fontSize: 16 }}>
+            →
+          </span>
 
           <select
             value={xferTo}
@@ -639,9 +638,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             <option value="">To user…</option>
             {users
               .filter(
-                (u) =>
-                  u.bot_wallet_address &&
-                  u.metamask_address !== xferFrom,
+                (u) => u.bot_wallet_address && u.metamask_address !== xferFrom,
               )
               .map((u) => (
                 <option key={u.metamask_address} value={u.metamask_address}>
@@ -687,8 +684,13 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             {xferError}
           </p>
         )}
-        <p style={{ color: "var(--text-secondary)", fontSize: 11, marginTop: 6 }}>
-          Moves USDC.e from the source bot EOA to the destination bot EOA. Source must have USDC.e (withdraw pUSD first if needed). After transfer, click Deposit to Polymarket in the destination user's dashboard.
+        <p
+          style={{ color: "var(--text-secondary)", fontSize: 11, marginTop: 6 }}
+        >
+          Moves USDC.e from the source bot EOA to the destination bot EOA.
+          Source must have USDC.e (withdraw pUSD first if needed). After
+          transfer, click Deposit to Polymarket in the destination user's
+          dashboard.
         </p>
       </div>
     </div>
