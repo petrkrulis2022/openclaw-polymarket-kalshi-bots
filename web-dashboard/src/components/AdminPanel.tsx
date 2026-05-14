@@ -18,6 +18,11 @@ interface AdminUser {
   bots_running: boolean;
   autonomous_mode: boolean;
   created_at: number;
+  bot_allocations?: Record<string, boolean>;
+  bot_diagnostics?: Record<
+    string,
+    { healthy?: boolean; lastTradeReconcileAt?: string; lastScanAt?: string; lastQuoteAt?: string }
+  >;
   usdt: string | null;
   usdce: string | null;
   native_pol: string | null;
@@ -50,6 +55,41 @@ function fmtDate(ts: number): string {
   return new Date(ts * 1000).toLocaleString();
 }
 
+function botAllocSummary(allocations?: Record<string, boolean>): string {
+  const botNames = [
+    "market-maker",
+    "copy-trader",
+    "in-market-arb",
+    "resolution-lag",
+    "microstructure",
+  ];
+  return botNames
+    .map((name) => `${name}:${allocations?.[name] === false ? "off" : "on"}`)
+    .join(" · ");
+}
+
+function botDiagSummary(
+  diagnostics?: Record<
+    string,
+    { healthy?: boolean; lastTradeReconcileAt?: string; lastScanAt?: string; lastQuoteAt?: string }
+  >,
+): string {
+  const botNames = [
+    "market-maker",
+    "copy-trader",
+    "in-market-arb",
+    "resolution-lag",
+    "microstructure",
+  ];
+  return botNames
+    .map((name) => {
+      const d = diagnostics?.[name];
+      const state = d?.healthy === false ? "offline" : d ? "ok" : "unknown";
+      return `${name}:${state}`;
+    })
+    .join(" · ");
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function AdminPanel({ onClose }: { onClose: () => void }) {
@@ -58,6 +98,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   );
   const [authed, setAuthed] = useState(false);
   const [users, setUsers] = useState<AdminUser[]>([]);
+    const [botDiagnostics, setBotDiagnostics] = useState<
+      Record<string, Record<string, AdminUser["bot_diagnostics"] extends infer T ? T : never>>
+    >({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,6 +136,35 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
       sessionStorage.setItem(SESSION_KEY, pw);
       setUsers(data);
       setAuthed(true);
+      void Promise.all(
+        data.map(async (user) => {
+          const botNames = [
+            "market-maker",
+            "copy-trader",
+            "in-market-arb",
+            "resolution-lag",
+            "microstructure",
+          ];
+          const entries = await Promise.all(
+            botNames.map(async (botName) => {
+              try {
+                const diagRes = await fetch(
+                  `/api/orchestrator/users/${user.metamask_address}/bots/${botName}/diagnostics`,
+                  { headers: { Authorization: `Bearer ${pw}` } },
+                );
+                if (!diagRes.ok) return [botName, null] as const;
+                return [botName, await diagRes.json()] as const;
+              } catch {
+                return [botName, null] as const;
+              }
+            }),
+          );
+          setBotDiagnostics((prev) => ({
+            ...prev,
+            [user.metamask_address]: Object.fromEntries(entries),
+          }));
+        }),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Fetch failed");
     } finally {
@@ -358,6 +430,8 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
               <th style={th}>Bot wallet / Deposit wallet</th>
               <th style={th}>Idx</th>
               <th style={th}>Bots running</th>
+              <th style={th}>Allocation</th>
+              <th style={th}>Health</th>
               <th style={th}>Auto</th>
               <th style={{ ...th, color: "#4caf50", fontWeight: 800 }}>pUSD</th>
               <th style={{ ...th, color: "#4caf50" }}>USDT</th>
@@ -448,6 +522,12 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                     </span>
                   )}
                 </td>
+                <td style={{ ...td, fontSize: 12, color: "var(--text-secondary)" }}>
+                  {botAllocSummary(u.bot_allocations)}
+                </td>
+                <td style={{ ...td, fontSize: 12, color: "var(--text-secondary)" }}>
+                  {botDiagSummary(botDiagnostics[u.metamask_address])}
+                </td>
                 <td style={td}>
                   {u.autonomous_mode ? (
                     <span style={{ color: "#2196f3" }}>✓</span>
@@ -515,7 +595,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             {users.length === 0 && (
               <tr>
                 <td
-                  colSpan={12}
+                  colSpan={14}
                   style={{
                     ...td,
                     textAlign: "center",

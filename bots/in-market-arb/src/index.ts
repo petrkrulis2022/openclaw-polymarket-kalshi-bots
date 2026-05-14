@@ -25,6 +25,7 @@ import { cancelOrder, getCollateralBalance, getOpenOrders } from "./clob.js";
 
 let lastScanResults: ArbSignal[] = [];
 let lastScanAt: string | null = null;
+let lastReconcileAt: string | null = null;
 // Track which market IDs are already in an open arb pair
 const activeMarkets = new Set<string>();
 
@@ -120,7 +121,10 @@ function estimateLockedProfitUsd(pair: {
 
 async function reconcilePairs(): Promise<void> {
   const openPairs = getOpenPairs();
-  if (openPairs.length === 0) return;
+  if (openPairs.length === 0) {
+    lastReconcileAt = new Date().toISOString();
+    return;
+  }
 
   const openOrdersById = new Map((await getOpenOrders()).map((o) => [o.id, o]));
 
@@ -160,6 +164,8 @@ async function reconcilePairs(): Promise<void> {
         : 0,
     });
   }
+
+  lastReconcileAt = new Date().toISOString();
 }
 
 // ── Self-rescheduling loops ───────────────────────────────────────────────────
@@ -191,6 +197,27 @@ app.use(express.json());
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true, botId: config.botId, name: "in-market-arb" });
+});
+
+app.get("/diagnostics", async (_req: Request, res) => {
+  const openPairs = getOpenPairs();
+  const eq = await fetchAllocatedEquity();
+
+  res.json({
+    ok: true,
+    botId: config.botId,
+    name: "in-market-arb",
+    healthy: true,
+    allocatedEquity: eq,
+    lastScanAt,
+    lastReconcileAt,
+    metrics: getLastSnapshot() ?? buildSnapshot(eq),
+    reconciliation: {
+      openPairs: openPairs.length,
+      activeMarkets: activeMarkets.size,
+      lastSignals: lastScanResults.length,
+    },
+  });
 });
 
 app.get("/metrics", async (_req: Request, res: Response) => {

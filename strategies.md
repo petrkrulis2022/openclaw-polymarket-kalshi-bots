@@ -31,6 +31,14 @@ Post resting limit orders on both sides of the book in liquid prediction markets
 - Inventory imbalance ratio
 - Fill rate (how often both legs fill)
 
+### Implemented Changes
+
+- Added exchange-truth order reconciliation from live open-order snapshots.
+- Tracks remaining size per resting order so partial fills are reflected immediately.
+- Clears stale order IDs when the exchange says an order is gone.
+- Reports live diagnostics to the dashboard, including health, equity, and reconciliation timestamps.
+- Responds to per-user allocation toggles: if the bot is unticked, the orchestrator stops that PM2 process and keeps it disabled until re-enabled.
+
 ### Ylop Integration
 
 - Borrow against existing inventory positions to fund additional MM depth
@@ -119,11 +127,18 @@ Dashboard shows for each open position:
 - Copy positions with high conviction can be used as Ylop collateral
 - Borrow against a confirmed position to fund additional copy signals
 
+### Implemented Changes
+
+- Reconciles fills from confirmed trade history so positions survive restarts without optimistic local state.
+- Exposes live diagnostics for the dashboard: tracked traders, pending approvals, approved queue, realized PnL, and open positions.
+- Allocation is now user-controllable from the dashboard; unticking the bot prevents further capital allocation and stops the running PM2 process.
+- Keeps manual approval, auto, and orchestrator approval modes intact while making the inventory state exchange-backed.
+
 ---
 
 ## Bot 4 — In-Market Arb (YES + NO < $1)
 
-**Status**: Planned (next implementation)  
+**Status**: Live / implemented  
 **Strategy**: Pure mathematical arbitrage within a single market
 
 ### How It Works
@@ -176,11 +191,19 @@ Works on multi-outcome markets too:
 - A paired YES+NO position ≈ $1 guaranteed at resolution
 - Ideal collateral for Ylop loans — borrow against the locked pair while waiting for resolution
 
+### Implemented Changes
+
+- Tracks both legs of each arb pair with exchange-truth remaining size.
+- Marks pairs as partial when one leg fills or disappears, and cancels the remaining leg immediately.
+- Surfaces live scan results and reconciliation timestamps through a diagnostics endpoint.
+- Reports metrics from reconciled state so the dashboard shows the true open-pair and utilization picture.
+- Can be disabled per user through the allocation checkbox, which stops the PM2 process and prevents new capital from being routed to it.
+
 ---
 
 ## Bot 5 — Resolution Lag Buyer
 
-**Status**: Planned  
+**Status**: Live / implemented  
 **Strategy**: Buy "won" shares from impatient sellers while oracle is delayed
 
 ### How It Works
@@ -228,11 +251,19 @@ Buy those discounted shares, collect $1 at oracle resolution.
 - Borrow against them to fund new trades while waiting for the $1 payout
 - Effectively recycles capital that would otherwise sit idle for 1–3 days
 
+### Implemented Changes
+
+- Uses live Gamma-to-CLOB reconciliation to track unresolved markets and winning-token opportunities.
+- Exposes diagnostics for scan time, open position count, and current opportunity count.
+- Keeps position tracking exchange-backed and resolution-aware instead of relying on optimistic local state.
+- Shows the current state in the dashboard with a health badge and reconciliation timestamp.
+- Can be individually unticked so the orchestrator stops allocating new capital to it until it is re-enabled.
+
 ---
 
 ## Bot 6 — Low-Price Microstructure ("0.1¢ Bot")
 
-**Status**: Planned  
+**Status**: Live / implemented  
 **Strategy**: Market making at extreme low prices on illiquid markets
 
 ### How It Works
@@ -283,6 +314,14 @@ In illiquid prediction markets, a YES share trading at 0.1¢ (0.1% implied proba
 - Less suitable for Ylop collateral (low individual position value, uncertain outcome)
 - Can use Ylop to fund the initial capital deployment across many small positions
 
+### Implemented Changes
+
+- Syncs open orders from the exchange and applies per-order remaining-size adjustments from confirmed fills.
+- Tracks quote refresh and reconciliation timestamps for dashboard diagnostics.
+- Keeps the low-price screener, quote refresh loop, and inventory state aligned with exchange truth.
+- Surfaces health and reconciliation state in the bot detail view.
+- Supports per-user allocation toggles so it can be paused independently during bot-by-bot testing.
+
 ---
 
 ## CEX Latency Arb (Not Implemented — Future)
@@ -325,3 +364,4 @@ In illiquid prediction markets, a YES share trading at 0.1¢ (0.1% implied proba
 - **Market screener**: Batch position scan for bot 6
 - **Orchestrator**: Capital routing, Ylop integration, risk limits for all bots
 - **Treasury**: USDC balance tracking, lending via Ylop
+- **Dashboard controls**: Per-user bot allocation toggles, health badges, diagnostics, and admin visibility into enabled/disabled bots

@@ -28,6 +28,7 @@ export interface UserRecord {
   botsRunning: boolean;
   autonomousMode: boolean;
   createdAt: number;
+  botAllocations: Record<string, boolean>;
 }
 
 export interface BotWalletBalance {
@@ -53,6 +54,7 @@ interface UseUserReturn {
     amountUsdt?: string,
   ) => Promise<{ usdtSwapped: string; usdceReceived: string; txHash: string }>;
   setAutonomousMode: (enabled: boolean) => Promise<void>;
+  setBotEnabled: (botName: string, enabled: boolean) => Promise<void>;
   withdrawFunds: (opts?: {
     amountUsdt?: string;
     stopBots?: boolean;
@@ -385,6 +387,28 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     [metamaskAddress, refresh],
   );
 
+  const setBotEnabled = useCallback(
+    async (botName: string, enabled: boolean) => {
+      if (!metamaskAddress) return;
+      const res = await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/bots/${botName}/enabled`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string }).error ?? "Failed to update bot state",
+        );
+      }
+      await refresh();
+    },
+    [metamaskAddress, refresh],
+  );
+
   const withdrawFunds = useCallback(
     async (opts?: { amountUsdt?: string; stopBots?: boolean }) => {
       if (!metamaskAddress) throw new Error("Not connected");
@@ -449,6 +473,7 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     stopBots,
     convertFunds,
     setAutonomousMode,
+    setBotEnabled,
     withdrawFunds,
     depositToPolymarket,
     refresh,

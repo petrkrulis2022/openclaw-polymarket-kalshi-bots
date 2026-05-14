@@ -42,6 +42,7 @@ import {
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
 
 const seenTradeKeys = new Set<string>();
+let lastTradeReconcileAt: string | null = null;
 
 function tradeKey(t: {
   id: string;
@@ -71,6 +72,7 @@ async function reconcileInventoryFromTrades(): Promise<void> {
     }
     recordFill(t.asset_id, "exchange-reconcile", side, price, size);
   }
+  lastTradeReconcileAt = new Date().toISOString();
 }
 
 // ── Equity helper ──────────────────────────────────────────────────────────────
@@ -195,6 +197,28 @@ app.use(express.json());
 // Health
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true, botId: config.botId });
+});
+
+app.get("/diagnostics", async (_req: Request, res) => {
+  const pending = listAll();
+  const positions = getAllPositions();
+  const eq = await fetchAllocatedEquity();
+
+  res.json({
+    ok: true,
+    botId: config.botId,
+    name: "copy-trader",
+    healthy: true,
+    allocatedEquity: eq,
+    lastTradeReconcileAt,
+    metrics: getLastSnapshot() ?? buildSnapshot(eq),
+    reconciliation: {
+      tradersTracked: traders.length,
+      pendingTrades: pending.length,
+      approvedTrades: listApproved().length,
+      openPositions: positions.filter((p) => p.netSize > 0).length,
+    },
+  });
 });
 
 // Metrics snapshot

@@ -34,6 +34,7 @@ db.exec(`
     poly_api_secret    TEXT,
     poly_api_passphrase TEXT,
     poly_funder_address TEXT,
+    bot_allocations_json TEXT NOT NULL DEFAULT '{}',
     bots_running       INTEGER NOT NULL DEFAULT 0,
     autonomous_mode    INTEGER NOT NULL DEFAULT 0,
     created_at         INTEGER NOT NULL DEFAULT (unixepoch())
@@ -72,6 +73,19 @@ if (
   db.exec("ALTER TABLE users ADD COLUMN poly_funder_address TEXT");
 }
 
+// Migration: add bot_allocations_json to databases that predate this column
+if (
+  !db
+    .prepare(
+      "SELECT name FROM pragma_table_info('users') WHERE name = 'bot_allocations_json'",
+    )
+    .get()
+) {
+  db.exec(
+    "ALTER TABLE users ADD COLUMN bot_allocations_json TEXT NOT NULL DEFAULT '{}'",
+  );
+}
+
 // ── Prepared statements ───────────────────────────────────────────────────────
 
 const stmtGetUser = db.prepare<[string]>(
@@ -88,6 +102,9 @@ const stmtUpdateApiKeys = db.prepare<[string, string, string, string]>(
 );
 const stmtUpdateFunderAddress = db.prepare<[string, string]>(
   "UPDATE users SET poly_funder_address = ? WHERE metamask_address = ?",
+);
+const stmtUpdateBotAllocations = db.prepare<[string, string]>(
+  "UPDATE users SET bot_allocations_json = ? WHERE metamask_address = ?",
 );
 const stmtSetBotsRunning = db.prepare<[number, string]>(
   "UPDATE users SET bots_running = ? WHERE metamask_address = ?",
@@ -113,9 +130,32 @@ export interface User {
   poly_api_secret: string | null;
   poly_api_passphrase: string | null;
   poly_funder_address: string | null;
+  bot_allocations_json: string | null;
   bots_running: number;
   autonomous_mode: number;
   created_at: number;
+}
+
+function parseBotAllocations(
+  raw: string | null | undefined,
+): Record<string, boolean> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const result: Record<string, boolean> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      result[key] = value === true;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function stringifyBotAllocations(
+  allocations: Record<string, boolean>,
+): string {
+  return JSON.stringify(allocations);
 }
 
 // ── Public helpers ────────────────────────────────────────────────────────────
@@ -165,6 +205,37 @@ export function updateFunderAddress(
   funderAddress: string,
 ): void {
   stmtUpdateFunderAddress.run(funderAddress, metamaskAddress);
+}
+
+export function getBotAllocations(address: string): Record<string, boolean> {
+  const user = getUser(address);
+  return parseBotAllocations(user?.bot_allocations_json);
+}
+
+export function setBotAllocation(
+  metamaskAddress: string,
+  botName: string,
+  enabled: boolean,
+): void {
+  const allocations = getBotAllocations(metamaskAddress);
+  allocations[botName] = enabled;
+  stmtUpdateBotAllocations.run(
+    stringifyBotAllocations(allocations),
+    metamaskAddress,
+  );
+}
+
+export function setAllBotAllocations(
+  metamaskAddress: string,
+  enabled: boolean,
+  botNames: string[],
+): void {
+  const allocations = getBotAllocations(metamaskAddress);
+  for (const botName of botNames) allocations[botName] = enabled;
+  stmtUpdateBotAllocations.run(
+    stringifyBotAllocations(allocations),
+    metamaskAddress,
+  );
 }
 
 export function setBotsRunning(

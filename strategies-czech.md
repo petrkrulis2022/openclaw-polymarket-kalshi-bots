@@ -31,6 +31,14 @@ Vkládá resting limitní příkazy na obě strany knihy v likvidních predikčn
 - Poměr nevyváženosti zásob
 - Míra plnění (jak často jsou plněny obě nohy)
 
+### Implementované změny
+
+- Přidána reconciliace podle skutečného stavu na burze z live snapshotů otevřených příkazů.
+- Sleduje zbývající velikost každého resting orderu, takže částečná plnění jsou vidět okamžitě.
+- Odstraňuje zastaralá ID příkazů, když burza hlásí, že order už neexistuje.
+- Posílá do dashboardu diagnostiku včetně health stavu, equity a časových značek reconciliace.
+- Reaguje na přepínač alokace pro uživatele: pokud je bot odškrtnutý, orchestrator zastaví daný PM2 proces a ponechá ho vypnutý do opětovného zapnutí.
+
 ### Integrace Ylop
 
 - Půjčování proti existujícím zásobovým pozicím pro financování dodatečné hloubky MM
@@ -119,11 +127,18 @@ Dashboard zobrazuje pro každou otevřenou pozici:
 - Kopírované pozice s vysokým přesvědčením mohou být použity jako zajištění Ylop
 - Půjčení proti potvrzené pozici pro financování dalších kopírovaných signálů
 
+### Implementované změny
+
+- Reconciliuje plnění z potvrzené trade historie, takže pozice přežijí restart bez optimistického lokálního stavu.
+- V dashboardu zobrazuje diagnostiku v reálném čase: sledovaní tradeři, čekající schválení, schválená fronta, realizované PnL a otevřené pozice.
+- Alokace je nyní ovládána uživatelem přes dashboard; odškrtnutí bota zastaví běžící PM2 proces a zabrání další alokaci kapitálu.
+- Ruční schválení, auto i orchestrator mód zůstávají zachované, ale inventář je nyní svázán se skutečným stavem na burze.
+
 ---
 
 ## Bot 4 — Vnitrotržní arbitráž (YES + NO < $1)
 
-**Stav**: Plánováno (příští implementace)  
+**Stav**: Aktivní / implementováno  
 **Strategie**: Čistá matematická arbitráž v rámci jednoho trhu
 
 ### Jak to funguje
@@ -176,11 +191,19 @@ Funguje také na trzích s více výsledky:
 - Párová pozice YES+NO ≈ $1 garantovaně při vypořádání
 - Ideální zajištění pro půjčky Ylop — půjčování proti uzamčenému páru čekající na vypořádání
 
+### Implementované změny
+
+- Sleduje obě nohy arb páru podle skutečné zbývající velikosti z burzy.
+- Označuje páry jako částečné, když se naplní nebo zmizí jen jedna noha, a zbylou nohu okamžitě ruší.
+- Vystavuje diagnostiku včetně času posledního skenu a poslední reconciliace.
+- Reportuje metriky z reconciliovaného stavu, takže dashboard ukazuje skutečný stav otevřených párů a využití kapitálu.
+- Lze ho vypnout pro konkrétního uživatele přes checkbox alokace, což zastaví daný PM2 proces a zabrání další alokaci kapitálu.
+
 ---
 
 ## Bot 5 — Kupec zpoždění vypořádání
 
-**Stav**: Plánováno  
+**Stav**: Aktivní / implementováno  
 **Strategie**: Nákup „vyhraných" akcií od netrpělivých prodejců při zpoždění orákula
 
 ### Jak to funguje
@@ -228,11 +251,19 @@ Koupit tyto zlevněné akcie, inkasovat $1 při vypořádání orákula.
 - Půjčování proti nim pro financování nových obchodů čekající na výplatu $1
 - Efektivně recykluje kapitál, který by jinak sedel nečinně 1–3 dny
 
+### Implementované změny
+
+- Používá live reconciliaci Gamma ↔ CLOB pro sledování nevyrovnaných trhů a příležitostí na vítězný token.
+- Posílá diagnostiku s časem skenu, počtem otevřených pozic a počtem nalezených příležitostí.
+- Sledování pozic je svázané se skutečným stavem na burze, ne s optimistickým lokálním odhadem.
+- V detailu botu se zobrazuje health badge a čas poslední reconciliace.
+- Lze ho odškrtnout, aby orchestrator přestal směrovat nový kapitál, dokud ho uživatel znovu nezapne.
+
 ---
 
 ## Bot 6 — Mikrostruktura nízké ceny („Bot za 0,1¢")
 
-**Stav**: Plánováno  
+**Stav**: Aktivní / implementováno  
 **Strategie**: Market making za extrémně nízkých cen na nelikvidních trzích
 
 ### Jak to funguje
@@ -283,6 +314,14 @@ V nelikvidních predikčních trzích má YES akcie obchodující se za 0,1¢ (0
 - Méně vhodné pro zajištění Ylop (nízká individuální hodnota pozice, nejistý výsledek)
 - Lze použít Ylop pro financování počátečního nasazení kapitálu přes mnoho malých pozic
 
+### Implementované změny
+
+- Synchronizuje otevřené příkazy z burzy a aplikuje změny zbývající velikosti z potvrzených fillů.
+- Sleduje čas poslední úpravy kotací a reconciliace pro dashboard diagnostiku.
+- Udržuje screener, refresh kotací a stav inventáře sladěný se skutečným stavem na burze.
+- V detailu bota se zobrazuje health a reconciliation stav.
+- Podporuje přepínač alokace pro každého uživatele, takže lze bota samostatně vypnout při testování po jednom.
+
 ---
 
 ## CEX Latency Arb (Neimplementováno — Budoucnost)
@@ -325,3 +364,4 @@ V nelikvidních predikčních trzích má YES akcie obchodující se za 0,1¢ (0
 - **Prohledávač trhů**: Dávkový sken pozic pro bota 6
 - **Orchestrátor**: Směrování kapitálu, integrace Ylop, rizikové limity pro všechny boty
 - **Pokladna**: Sledování zůstatku USDC, půjčování přes Ylop
+- **Ovládání v dashboardu**: Přepínače alokace pro každého uživatele, health badge, diagnostika a admin přehled nad zapnutými/vypnutými boty

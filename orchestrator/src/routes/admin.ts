@@ -9,7 +9,12 @@
 
 import { Router, Request, Response, NextFunction } from "express";
 import { spawn } from "child_process";
-import { getAllUsers, getUser, setBotsRunning } from "../user-store.js";
+import {
+  getAllUsers,
+  getUser,
+  getBotAllocations,
+  setBotsRunning,
+} from "../user-store.js";
 
 /** Run a shell command and return stdout. */
 function runCmd(cmd: string, args: string[], cwd?: string): Promise<string> {
@@ -112,6 +117,7 @@ router.get(
             bots_running: botsRunning,
             autonomous_mode: user.autonomous_mode === 1,
             created_at: user.created_at,
+            bot_allocations: getBotAllocations(user.metamask_address),
             // Balance fields — populated below if wallet is derived
             usdt: null as string | null,
             usdce: null as string | null,

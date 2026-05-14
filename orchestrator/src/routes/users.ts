@@ -21,6 +21,8 @@ import {
   updateBotWalletAddress,
   updateApiKeys,
   updateFunderAddress,
+  getBotAllocations,
+  setBotAllocation,
   setBotsRunning,
   setAutonomousMode,
   type User,
@@ -49,6 +51,10 @@ const BOT_DEFS = [
   { name: "microstructure", folder: "microstructure", botId: 6, portOffset: 4 },
 ] as const;
 
+function getBotDef(botName: string) {
+  return BOT_DEFS.find((b) => b.name === botName);
+}
+
 /** User slot = bot_wallet_index - 10 (indices 0-9 reserved for treasury/system) */
 function userSlot(botWalletIndex: number): number {
   return botWalletIndex - 10;
@@ -60,6 +66,7 @@ function userBasePort(botWalletIndex: number): number {
 }
 
 function safeUser(user: User) {
+  const botAllocations = getBotAllocations(user.metamask_address);
   return {
     metamaskAddress: user.metamask_address,
     botWalletAddress: user.bot_wallet_address,
@@ -71,7 +78,13 @@ function safeUser(user: User) {
     botsRunning: user.bots_running === 1,
     autonomousMode: user.autonomous_mode === 1,
     createdAt: user.created_at,
+    botAllocations,
   };
+}
+
+function isBotEnabled(user: User, botName: string): boolean {
+  const allocations = getBotAllocations(user.metamask_address);
+  return allocations[botName] !== false;
 }
 
 /** Call WDK treasury to derive a bot wallet at the given HD index. */
@@ -273,7 +286,14 @@ router.post(
 
       const slot = userSlot(user.bot_wallet_index);
       const basePort = userBasePort(user.bot_wallet_index);
-      const apps = BOT_DEFS.map((bot) => {
+      const enabledBots = BOT_DEFS.filter((bot) => isBotEnabled(user, bot.name));
+      if (enabledBots.length === 0) {
+        return res.status(400).json({
+          error: "No bots are enabled for this user. Tick at least one bot first.",
+        });
+      }
+
+      const apps = enabledBots.map((bot) => {
         const port = basePort + bot.portOffset;
         const pmName = `${bot.name}-u${slot}`;
         const botDir = path.join(REPO_ROOT, "bots", bot.folder);
@@ -294,7 +314,7 @@ router.post(
             POLYMARKET_SIGNATURE_TYPE: "POLY_1271",
             ORCHESTRATOR_URL: `http://localhost:${process.env["PORT"] ?? 3002}`,
             TREASURY_URL: WDK_TREASURY_URL,
-            BOT_COUNT: String(BOT_DEFS.length),
+            BOT_COUNT: String(enabledBots.length),
             PAPER_TRADING: "",
           },
         };
@@ -330,7 +350,7 @@ router.post(
 
       setBotsRunning(address, true);
 
-      return res.json({ ok: true, slot, basePort });
+      return res.json({ ok: true, slot, basePort, enabledBots: enabledBots.map((b) => b.name) });
     } catch (err) {
       return next(err);
     }
@@ -432,7 +452,7 @@ router.post(
       const user = getUser(address);
       if (!user) return res.status(404).json({ error: "User not found" });
 
-      const valid = BOT_DEFS.find((b) => b.name === botName);
+      const valid = getBotDef(botName);
       if (!valid) {
         return res.status(400).json({
           error: `Unknown bot "${botName}". Valid: ${BOT_DEFS.map((b) => b.name).join(", ")}`,
@@ -442,6 +462,7 @@ router.post(
       const slot = userSlot(user.bot_wallet_index);
       const pmName = `${botName}-u${slot}`;
       await runCmd("pm2", ["stop", pmName]);
+      setBotAllocation(address, botName, false);
       return res.json({ ok: true, bot: pmName, action: "stopped" });
     } catch (err) {
       return next(err);
@@ -460,7 +481,7 @@ router.post(
       const user = getUser(address);
       if (!user) return res.status(404).json({ error: "User not found" });
 
-      const valid = BOT_DEFS.find((b) => b.name === botName);
+      const valid = getBotDef(botName);
       if (!valid) {
         return res.status(400).json({
           error: `Unknown bot "${botName}". Valid: ${BOT_DEFS.map((b) => b.name).join(", ")}`,
@@ -469,8 +490,116 @@ router.post(
 
       const slot = userSlot(user.bot_wallet_index);
       const pmName = `${botName}-u${slot}`;
+      setBotAllocation(address, botName, true);
       await runCmd("pm2", ["start", pmName]);
       return res.json({ ok: true, bot: pmName, action: "started" });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── PUT /users/:address/bots/:botName/enabled ────────────────────────────────
+// Persist a bot allocation toggle and start/stop the corresponding PM2 process.
+
+router.put(
+  "/:address/bots/:botName/enabled",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address, botName } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const valid = getBotDef(botName);
+      if (!valid) {
+        return res.status(400).json({
+          error: `Unknown bot \"${botName}\". Valid: ${BOT_DEFS.map((b) => b.name).join(", ")}`,
+        });
+      }
+
+      const { enabled } = req.body as { enabled?: boolean };
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({ error: "enabled (boolean) is required" });
+      }
+
+      const slot = userSlot(user.bot_wallet_index);
+      const pmName = `${botName}-u${slot}`;
+
+      setBotAllocation(address, botName, enabled);
+
+      if (enabled) {
+        if (user.bots_running === 1) {
+          await runCmd("pm2", ["start", pmName]);
+        }
+      } else {
+        try {
+          await runCmd("pm2", ["stop", pmName]);
+        } catch {
+          // already stopped
+        }
+      }
+
+      const anyEnabled = BOT_DEFS.some((bot) => isBotEnabled(user, bot.name));
+      setBotsRunning(address, anyEnabled && user.bots_running === 1);
+
+      return res.json({ ok: true, bot: pmName, enabled });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── GET /users/:address/bots/:botName/diagnostics ───────────────────────────
+// Proxy to the local bot process so the dashboard can show live health and
+// reconciliation state without reaching into PM2 directly.
+
+router.get(
+  "/:address/bots/:botName/diagnostics",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address, botName } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const bot = getBotDef(botName);
+      if (!bot) {
+        return res.status(400).json({
+          error: `Unknown bot "${botName}". Valid: ${BOT_DEFS.map((b) => b.name).join(", ")}`,
+        });
+      }
+
+      const slot = userSlot(user.bot_wallet_index);
+      const port = userBasePort(user.bot_wallet_index) + bot.portOffset;
+      const url = `http://localhost:${port}/diagnostics`;
+
+      try {
+        const diagRes = await fetch(url, { signal: AbortSignal.timeout(4_000) });
+        if (!diagRes.ok) {
+          return res.status(502).json({
+            ok: false,
+            bot: bot.name,
+            pmName: `${bot.name}-u${slot}`,
+            enabled: isBotEnabled(user, bot.name),
+            error: `Bot diagnostics returned ${diagRes.status}`,
+          });
+        }
+        const diag = await diagRes.json();
+        return res.json({
+          ok: true,
+          bot: bot.name,
+          pmName: `${bot.name}-u${slot}`,
+          enabled: isBotEnabled(user, bot.name),
+          ...diag,
+        });
+      } catch (err) {
+        return res.status(502).json({
+          ok: false,
+          bot: bot.name,
+          pmName: `${bot.name}-u${slot}`,
+          enabled: isBotEnabled(user, bot.name),
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     } catch (err) {
       return next(err);
     }
@@ -503,6 +632,7 @@ router.get(
           name: bot.name,
           pmName,
           status: proc?.pm2_env?.status ?? "stopped",
+          enabled: isBotEnabled(user, bot.name),
         };
       });
 

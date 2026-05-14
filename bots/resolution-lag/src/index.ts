@@ -120,6 +120,26 @@ app.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true, botId: config.botId, name: "resolution-lag" });
 });
 
+app.get("/diagnostics", async (_req: Request, res) => {
+  const eq = await fetchAllocatedEquity();
+  const positions = getAllPositions();
+
+  res.json({
+    ok: true,
+    botId: config.botId,
+    name: "resolution-lag",
+    healthy: true,
+    allocatedEquity: eq,
+    lastScanAt,
+    metrics: getLastSnapshot() ?? buildSnapshot(eq),
+    reconciliation: {
+      openPositions: getOpenPositionsCount(),
+      lastOpportunities: lastOpportunities.length,
+      trackedPositions: positions.length,
+    },
+  });
+});
+
 app.get("/metrics", async (_req: Request, res: Response) => {
   const eq = await fetchAllocatedEquity();
   res.json(getLastSnapshot() ?? buildSnapshot(eq));

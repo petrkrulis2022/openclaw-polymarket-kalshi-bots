@@ -28,6 +28,7 @@ import {
 let allocatedEquity = 0; // updated from treasury at startup; bots don't move funds
 let running = true;
 const seenTradeKeys = new Set<string>();
+let lastTradeReconcileAt: string | null = null;
 
 function tradeKey(t: {
   id: string;
@@ -57,6 +58,7 @@ async function reconcileInventoryFromTrades(): Promise<void> {
     }
     recordFill(t.asset_id, side, price, size);
   }
+  lastTradeReconcileAt = new Date().toISOString();
 }
 
 // ─── Treasury: read bot wallet info ──────────────────────────────────────────
@@ -179,6 +181,30 @@ app.get("/health", (_req, res) => {
     paperTrading: config.paperTrading,
     allocatedEquity,
     walletAddress: config.polymarket.walletAddress,
+  });
+});
+
+app.get("/diagnostics", async (_req, res) => {
+  let openOrders = 0;
+  try {
+    openOrders = (await getOpenOrders()).length;
+  } catch {
+    openOrders = 0;
+  }
+
+  res.json({
+    ok: true,
+    botId: config.botId,
+    name: "market-maker",
+    healthy: running,
+    allocatedEquity,
+    lastTradeReconcileAt,
+    metrics: getLastSnapshot(),
+    reconciliation: {
+      openOrders,
+      activeMarkets: getStates().length,
+      inventoryPositions: getAllPositions().length,
+    },
   });
 });
 

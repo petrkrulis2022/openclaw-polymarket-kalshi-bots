@@ -12,6 +12,7 @@ import {
   type MarketPosition,
   type InventoryPosition,
 } from "./hooks/use-bot-detail";
+import { useBotDiagnostics } from "./hooks/use-bot-diagnostics";
 import {
   useCopyTrader,
   type TrackedTrader as CopyTrader,
@@ -47,6 +48,16 @@ function statusColor(s: string) {
     : s === "paused"
       ? "#ff9500"
       : s === "stopped"
+        ? "#ff3b30"
+        : "#666";
+}
+
+function healthColor(h: string) {
+  return h === "healthy"
+    ? "#4caf50"
+    : h === "paused"
+      ? "#ff9500"
+      : h === "offline"
         ? "#ff3b30"
         : "#666";
 }
@@ -99,7 +110,15 @@ function WalletSection() {
 }
 
 // ── Bot card ─────────────────────────────────────────────────────────────────
-function BotCard({ bot, onClick }: { bot: BotSummary; onClick: () => void }) {
+function BotCard({
+  bot,
+  onClick,
+  onToggleEnabled,
+}: {
+  bot: BotSummary;
+  onClick: () => void;
+  onToggleEnabled: (enabled: boolean) => void;
+}) {
   return (
     <div
       className="bot-card"
@@ -115,7 +134,30 @@ function BotCard({ bot, onClick }: { bot: BotSummary; onClick: () => void }) {
           />
           {bot.name}
         </div>
-        <span className="badge">{bot.strategy}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            className="badge"
+            style={{ background: `${healthColor(bot.health)}22`, color: healthColor(bot.health) }}
+          >
+            {bot.health}
+          </span>
+          <span className="badge">{bot.strategy}</span>
+          <label
+            onClick={(e) => e.stopPropagation()}
+            style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+            title="Toggle whether this bot receives allocation"
+          >
+            <input
+              type="checkbox"
+              checked={bot.enabled}
+              onChange={(e) => onToggleEnabled(e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+              Alloc
+            </span>
+          </label>
+        </div>
       </div>
       <div className="metrics-row">
         <div>
@@ -172,13 +214,64 @@ function BotCard({ bot, onClick }: { bot: BotSummary; onClick: () => void }) {
   );
 }
 
+function BotDiagnosticsStrip({
+  botId,
+  metamaskAddress,
+}: {
+  botId: number;
+  metamaskAddress?: string;
+}) {
+  const { diagnostics, loading } = useBotDiagnostics(botId, metamaskAddress);
+  const state =
+    diagnostics?.health ??
+    (diagnostics?.healthy === false ? "offline" : loading ? "loading" : "unknown");
+  const color = healthColor(state);
+
+  return (
+    <div
+      className="card"
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+        gap: 12,
+        marginBottom: 24,
+      }}
+    >
+      <div>
+        <div className="balance-label">Health</div>
+        <div className="balance-big" style={{ color }}>
+          {state}
+        </div>
+      </div>
+      <div>
+        <div className="balance-label">Enabled</div>
+        <div className="balance-big">{diagnostics?.enabled ? "Yes" : "No"}</div>
+      </div>
+      <div>
+        <div className="balance-label">Last Sync</div>
+        <div className="balance-big" style={{ fontSize: 16 }}>
+          {diagnostics?.lastTradeReconcileAt ?? diagnostics?.lastReconcileAt ?? diagnostics?.lastScanAt ?? diagnostics?.lastQuoteAt ?? "—"}
+        </div>
+      </div>
+      <div>
+        <div className="balance-label">Allocated</div>
+        <div className="balance-big">
+          ${Number(diagnostics?.allocatedEquity ?? 0).toFixed(2)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Bot detail view ───────────────────────────────────────────────────────────
 function BotDetailView({
   bot,
   onBack,
+  metamaskAddress,
 }: {
   bot: BotSummary;
   onBack: () => void;
+  metamaskAddress?: string;
 }) {
   const { detail, loading, error } = useBotDetail(Number(bot.id));
   const markets = detail?.markets ?? null;
@@ -264,6 +357,8 @@ function BotDetailView({
           </div>
         </div>
       </div>
+
+      <BotDiagnosticsStrip botId={Number(bot.id)} metamaskAddress={metamaskAddress} />
 
       {loading && <p className="offline">Loading positions…</p>}
       {error && <p className="offline">⚠ Bot offline — {error}</p>}
@@ -513,9 +608,11 @@ function BotDetailView({
 function CopyTraderView({
   bot,
   onBack,
+  metamaskAddress,
 }: {
   bot: BotSummary;
   onBack: () => void;
+  metamaskAddress?: string;
 }) {
   const {
     traders,
@@ -660,6 +757,8 @@ function CopyTraderView({
           <div className="balance-big">{openPositions}</div>
         </div>
       </div>
+
+      <BotDiagnosticsStrip botId={Number(bot.id)} metamaskAddress={metamaskAddress} />
 
       {loading && <p className="offline">Loading copy-trader data…</p>}
 
@@ -1405,9 +1504,11 @@ function CopyTraderView({
 function InMarketArbView({
   bot,
   onBack,
+  metamaskAddress,
 }: {
   bot: BotSummary;
   onBack: () => void;
+  metamaskAddress?: string;
 }) {
   const { data, loading, error } = useInMarketArb();
   const { pairs, totalRealizedPnl, signals, scannedAt, metrics } = data;
@@ -1425,6 +1526,8 @@ function InMarketArbView({
 
   return (
     <div>
+
+    <BotDiagnosticsStrip botId={Number(bot.id)} metamaskAddress={metamaskAddress} />
       <div
         style={{
           display: "flex",
@@ -1773,11 +1876,13 @@ function ResolutionLagView({
   onBack,
   depositWallet,
   botWalletIndex,
+  metamaskAddress,
 }: {
   bot: BotSummary;
   onBack: () => void;
   depositWallet?: string;
   botWalletIndex?: number | null;
+  metamaskAddress?: string;
 }) {
   const { data, loading, error } = useResolutionLag();
   const {
@@ -1838,6 +1943,8 @@ function ResolutionLagView({
 
   return (
     <div>
+
+    <BotDiagnosticsStrip botId={Number(bot.id)} metamaskAddress={metamaskAddress} />
       <div
         style={{
           display: "flex",
@@ -2374,9 +2481,11 @@ function ResolutionLagView({
 function MicrostructureView({
   bot,
   onBack,
+  metamaskAddress,
 }: {
   bot: BotSummary;
   onBack: () => void;
+  metamaskAddress?: string;
 }) {
   const { data, loading, error } = useMicrostructure();
   const { positions, totalRealizedPnl, screenedMarkets, metrics } = data;
@@ -2386,6 +2495,8 @@ function MicrostructureView({
 
   return (
     <div>
+
+    <BotDiagnosticsStrip botId={Number(bot.id)} metamaskAddress={metamaskAddress} />
       <div
         style={{
           display: "flex",
@@ -2714,12 +2825,16 @@ function MicrostructureView({
 // ── Portfolio section ─────────────────────────────────────────────────────────
 function PortfolioSection({
   onSelectBot,
+  metamaskAddress,
+  onToggleBotEnabled,
   depositWallet,
 }: {
   onSelectBot: (bot: BotSummary) => void;
+  metamaskAddress?: string;
+  onToggleBotEnabled: (botId: string, enabled: boolean) => void;
   depositWallet?: string;
 }) {
-  const { portfolio, loading, error } = usePortfolio();
+  const { portfolio, loading, error } = usePortfolio(metamaskAddress);
   const { summary } = usePositions(depositWallet);
 
   return (
@@ -2796,6 +2911,7 @@ function PortfolioSection({
                 key={bot.id}
                 bot={bot}
                 onClick={() => onSelectBot(bot)}
+                onToggleEnabled={(enabled) => onToggleBotEnabled(bot.id, enabled)}
               />
             ))}
           </div>
@@ -2891,6 +3007,7 @@ export default function App() {
     saveFunderAddress,
     startBots,
     stopBots,
+    setBotEnabled,
     convertFunds,
     setAutonomousMode,
     refreshBalance,
@@ -3070,11 +3187,13 @@ export default function App() {
           <CopyTraderView
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
+            metamaskAddress={user?.metamaskAddress}
           />
         ) : selectedBot.id === "4" ? (
           <InMarketArbView
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
+            metamaskAddress={user?.metamaskAddress}
           />
         ) : selectedBot.id === "5" ? (
           <ResolutionLagView
@@ -3082,16 +3201,19 @@ export default function App() {
             onBack={() => setSelectedBot(null)}
             depositWallet={balance?.depositWalletAddress}
             botWalletIndex={user?.botWalletIndex}
+            metamaskAddress={user?.metamaskAddress}
           />
         ) : selectedBot.id === "6" ? (
           <MicrostructureView
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
+            metamaskAddress={user?.metamaskAddress}
           />
         ) : (
           <BotDetailView
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
+            metamaskAddress={user?.metamaskAddress}
           />
         )
       ) : (
@@ -3714,6 +3836,19 @@ export default function App() {
             <>
               <PortfolioSection
                 onSelectBot={setSelectedBot}
+                metamaskAddress={user?.metamaskAddress}
+                onToggleBotEnabled={async (botId, enabled) => {
+                  const botNameById: Record<string, string> = {
+                    "1": "market-maker",
+                    "3": "copy-trader",
+                    "4": "in-market-arb",
+                    "5": "resolution-lag",
+                    "6": "microstructure",
+                  };
+                  const botName = botNameById[botId];
+                  if (!botName) return;
+                  await setBotEnabled(botName, enabled);
+                }}
                 depositWallet={balance?.depositWalletAddress}
               />
               <div style={{ padding: "0 24px 24px" }}>

@@ -26,6 +26,8 @@ type TradeFill = {
 };
 
 const seenTradeKeys = new Set<string>();
+let lastQuoteAt: string | null = null;
+let lastReconcileAt: string | null = null;
 
 function tradeKey(t: {
   id: string;
@@ -135,6 +137,7 @@ async function runQuoteCycle(): Promise<void> {
     openOrders.map((o) => [o.id, o]),
   );
   const fillsByOrderId = await getNewFillsByOrderId();
+  lastReconcileAt = new Date().toISOString();
 
   // Refresh quotes in small concurrent batches to avoid CLOB rate limits
   for (let i = 0; i < cappedMarkets.length; i += 10) {
@@ -143,6 +146,7 @@ async function runQuoteCycle(): Promise<void> {
       batch.map((m) => refreshQuote(m, openOrdersById, fillsByOrderId)),
     );
   }
+  lastQuoteAt = new Date().toISOString();
 }
 
 // ── Self-rescheduling loops ───────────────────────────────────────────────────
@@ -173,6 +177,25 @@ app.use(express.json());
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true, botId: config.botId, name: "microstructure" });
+});
+
+app.get("/diagnostics", async (_req: Request, res) => {
+  const eq = await fetchAllocatedEquity();
+
+  res.json({
+    ok: true,
+    botId: config.botId,
+    name: "microstructure",
+    healthy: true,
+    allocatedEquity: eq,
+    lastQuoteAt,
+    lastReconcileAt,
+    metrics: getLastSnapshot() ?? buildSnapshot(eq),
+    reconciliation: {
+      screenedMarkets: getScreenedMarkets().length,
+      openPositions: getAllPositions().length,
+    },
+  });
 });
 
 app.get("/metrics", async (_req: Request, res: Response) => {
