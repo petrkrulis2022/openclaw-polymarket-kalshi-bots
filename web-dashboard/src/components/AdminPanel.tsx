@@ -21,7 +21,12 @@ interface AdminUser {
   bot_allocations?: Record<string, boolean>;
   bot_diagnostics?: Record<
     string,
-    { healthy?: boolean; lastTradeReconcileAt?: string; lastScanAt?: string; lastQuoteAt?: string }
+    {
+      healthy?: boolean;
+      lastTradeReconcileAt?: string;
+      lastScanAt?: string;
+      lastQuoteAt?: string;
+    }
   >;
   usdt: string | null;
   usdce: string | null;
@@ -68,12 +73,7 @@ function botAllocSummary(allocations?: Record<string, boolean>): string {
     .join(" · ");
 }
 
-function botDiagSummary(
-  diagnostics?: Record<
-    string,
-    { healthy?: boolean; lastTradeReconcileAt?: string; lastScanAt?: string; lastQuoteAt?: string }
-  >,
-): string {
+function botDiagSummary(diagnostics?: Record<string, unknown>): string {
   const botNames = [
     "market-maker",
     "copy-trader",
@@ -83,7 +83,10 @@ function botDiagSummary(
   ];
   return botNames
     .map((name) => {
-      const d = diagnostics?.[name];
+      const d =
+        diagnostics && typeof diagnostics === "object"
+          ? (diagnostics as Record<string, any>)[name]
+          : undefined;
       const state = d?.healthy === false ? "offline" : d ? "ok" : "unknown";
       return `${name}:${state}`;
     })
@@ -98,9 +101,12 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   );
   const [authed, setAuthed] = useState(false);
   const [users, setUsers] = useState<AdminUser[]>([]);
-    const [botDiagnostics, setBotDiagnostics] = useState<
-      Record<string, Record<string, AdminUser["bot_diagnostics"] extends infer T ? T : never>>
-    >({});
+  const [botDiagnostics, setBotDiagnostics] = useState<
+    Record<
+      string,
+      Record<string, AdminUser["bot_diagnostics"] extends infer T ? T : never>
+    >
+  >({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -522,11 +528,31 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                     </span>
                   )}
                 </td>
-                <td style={{ ...td, fontSize: 12, color: "var(--text-secondary)" }}>
+                <td
+                  style={{
+                    ...td,
+                    fontSize: 12,
+                    color: "var(--text-secondary)",
+                  }}
+                >
                   {botAllocSummary(u.bot_allocations)}
                 </td>
-                <td style={{ ...td, fontSize: 12, color: "var(--text-secondary)" }}>
-                  {botDiagSummary(botDiagnostics[u.metamask_address])}
+                <td
+                  style={{
+                    ...td,
+                    fontSize: 12,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {botDiagSummary(
+                    botDiagnostics[u.metamask_address]
+                      ? Object.fromEntries(
+                          Object.entries(
+                            botDiagnostics[u.metamask_address] || {},
+                          ).map(([k, v]) => [k, v || {}]),
+                        )
+                      : {},
+                  )}
                 </td>
                 <td style={td}>
                   {u.autonomous_mode ? (

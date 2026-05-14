@@ -46,7 +46,8 @@ export function usePortfolio(metamaskAddress?: string) {
       ]);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const raw = await res.json();
-      const statusRows = statusRes && statusRes.ok ? await statusRes.json() : [];
+      const statusRows =
+        statusRes && statusRes.ok ? await statusRes.json() : [];
       const statusByName = new Map<string, Record<string, unknown>>();
       for (const row of Array.isArray(statusRows) ? statusRows : []) {
         statusByName.set(String(row.name), row as Record<string, unknown>);
@@ -62,7 +63,10 @@ export function usePortfolio(metamaskAddress?: string) {
               `/api/orchestrator/users/${metamaskAddress}/bots/${botName}/diagnostics`,
             );
             if (!diagRes.ok) return [String(b.id), null] as const;
-            return [String(b.id), (await diagRes.json()) as Record<string, unknown>] as const;
+            return [
+              String(b.id),
+              (await diagRes.json()) as Record<string, unknown>,
+            ] as const;
           } catch {
             return [String(b.id), null] as const;
           }
@@ -73,42 +77,53 @@ export function usePortfolio(metamaskAddress?: string) {
       const data: Portfolio = {
         totalEquity: parseFloat(raw.totalEquity) || 0,
         totalPnl: parseFloat(raw.totalPnl) || 0,
-        bots: (raw.bots ?? []).map((b: Record<string, unknown>) => ({
-          id: String(b.id),
-          name: b.name,
-          strategy: b.strategy ?? "",
-          // Missing allocation rows mean the bot is enabled by default.
-          status: String(
-            statusByName.get(BOT_ROUTE_NAMES[String(b.id)] ?? "")?.status ??
-              "idle",
-          ),
-          equity: parseFloat(b.equity as string) || 0,
-          pnl: parseFloat(b.pnl as string) || 0,
-          allocationPct: parseFloat(b.allocationPct as string) || 0,
-          utilization:
-            b.utilization != null ? parseFloat(b.utilization as string) : 0,
-          openPositions: Number(b.openPositions) || 0,
-          enabled: statusByName.get(BOT_ROUTE_NAMES[String(b.id)] ?? "")
-            ? Boolean(
-                statusByName.get(BOT_ROUTE_NAMES[String(b.id)] ?? "")?.enabled,
-              )
-            : true,
-          health:
-            diagnosticsById.get(String(b.id))?.ok === false
-              ? "offline"
-              : diagnosticsById.get(String(b.id))?.healthy === false
-                ? "paused"
-                : diagnosticsById.get(String(b.id))
-                  ? "healthy"
-                  : "unknown",
-          lastDiagnosticsAt:
-            (diagnosticsById.get(String(b.id))?.lastReconcileAt as string) ??
-            (diagnosticsById.get(String(b.id))?.lastScanAt as string) ??
-            null,
-          lastReconcileAt:
-            (diagnosticsById.get(String(b.id))?.lastReconcileAt as string) ??
-            null,
-        })),
+        bots: (raw.bots ?? []).map((b: Record<string, unknown>) => {
+          const maybeDiag = diagnosticsById.get(String(b.id));
+          const diag =
+            maybeDiag && typeof maybeDiag === "object"
+              ? (maybeDiag as {
+                  ok?: boolean;
+                  healthy?: boolean;
+                  lastReconcileAt?: string;
+                  lastScanAt?: string;
+                })
+              : undefined;
+          return {
+            id: String(b.id),
+            name: b.name,
+            strategy: b.strategy ?? "",
+            // Missing allocation rows mean the bot is enabled by default.
+            status: String(
+              statusByName.get(BOT_ROUTE_NAMES[String(b.id)] ?? "")?.status ??
+                "idle",
+            ),
+            equity: parseFloat(b.equity as string) || 0,
+            pnl: parseFloat(b.pnl as string) || 0,
+            allocationPct: parseFloat(b.allocationPct as string) || 0,
+            utilization:
+              b.utilization != null ? parseFloat(b.utilization as string) : 0,
+            openPositions: Number(b.openPositions) || 0,
+            enabled: statusByName.get(BOT_ROUTE_NAMES[String(b.id)] ?? "")
+              ? Boolean(
+                  statusByName.get(BOT_ROUTE_NAMES[String(b.id)] ?? "")
+                    ?.enabled,
+                )
+              : true,
+            health:
+              diag?.ok === false
+                ? "offline"
+                : diag?.healthy === false
+                  ? "paused"
+                  : diag
+                    ? "healthy"
+                    : "unknown",
+            lastDiagnosticsAt:
+              (diag?.lastReconcileAt as string) ??
+              (diag?.lastScanAt as string) ??
+              null,
+            lastReconcileAt: (diag?.lastReconcileAt as string) ?? null,
+          };
+        }),
       };
       setPortfolio(data);
       setError(null);
