@@ -152,9 +152,7 @@ function parseBotAllocations(
   }
 }
 
-function stringifyBotAllocations(
-  allocations: Record<string, boolean>,
-): string {
+function stringifyBotAllocations(allocations: Record<string, boolean>): string {
   return JSON.stringify(allocations);
 }
 

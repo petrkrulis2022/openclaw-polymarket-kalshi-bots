@@ -286,10 +286,13 @@ router.post(
 
       const slot = userSlot(user.bot_wallet_index);
       const basePort = userBasePort(user.bot_wallet_index);
-      const enabledBots = BOT_DEFS.filter((bot) => isBotEnabled(user, bot.name));
+      const enabledBots = BOT_DEFS.filter((bot) =>
+        isBotEnabled(user, bot.name),
+      );
       if (enabledBots.length === 0) {
         return res.status(400).json({
-          error: "No bots are enabled for this user. Tick at least one bot first.",
+          error:
+            "No bots are enabled for this user. Tick at least one bot first.",
         });
       }
 
@@ -350,7 +353,12 @@ router.post(
 
       setBotsRunning(address, true);
 
-      return res.json({ ok: true, slot, basePort, enabledBots: enabledBots.map((b) => b.name) });
+      return res.json({
+        ok: true,
+        slot,
+        basePort,
+        enabledBots: enabledBots.map((b) => b.name),
+      });
     } catch (err) {
       return next(err);
     }
@@ -573,7 +581,9 @@ router.get(
       const url = `http://localhost:${port}/diagnostics`;
 
       try {
-        const diagRes = await fetch(url, { signal: AbortSignal.timeout(4_000) });
+        const diagRes = await fetch(url, {
+          signal: AbortSignal.timeout(4_000),
+        });
         if (!diagRes.ok) {
           return res.status(502).json({
             ok: false,

@@ -137,14 +137,22 @@ function BotCard({
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span
             className="badge"
-            style={{ background: `${healthColor(bot.health)}22`, color: healthColor(bot.health) }}
+            style={{
+              background: `${healthColor(bot.health)}22`,
+              color: healthColor(bot.health),
+            }}
           >
             {bot.health}
           </span>
           <span className="badge">{bot.strategy}</span>
           <label
             onClick={(e) => e.stopPropagation()}
-            style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              cursor: "pointer",
+            }}
             title="Toggle whether this bot receives allocation"
           >
             <input
@@ -224,7 +232,11 @@ function BotDiagnosticsStrip({
   const { diagnostics, loading } = useBotDiagnostics(botId, metamaskAddress);
   const state =
     diagnostics?.health ??
-    (diagnostics?.healthy === false ? "offline" : loading ? "loading" : "unknown");
+    (diagnostics?.healthy === false
+      ? "offline"
+      : loading
+        ? "loading"
+        : "unknown");
   const color = healthColor(state);
 
   return (
@@ -250,7 +262,11 @@ function BotDiagnosticsStrip({
       <div>
         <div className="balance-label">Last Sync</div>
         <div className="balance-big" style={{ fontSize: 16 }}>
-          {diagnostics?.lastTradeReconcileAt ?? diagnostics?.lastReconcileAt ?? diagnostics?.lastScanAt ?? diagnostics?.lastQuoteAt ?? "—"}
+          {diagnostics?.lastTradeReconcileAt ??
+            diagnostics?.lastReconcileAt ??
+            diagnostics?.lastScanAt ??
+            diagnostics?.lastQuoteAt ??
+            "—"}
         </div>
       </div>
       <div>
@@ -358,7 +374,10 @@ function BotDetailView({
         </div>
       </div>
 
-      <BotDiagnosticsStrip botId={Number(bot.id)} metamaskAddress={metamaskAddress} />
+      <BotDiagnosticsStrip
+        botId={Number(bot.id)}
+        metamaskAddress={metamaskAddress}
+      />
 
       {loading && <p className="offline">Loading positions…</p>}
       {error && <p className="offline">⚠ Bot offline — {error}</p>}
@@ -758,7 +777,10 @@ function CopyTraderView({
         </div>
       </div>
 
-      <BotDiagnosticsStrip botId={Number(bot.id)} metamaskAddress={metamaskAddress} />
+      <BotDiagnosticsStrip
+        botId={Number(bot.id)}
+        metamaskAddress={metamaskAddress}
+      />
 
       {loading && <p className="offline">Loading copy-trader data…</p>}
 
@@ -1526,8 +1548,10 @@ function InMarketArbView({
 
   return (
     <div>
-
-    <BotDiagnosticsStrip botId={Number(bot.id)} metamaskAddress={metamaskAddress} />
+      <BotDiagnosticsStrip
+        botId={Number(bot.id)}
+        metamaskAddress={metamaskAddress}
+      />
       <div
         style={{
           display: "flex",
@@ -1943,8 +1967,10 @@ function ResolutionLagView({
 
   return (
     <div>
-
-    <BotDiagnosticsStrip botId={Number(bot.id)} metamaskAddress={metamaskAddress} />
+      <BotDiagnosticsStrip
+        botId={Number(bot.id)}
+        metamaskAddress={metamaskAddress}
+      />
       <div
         style={{
           display: "flex",
@@ -2495,8 +2521,10 @@ function MicrostructureView({
 
   return (
     <div>
-
-    <BotDiagnosticsStrip botId={Number(bot.id)} metamaskAddress={metamaskAddress} />
+      <BotDiagnosticsStrip
+        botId={Number(bot.id)}
+        metamaskAddress={metamaskAddress}
+      />
       <div
         style={{
           display: "flex",
@@ -2911,7 +2939,9 @@ function PortfolioSection({
                 key={bot.id}
                 bot={bot}
                 onClick={() => onSelectBot(bot)}
-                onToggleEnabled={(enabled) => onToggleBotEnabled(bot.id, enabled)}
+                onToggleEnabled={(enabled) =>
+                  onToggleBotEnabled(bot.id, enabled)
+                }
               />
             ))}
           </div>
