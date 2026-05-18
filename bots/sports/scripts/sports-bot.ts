@@ -395,7 +395,8 @@ httpApp.get("/health", (_req, res) => {
 
 httpApp.get("/metrics", (_req, res) => {
   const spent = trades.reduce((s, t) => s + t.entryAsk * t.size, 0);
-  const equity = Math.max(0, config.maxPositionUsd - spent + totalPnl);
+  const walletBalance = parseFloat(process.env["WALLET_BALANCE"] ?? String(config.maxPositionUsd));
+  const equity = Math.max(0, walletBalance - spent + totalPnl);
   res.json({
     botId: config.botId,
     equity: equity.toFixed(4),
