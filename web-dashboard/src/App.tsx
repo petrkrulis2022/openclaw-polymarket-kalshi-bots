@@ -32,6 +32,7 @@ import { useTradeHistory } from "./hooks/use-trade-history";
 import { UserOnboarding } from "./components/UserOnboarding";
 import { AdminPanel } from "./components/AdminPanel";
 import { WalletsModal } from "./components/WalletsModal";
+import { AnalysisModal } from "./components/AnalysisModal";
 import { Toaster, toast } from "sonner";
 import "./index.css";
 
@@ -115,10 +116,12 @@ function BotCard({
   bot,
   onClick,
   onToggleEnabled,
+  onViewAnalysis,
 }: {
   bot: BotSummary;
   onClick: () => void;
   onToggleEnabled: (enabled: boolean) => void;
+  onViewAnalysis: () => void;
 }) {
   return (
     <div
@@ -166,6 +169,25 @@ function BotCard({
               Alloc
             </span>
           </label>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewAnalysis();
+            }}
+            title="View trade analysis"
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-secondary)",
+              fontSize: 14,
+              cursor: "pointer",
+              padding: "2px 4px",
+              opacity: 0.7,
+              lineHeight: 1,
+            }}
+          >
+            📊
+          </button>
         </div>
       </div>
       <div className="metrics-row">
@@ -3080,6 +3102,10 @@ function PortfolioSection({
 }) {
   const { portfolio, loading, error } = usePortfolio(metamaskAddress);
   const { summary } = usePositions(depositWallet);
+  const [showAnalysisForBot, setShowAnalysisForBot] = React.useState<{
+    id: number;
+    name: string;
+  } | null>(null);
 
   return (
     <div>
@@ -3158,11 +3184,21 @@ function PortfolioSection({
                 onToggleEnabled={(enabled) =>
                   onToggleBotEnabled(bot.id, enabled)
                 }
+                onViewAnalysis={() =>
+                  setShowAnalysisForBot({ id: Number(bot.id), name: bot.name })
+                }
               />
             ))}
           </div>
         </>
       ) : null}
+      {showAnalysisForBot !== null && (
+        <AnalysisModal
+          botId={showAnalysisForBot.id}
+          botName={showAnalysisForBot.name}
+          onClose={() => setShowAnalysisForBot(null)}
+        />
+      )}
     </div>
   );
 }

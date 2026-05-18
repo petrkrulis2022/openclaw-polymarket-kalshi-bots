@@ -21,6 +21,9 @@
 
 import { Router, Request, Response } from "express";
 import Anthropic from "@anthropic-ai/sdk";
+import { readFileSync, existsSync } from "fs";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 import { supabase, WDK_TREASURY_URL } from "../db.js";
 import { inMemoryMetrics } from "../store.js";
 
@@ -110,9 +113,42 @@ async function fetchPortfolioContext(): Promise<string> {
   }
 }
 
+// ── Bot analysis context ──────────────────────────────────────────────────────
+
+const BOT_ANALYSIS_SLUGS: Record<number, string> = {
+  1: "1_market_maker",
+  2: "2_arb_bot",
+  3: "3_copy_trader",
+  4: "4_in_market_arb",
+  5: "5_resolution_lag",
+  6: "6_microstructure",
+  7: "7_btc_lag",
+};
+
+function readBotAnalysisTail(botId: number, maxChars = 3000): string {
+  const slug = BOT_ANALYSIS_SLUGS[botId];
+  if (!slug) return "";
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const filePath = resolve(__dirname, "../../../bots_analysis", `${slug}.md`);
+  if (!existsSync(filePath)) return "";
+  try {
+    const content = readFileSync(filePath, "utf8");
+    // Return the last maxChars characters (most recent trade entries)
+    return content.length > maxChars
+      ? content.slice(content.length - maxChars)
+      : content;
+  } catch {
+    return "";
+  }
+}
+
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(portfolioContext: string, botId: number): string {
+function buildSystemPrompt(
+  portfolioContext: string,
+  botId: number,
+  analysisContext: string,
+): string {
   const BOT_NAMES: Record<number, string> = {
     1: "Market Maker",
     2: "Cross-Platform Arb",
@@ -147,7 +183,12 @@ INFRASTRUCTURE:
 - Orchestrator aggregates metrics and routes capital.
 - Ylop integration planned: borrow against locked YES+NO positions.
 
-Answer in plain text (no markdown headers). Keep responses focused. If you don't have enough data to answer, say so clearly.`;
+Answer in plain text (no markdown headers). Keep responses focused. If you don't have enough data to answer, say so clearly.${
+    analysisContext
+      ? `\n\nRECENT TRADE ANALYSIS FOR ${botName.toUpperCase()} (from bots_analysis log — use for learning context):\n${analysisContext}`
+      : ""
+  }`;
+
 }
 
 // ── Route ─────────────────────────────────────────────────────────────────────
@@ -181,7 +222,12 @@ chatRouter.post("/", async (req: Request, res: Response) => {
 
   // Fetch live context
   const portfolioContext = await fetchPortfolioContext();
-  const systemPrompt = buildSystemPrompt(portfolioContext, Number(botId) || 1);
+  const analysisContext = readBotAnalysisTail(Number(botId) || 1);
+  const systemPrompt = buildSystemPrompt(
+    portfolioContext,
+    Number(botId) || 1,
+    analysisContext,
+  );
 
   // Set up SSE
   res.setHeader("Content-Type", "text/event-stream");

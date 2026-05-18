@@ -25,6 +25,7 @@
 
 import { Router, type Request, type Response } from "express";
 import { supabase } from "../db.js";
+import { appendTradeAnalysis } from "./analysis.js";
 
 export const tradesRouter = Router();
 
@@ -103,6 +104,20 @@ tradesRouter.post("/", async (req: Request, res: Response) => {
     res.status(500).json({ error: error.message });
     return;
   }
+
+  // Fire-and-forget: generate and append AI trade analysis
+  void appendTradeAnalysis({
+    bot_id: row.bot_id,
+    market_question: row.market_question,
+    outcome: row.outcome,
+    shares: row.shares,
+    avg_price: row.avg_price,
+    settled_price: row.settled_price,
+    realized_pnl: row.realized_pnl,
+    opened_at: row.opened_at,
+    closed_at: row.closed_at,
+    status: row.status,
+  }).catch((e) => console.error("[analysis] append error:", e));
 
   res.json({ id: (data as { id: number }).id });
 });
