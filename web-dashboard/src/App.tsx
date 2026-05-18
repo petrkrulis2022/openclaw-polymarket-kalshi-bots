@@ -3839,7 +3839,7 @@ export default function App() {
             </div>
           )}
           {/* Agent wallet balance card — shown after onboarding */}
-          {isConnected && user?.botsRunning && (
+          {isConnected && user && !showOnboarding && (
             <div style={{ padding: "0 24px", marginBottom: 16 }}>
               <div className="card">
                 <div
@@ -3860,13 +3860,15 @@ export default function App() {
                       style={{
                         fontSize: 12,
                         fontWeight: 600,
-                        color: "#4caf50",
-                        background: "rgba(76,175,80,0.12)",
+                        color: user?.botsRunning ? "#4caf50" : "#ff9800",
+                        background: user?.botsRunning
+                          ? "rgba(76,175,80,0.12)"
+                          : "rgba(255,152,0,0.12)",
                         borderRadius: 8,
                         padding: "3px 10px",
                       }}
                     >
-                      ● Bots Running
+                      {user?.botsRunning ? "● Bots Running" : "○ Bots Stopped"}
                     </span>
                     <button
                       className="btn-secondary"
@@ -4074,7 +4076,7 @@ export default function App() {
             </div>
           )}
           {/* Fund Agent card — shown after onboarding */}
-          {isConnected && user?.botsRunning && (
+          {isConnected && user && !showOnboarding && (
             <div style={{ padding: "0 24px", marginBottom: 16 }}>
               <div className="card">
                 <div className="section-label" style={{ marginBottom: 8 }}>
@@ -4153,7 +4155,7 @@ export default function App() {
             </div>
           )}
           {/* Deposit to Polymarket card — shown after onboarding */}
-          {isConnected && user?.botsRunning && (
+          {isConnected && user && !showOnboarding && (
             <div style={{ padding: "0 24px", marginBottom: 16 }}>
               <div className="card">
                 <div className="section-label" style={{ marginBottom: 8 }}>
@@ -4234,7 +4236,7 @@ export default function App() {
             </div>
           )}
           {/* Withdraw card — shown after onboarding */}
-          {isConnected && user?.botsRunning && (
+          {isConnected && user && !showOnboarding && (
             <div style={{ padding: "0 24px", marginBottom: 16 }}>
               <div className="card">
                 <div className="section-label" style={{ marginBottom: 8 }}>
@@ -4344,7 +4346,7 @@ export default function App() {
             </div>
           )}
           {/* Bot Controls — per-bot stop/start shown when bots are running */}
-          {isConnected && user?.botsRunning && botStatuses.length > 0 && (
+          {isConnected && user && !showOnboarding && botStatuses.length > 0 && (
             <div style={{ padding: "0 24px", marginBottom: 16 }}>
               <div className="card">
                 <div
