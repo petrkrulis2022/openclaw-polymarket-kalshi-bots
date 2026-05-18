@@ -3159,17 +3159,33 @@ function SportsBotView({
             fontSize: 13,
           }}
         >
-          {error === "Bot offline" ? "⚠ Bot not running — start it on the server" : error}
+          {error === "Bot offline"
+            ? "⚠ Bot not running — start it on the server"
+            : error}
         </div>
       )}
 
       {/* Status strip */}
       <div style={{ padding: "0 24px", marginBottom: 16 }}>
-        <div className="card" style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+        <div
+          className="card"
+          style={{ display: "flex", gap: 32, flexWrap: "wrap" }}
+        >
           <div>
             <div className="section-label">Status</div>
-            <div style={{ fontWeight: 700, color: gameOver ? "#9e9e9e" : "#4caf50" }}>
-              {loading ? "Loading…" : gameOver ? "Full Time" : openPosition ? "In Trade" : "Watching"}
+            <div
+              style={{
+                fontWeight: 700,
+                color: gameOver ? "#9e9e9e" : "#4caf50",
+              }}
+            >
+              {loading
+                ? "Loading…"
+                : gameOver
+                  ? "Full Time"
+                  : openPosition
+                    ? "In Trade"
+                    : "Watching"}
             </div>
           </div>
           <div>
@@ -3184,7 +3200,12 @@ function SportsBotView({
           </div>
           <div>
             <div className="section-label">Open Position</div>
-            <div style={{ fontWeight: 700, color: openPosition ? "#ff9800" : "var(--text-secondary)" }}>
+            <div
+              style={{
+                fontWeight: 700,
+                color: openPosition ? "#ff9800" : "var(--text-secondary)",
+              }}
+            >
               {openPosition ? openPosition.label : "—"}
             </div>
           </div>
@@ -3198,23 +3219,35 @@ function SportsBotView({
           <div className="card">
             <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
               <div>
-                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Token</div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                  Token
+                </div>
                 <div style={{ fontWeight: 700 }}>{openPosition.label}</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Entry</div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                  Entry
+                </div>
                 <div>{openPosition.entryAsk.toFixed(4)}</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Size</div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                  Size
+                </div>
                 <div>{openPosition.size} shares</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Cost</div>
-                <div>{(openPosition.entryAsk * openPosition.size).toFixed(2)} USDC</div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                  Cost
+                </div>
+                <div>
+                  {(openPosition.entryAsk * openPosition.size).toFixed(2)} USDC
+                </div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Order ID</div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                  Order ID
+                </div>
                 <div style={{ fontSize: 11, fontFamily: "monospace" }}>
                   {openPosition.orderId.slice(0, 12)}…
                 </div>
@@ -3230,22 +3263,52 @@ function SportsBotView({
         {trades.length === 0 ? (
           <div
             className="card"
-            style={{ color: "var(--text-secondary)", fontSize: 13, textAlign: "center", padding: 24 }}
+            style={{
+              color: "var(--text-secondary)",
+              fontSize: 13,
+              textAlign: "center",
+              padding: 24,
+            }}
           >
             {loading ? "Loading…" : "No trades yet — waiting for a goal"}
           </div>
         ) : (
           <div className="card" style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 13,
+              }}
+            >
               <thead>
-                <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-secondary)" }}>
-                  <th style={{ textAlign: "left", padding: "6px 10px" }}>Token</th>
-                  <th style={{ textAlign: "right", padding: "6px 10px" }}>Buy</th>
-                  <th style={{ textAlign: "right", padding: "6px 10px" }}>Sell</th>
-                  <th style={{ textAlign: "right", padding: "6px 10px" }}>Size</th>
-                  <th style={{ textAlign: "right", padding: "6px 10px" }}>P&L</th>
-                  <th style={{ textAlign: "center", padding: "6px 10px" }}>Reason</th>
-                  <th style={{ textAlign: "right", padding: "6px 10px" }}>Duration</th>
+                <tr
+                  style={{
+                    borderBottom: "1px solid var(--border)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <th style={{ textAlign: "left", padding: "6px 10px" }}>
+                    Token
+                  </th>
+                  <th style={{ textAlign: "right", padding: "6px 10px" }}>
+                    Buy
+                  </th>
+                  <th style={{ textAlign: "right", padding: "6px 10px" }}>
+                    Sell
+                  </th>
+                  <th style={{ textAlign: "right", padding: "6px 10px" }}>
+                    Size
+                  </th>
+                  <th style={{ textAlign: "right", padding: "6px 10px" }}>
+                    P&L
+                  </th>
+                  <th style={{ textAlign: "center", padding: "6px 10px" }}>
+                    Reason
+                  </th>
+                  <th style={{ textAlign: "right", padding: "6px 10px" }}>
+                    Duration
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -3256,10 +3319,18 @@ function SportsBotView({
                       key={t.orderId}
                       style={{ borderBottom: "1px solid var(--border)" }}
                     >
-                      <td style={{ padding: "6px 10px", fontWeight: 600 }}>{t.label}</td>
-                      <td style={{ textAlign: "right", padding: "6px 10px" }}>{t.entryAsk.toFixed(4)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 10px" }}>{t.sellPrice.toFixed(4)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 10px" }}>{t.size}</td>
+                      <td style={{ padding: "6px 10px", fontWeight: 600 }}>
+                        {t.label}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 10px" }}>
+                        {t.entryAsk.toFixed(4)}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 10px" }}>
+                        {t.sellPrice.toFixed(4)}
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 10px" }}>
+                        {t.size}
+                      </td>
                       <td
                         style={{
                           textAlign: "right",
@@ -3268,7 +3339,8 @@ function SportsBotView({
                           color: t.pnl >= 0 ? "#4caf50" : "#f44336",
                         }}
                       >
-                        {t.pnl >= 0 ? "+" : ""}{t.pnl.toFixed(4)}
+                        {t.pnl >= 0 ? "+" : ""}
+                        {t.pnl.toFixed(4)}
                       </td>
                       <td style={{ textAlign: "center", padding: "6px 10px" }}>
                         <span
@@ -3294,7 +3366,13 @@ function SportsBotView({
                           {t.reason}
                         </span>
                       </td>
-                      <td style={{ textAlign: "right", padding: "6px 10px", color: "var(--text-secondary)" }}>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          padding: "6px 10px",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
                         {dur}s
                       </td>
                     </tr>
@@ -4361,7 +4439,7 @@ export default function App() {
             </div>
           )}
           {/* Only show legacy portfolio/chat when user is not mid-onboarding */}
-          {(!isConnected || !user || user.botsRunning) && (
+          {(!isConnected || !user || user.botsRunning || user.hasApiKeys) && (
             <>
               <PortfolioSection
                 onSelectBot={setSelectedBot}
