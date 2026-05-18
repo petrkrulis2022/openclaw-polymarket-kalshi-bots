@@ -51,9 +51,11 @@ async function main() {
   console.log(`Found ${resolved.length} resolved positions to backfill.`);
 
   for (const pos of resolved) {
-    const settledPrice = pos.redeemable ? 1 : 0;
-    const realizedPnl = (settledPrice - pos.avgPrice) * pos.size;
-    const status = pos.redeemable ? "won" : "lost";
+    // curPrice is 1 if the position resolved in your favour, 0 if it lost.
+    // redeemable=true only means the market has a final result, not that you won.
+    const settledPrice = pos.curPrice;
+    const realizedPnl = pos.cashPnl ?? (settledPrice - pos.avgPrice) * pos.size;
+    const status = settledPrice === 1 ? "won" : "lost";
 
     const body = {
       botId: BOT_ID,
