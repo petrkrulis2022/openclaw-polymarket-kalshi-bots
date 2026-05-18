@@ -106,19 +106,13 @@ async function onGoalDetected(
 
   // Fetch current ask (stale = before repricing)
   const currentAsk = await getBestAsk(tokenId);
-  if (currentAsk <= 0 || currentAsk >= 1) {
+  if (currentAsk <= 0) {
     console.warn(`[trade] No valid ask for ${label}: ${currentAsk} — skipping`);
     return;
   }
 
   const sizeShares =
     Math.floor((config.maxPositionUsd / currentAsk) * 100) / 100;
-  if (sizeShares < 5) {
-    console.warn(
-      `[trade] Size too small (${sizeShares} shares < 5 min) — skipping`,
-    );
-    return;
-  }
 
   const costUsdc = sizeShares * currentAsk;
   console.log(
@@ -390,7 +384,13 @@ const httpApp = express();
 httpApp.use(express.json());
 
 httpApp.get("/health", (_req, res) => {
-  res.json({ ok: true, botId: config.botId, name: "sports-bot", gameOver: gameIsOver, matchSlug: config.matchSlug });
+  res.json({
+    ok: true,
+    botId: config.botId,
+    name: "sports-bot",
+    gameOver: gameIsOver,
+    matchSlug: config.matchSlug,
+  });
 });
 
 httpApp.get("/metrics", (_req, res) => {
@@ -414,7 +414,11 @@ httpApp.get("/trades", (_req, res) => {
     gameOver: gameIsOver,
     matchSlug: config.matchSlug,
     market: market
-      ? { yesTokenId: market.yesTokenId, noTokenId: market.noTokenId, question: market.question }
+      ? {
+          yesTokenId: market.yesTokenId,
+          noTokenId: market.noTokenId,
+          question: market.question,
+        }
       : null,
   });
 });

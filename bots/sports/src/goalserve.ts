@@ -161,18 +161,38 @@ export async function pollLiveMatch(
 /** Returns true when the status string indicates the game is currently live (not pre-game, HT between halves, or FT). */
 export function isLiveStatus(status: string): boolean {
   if (!status) return false;
+  const s = status.toLowerCase();
   if (
     status === "FT" ||
     status === "AET" ||
     status === "Postp." ||
-    status === "Canc."
+    status === "Canc." ||
+    s === "not started" ||
+    s === "cancelled" ||
+    s === "postponed"
   )
     return false;
-  if (status === "HT") return true; // half-time is still "in game"
-  // live minute: "1" .. "90" or "45+2" etc
+  // Text-form statuses Goalserve returns during play
+  if (
+    s === "ht" ||
+    s === "half-time" ||
+    s === "first half" ||
+    s === "second half" ||
+    s === "in progress" ||
+    s === "live"
+  )
+    return true;
+  // Numeric minute: "1" .. "90" or "45+2" etc
   return /^\d/.test(status);
 }
 
 export function isFullTime(status: string): boolean {
-  return status === "FT" || status === "AET";
+  const s = status.toLowerCase();
+  return (
+    status === "FT" ||
+    status === "AET" ||
+    s === "full time" ||
+    s === "finished" ||
+    s === "ended"
+  );
 }
