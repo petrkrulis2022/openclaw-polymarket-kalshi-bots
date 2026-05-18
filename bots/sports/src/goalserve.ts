@@ -23,7 +23,7 @@ export interface MatchState {
 
 async function gsGet(path: string): Promise<unknown> {
   const url = `${config.goalserve.baseUrl}/${config.goalserve.apiKey}/${path}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`Goalserve ${res.status}: ${path}`);
   return res.json();
 }
