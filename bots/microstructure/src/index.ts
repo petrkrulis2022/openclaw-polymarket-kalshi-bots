@@ -18,6 +18,7 @@ import {
   getOpenOrders,
   type OpenOrder,
 } from "./clob.js";
+import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 
 type TradeFill = {
   side: "BUY" | "SELL";
@@ -233,6 +234,7 @@ app.listen(config.port, () => {
   console.log(
     `[micro] Microstructure Bot (id=${config.botId}) listening on :${config.port}`,
   );
+  loadAnalysis().then(() => scheduleAnalysisRefresh()).catch(() => {});
   scheduleQuotes();
   scheduleMetrics();
 });

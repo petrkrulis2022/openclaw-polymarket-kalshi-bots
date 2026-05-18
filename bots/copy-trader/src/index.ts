@@ -40,6 +40,7 @@ import {
   recordFill,
 } from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
+import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 
 const seenTradeKeys = new Set<string>();
 let lastTradeReconcileAt: string | null = null;
@@ -451,6 +452,9 @@ async function main(): Promise<void> {
   app.listen(config.port, () => {
     console.log(`[copy-trader] Listening on port ${config.port}`);
   });
+
+  await loadAnalysis().catch(() => {});
+  scheduleAnalysisRefresh();
 
   // Start loops
   setTimeout(schedulePolling, 2_000);

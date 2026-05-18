@@ -20,6 +20,7 @@ import {
 } from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
 import { cancelOrder, getCollateralBalance, getOpenOrders } from "./clob.js";
+import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 
 // ── Track most-recent scan results for the dashboard ──────────────────────────
 
@@ -253,6 +254,7 @@ app.listen(config.port, () => {
   console.log(
     `[arb] In-Market Arb Bot (id=${config.botId}) listening on :${config.port}`,
   );
+  loadAnalysis().then(() => scheduleAnalysisRefresh()).catch(() => {});
   scheduleScan();
   scheduleMetrics();
 });

@@ -188,7 +188,6 @@ Answer in plain text (no markdown headers). Keep responses focused. If you don't
       ? `\n\nRECENT TRADE ANALYSIS FOR ${botName.toUpperCase()} (from bots_analysis log — use for learning context):\n${analysisContext}`
       : ""
   }`;
-
 }
 
 // ── Route ─────────────────────────────────────────────────────────────────────

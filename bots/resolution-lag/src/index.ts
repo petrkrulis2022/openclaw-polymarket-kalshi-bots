@@ -31,6 +31,7 @@ import {
 } from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
 import { getCollateralBalance } from "./clob.js";
+import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 
 // ── CTF redeem helpers ────────────────────────────────────────────────────────
 
@@ -308,6 +309,7 @@ app.listen(config.port, () => {
   console.log(
     `[lag] Resolution Lag Bot (id=${config.botId}) listening on :${config.port}`,
   );
+  loadAnalysis().then(() => scheduleAnalysisRefresh()).catch(() => {});
   scheduleMonitor();
   scheduleMetrics();
 });

@@ -24,27 +24,32 @@ const BOT_META: Record<
 > = {
   1: {
     name: "Market Maker",
-    strategy: "Posts resting limit orders on both sides of the CLOB, earns bid-ask spread",
+    strategy:
+      "Posts resting limit orders on both sides of the CLOB, earns bid-ask spread",
     slug: "1_market_maker",
   },
   2: {
     name: "Arb Bot",
-    strategy: "Cross-platform arbitrage between Kalshi and Polymarket price divergence",
+    strategy:
+      "Cross-platform arbitrage between Kalshi and Polymarket price divergence",
     slug: "2_arb_bot",
   },
   3: {
     name: "Copy Trader",
-    strategy: "Mirrors high-performing Polymarket traders at a scaled position size",
+    strategy:
+      "Mirrors high-performing Polymarket traders at a scaled position size",
     slug: "3_copy_trader",
   },
   4: {
     name: "In-Market Arb",
-    strategy: "Buys YES+NO shares when combined ask < $1 (risk-free profit at resolution)",
+    strategy:
+      "Buys YES+NO shares when combined ask < $1 (risk-free profit at resolution)",
     slug: "4_in_market_arb",
   },
   5: {
     name: "Resolution Lag",
-    strategy: "Buys winning token at a discount during the oracle settlement delay (Gamma→CLOB lag)",
+    strategy:
+      "Buys winning token at a discount during the oracle settlement delay (Gamma→CLOB lag)",
     slug: "5_resolution_lag",
   },
   6: {
@@ -54,7 +59,8 @@ const BOT_META: Record<
   },
   7: {
     name: "BTC Lag",
-    strategy: "Exploits CEX candle lag signals on BTC to front-run Polymarket price adjustments",
+    strategy:
+      "Exploits CEX candle lag signals on BTC to front-run Polymarket price adjustments",
     slug: "7_btc_lag",
   },
 };

@@ -8,4 +8,4 @@
 
 ## Trade Log
 
-*No trades recorded yet. Closed positions will be appended here automatically.*
+_No trades recorded yet. Closed positions will be appended here automatically._

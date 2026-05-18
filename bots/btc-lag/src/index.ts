@@ -19,6 +19,7 @@
 
 import "dotenv/config";
 import express, { type Request, type Response } from "express";
+import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 
 const PORT = parseInt(process.env["PORT"] ?? "3008", 10);
 const BOT_ID = parseInt(process.env["BOT_ID"] ?? "7", 10);
@@ -95,5 +96,6 @@ app.listen(PORT, () => {
   console.log(
     `[btc-lag] STUB Bot (id=${BOT_ID}) listening on :${PORT} — awaiting full implementation`,
   );
+  loadAnalysis().then(() => scheduleAnalysisRefresh()).catch(() => {});
   reportHeartbeat();
 });

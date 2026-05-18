@@ -23,6 +23,7 @@ import {
   fetchTradeHistory,
   getOpenOrders,
 } from "./clob.js";
+import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let allocatedEquity = 0; // updated from treasury at startup; bots don't move funds
@@ -310,6 +311,7 @@ app.listen(config.port, () => {
     `[server] Mode: ${config.paperTrading ? "PAPER TRADING" : "LIVE TRADING"}`,
   );
   console.log(`[server] Polymarket wallet: ${config.polymarket.walletAddress}`);
+  loadAnalysis().then(() => scheduleAnalysisRefresh()).catch(() => {});
   mainLoop().catch((err) => {
     console.error("[main] Fatal error:", err);
     process.exit(1);
