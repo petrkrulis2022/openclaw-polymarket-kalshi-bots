@@ -7,6 +7,15 @@
  */
 
 import express, { type Request, type Response } from "express";
+import {
+  createWalletClient,
+  createPublicClient,
+  http,
+  parseAbi,
+  zeroHash,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { polygon } from "viem/chains";
 import { config } from "./config.js";
 import { fetchClosedUnresolvedMarkets } from "./monitor.js";
 import {
@@ -22,6 +31,22 @@ import {
 } from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
 import { getCollateralBalance } from "./clob.js";
+
+// ── CTF redeem helpers ────────────────────────────────────────────────────────
+
+const POLYGON_RPC = "https://polygon-bor-rpc.publicnode.com";
+const CTF_CONTRACT_ADDRESS =
+  "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045" as const;
+const PUSD_TOKEN_ADDRESS =
+  "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB" as const;
+const USDCE_TOKEN_ADDRESS =
+  "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" as const;
+
+const CTF_ABI = parseAbi([
+  "function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] calldata indexSets) external",
+  "function getCollectionId(bytes32 parentCollectionId, bytes32 conditionId, uint256 indexSet) view returns (bytes32)",
+  "function getPositionId(address collateralToken, bytes32 collectionId) view returns (uint256)",
+]);
 
 let lastOpportunities: ResolutionOpportunity[] = [];
 let lastScanAt: string | null = null;
@@ -159,6 +184,7 @@ app.get("/opportunities", (_req: Request, res: Response) => {
 app.get("/config", (_req: Request, res: Response) => {
   res.json({
     botId: config.botId,
+    walletAddress: config.polymarket.walletAddress,
     monitorIntervalMs: config.monitorIntervalMs,
     minYieldPct: config.minYieldPct,
     minAskPrice: config.minAskPrice,
@@ -169,6 +195,111 @@ app.get("/config", (_req: Request, res: Response) => {
     maxPositionUsd: config.maxPositionUsd,
     maxOpenPositions: config.maxOpenPositions,
   });
+});
+
+// POST /redeem — redeem resolved ERC-1155 shares from the bot's proxy wallet.
+// Uses BOT_SIGNER_KEY to sign a direct on-chain call to CTF.redeemPositions.
+app.post("/redeem", async (req: Request, res: Response) => {
+  try {
+    const { conditionId, outcomeIndex, tokenId } = req.body as {
+      conditionId?: unknown;
+      outcomeIndex?: unknown;
+      tokenId?: unknown;
+    };
+
+    if (
+      typeof conditionId !== "string" ||
+      !/^0x[0-9a-fA-F]{64}$/.test(conditionId)
+    ) {
+      res
+        .status(400)
+        .json({ error: "conditionId must be a valid bytes32 hex" });
+      return;
+    }
+    if (
+      typeof outcomeIndex !== "number" ||
+      !Number.isInteger(outcomeIndex) ||
+      outcomeIndex < 0
+    ) {
+      res
+        .status(400)
+        .json({ error: "outcomeIndex must be a non-negative integer" });
+      return;
+    }
+
+    const key = config.polymarket.signerKey;
+    if (!key) {
+      res.status(500).json({ error: "BOT_SIGNER_KEY not configured" });
+      return;
+    }
+
+    const account = privateKeyToAccount(
+      (key.startsWith("0x") ? key : `0x${key}`) as `0x${string}`,
+    );
+    const publicClient = createPublicClient({
+      chain: polygon,
+      transport: http(POLYGON_RPC),
+    });
+    const walletClient = createWalletClient({
+      account,
+      chain: polygon,
+      transport: http(POLYGON_RPC),
+    });
+
+    const indexSet = BigInt(1) << BigInt(outcomeIndex);
+
+    // Detect collateral token (pUSD or USDC.e) from tokenId when provided.
+    let collateralToken: `0x${string}` = PUSD_TOKEN_ADDRESS;
+    if (typeof tokenId === "string" && tokenId.length > 0) {
+      const collectionId = await publicClient.readContract({
+        address: CTF_CONTRACT_ADDRESS,
+        abi: CTF_ABI,
+        functionName: "getCollectionId",
+        args: [zeroHash, conditionId as `0x${string}`, indexSet],
+      });
+      const usdcePosId = await publicClient.readContract({
+        address: CTF_CONTRACT_ADDRESS,
+        abi: CTF_ABI,
+        functionName: "getPositionId",
+        args: [USDCE_TOKEN_ADDRESS, collectionId],
+      });
+      if (usdcePosId === BigInt(tokenId)) {
+        collateralToken = USDCE_TOKEN_ADDRESS;
+      }
+    }
+
+    console.log(
+      `[lag/redeem] Redeeming conditionId=${conditionId} outcomeIndex=${outcomeIndex} from ${account.address}`,
+    );
+
+    const txHash = await walletClient.writeContract({
+      address: CTF_CONTRACT_ADDRESS,
+      abi: CTF_ABI,
+      functionName: "redeemPositions",
+      args: [
+        collateralToken,
+        zeroHash,
+        conditionId as `0x${string}`,
+        [indexSet],
+      ],
+    });
+
+    console.log(`[lag/redeem] tx submitted: ${txHash}`);
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+    });
+    console.log(`[lag/redeem] confirmed in block ${receipt.blockNumber}`);
+
+    res.json({
+      txHash,
+      walletAddress: account.address,
+      conditionId,
+      outcomeIndex,
+    });
+  } catch (err) {
+    console.error("[lag/redeem] error:", (err as Error).message);
+    res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────

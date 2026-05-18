@@ -15,6 +15,17 @@ export interface SharePosition {
   redeemable: boolean;
   negativeRisk: boolean;
   endDate: string;
+  /** Which wallet holds this position — either depositWallet or the bot's proxy wallet */
+  sourceWallet: string;
+  /**
+   * Derived status:
+   * - "redeemable" — market resolved and this outcome won; can redeem for $1/share
+   * - "pending"    — market still active or resolving
+   * - "resolved"   — market resolved but this outcome lost; worth $0
+   */
+  status: "redeemable" | "pending" | "resolved";
+  /** Realized or unrealized PnL in USD: (curPrice - avgPrice) * size */
+  pnl: number;
 }
 
 export interface PositionsSummary {
@@ -23,7 +34,10 @@ export interface PositionsSummary {
   redeemableValue: number;
 }
 
-export function usePositions(depositWallet: string | undefined) {
+export function usePositions(
+  depositWallet: string | undefined,
+  botWallet?: string | undefined,
+) {
   const [positions, setPositions] = useState<SharePosition[]>([]);
   const [summary, setSummary] = useState<PositionsSummary>({
     totalSharesValue: 0,
@@ -37,12 +51,17 @@ export function usePositions(depositWallet: string | undefined) {
   const fetch_ = useCallback(async () => {
     if (!depositWallet) return;
     try {
+      const botWalletParam =
+        botWallet && botWallet.toLowerCase() !== depositWallet.toLowerCase()
+          ? `&botWallet=${encodeURIComponent(botWallet)}`
+          : "";
+
       const [posRes, sumRes] = await Promise.all([
         fetch(
-          `/api/orchestrator/positions?depositWallet=${encodeURIComponent(depositWallet)}`,
+          `/api/orchestrator/positions?depositWallet=${encodeURIComponent(depositWallet)}${botWalletParam}`,
         ),
         fetch(
-          `/api/orchestrator/positions/summary?depositWallet=${encodeURIComponent(depositWallet)}`,
+          `/api/orchestrator/positions/summary?depositWallet=${encodeURIComponent(depositWallet)}${botWalletParam}`,
         ),
       ]);
 
@@ -64,6 +83,14 @@ export function usePositions(depositWallet: string | undefined) {
             redeemable: Boolean(p["redeemable"]),
             negativeRisk: Boolean(p["negativeRisk"]),
             endDate: String(p["endDate"] ?? ""),
+            sourceWallet: String(p["sourceWallet"] ?? depositWallet),
+            status: Boolean(p["redeemable"])
+              ? "redeemable"
+              : Number(p["curPrice"] ?? 0) === 0 &&
+                  String(p["endDate"] ?? "") !== ""
+                ? "resolved"
+                : "pending",
+            pnl: Number(p["cashPnl"] ?? 0),
           }),
         );
         setPositions(mapped);
@@ -84,7 +111,7 @@ export function usePositions(depositWallet: string | undefined) {
     } finally {
       setLoading(false);
     }
-  }, [depositWallet]);
+  }, [depositWallet, botWallet]);
 
   useEffect(() => {
     if (!depositWallet) return;
@@ -94,7 +121,7 @@ export function usePositions(depositWallet: string | undefined) {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [fetch_, depositWallet]);
+  }, [fetch_, depositWallet, botWallet]);
 
   return { positions, summary, loading, error, refresh: fetch_ };
 }

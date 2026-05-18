@@ -2,6 +2,44 @@
  * inventory.ts — tracks resolution-lag positions.
  */
 
+import "dotenv/config";
+
+const ORCHESTRATOR_URL =
+  process.env["ORCHESTRATOR_URL"] ?? "http://localhost:3002";
+const BOT_ID = 5;
+
+async function persistTrade(
+  pos: LagPosition,
+  settledPrice: number,
+  realizedPnl: number,
+) {
+  try {
+    await fetch(`${ORCHESTRATOR_URL}/trades`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        botId: BOT_ID,
+        marketId: pos.marketId,
+        marketQuestion: pos.marketQuestion,
+        tokenId: pos.tokenId,
+        outcome: "YES", // resolution-lag always buys YES shares
+        shares: pos.size,
+        avgPrice: pos.boughtAt,
+        settledPrice,
+        realizedPnl,
+        openedAt: pos.openedAt,
+        closedAt: new Date().toISOString(),
+        status: realizedPnl > 0 ? "won" : "lost",
+      }),
+    });
+  } catch (err) {
+    console.warn(
+      "[inventory] failed to persist trade:",
+      (err as Error).message,
+    );
+  }
+}
+
 export type PositionStatus = "open" | "resolved" | "expired";
 
 export interface LagPosition {
@@ -58,6 +96,7 @@ export function resolvePosition(id: string, settledPrice: number): void {
     realizedPnl,
   });
   totalRealizedPnl += realizedPnl;
+  void persistTrade(pos, settledPrice, realizedPnl);
 }
 
 export function getTotalRealizedPnl(): number {

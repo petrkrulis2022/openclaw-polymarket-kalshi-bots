@@ -62,17 +62,46 @@ async function fetchPositions(depositWallet: string): Promise<PolyPosition[]> {
 
 export const positionsRouter = Router();
 
-// GET /positions?depositWallet=<address>
+// GET /positions?depositWallet=<address>[&botWallet=<address>]
 positionsRouter.get("/", async (req: Request, res: Response) => {
   const depositWallet = req.query["depositWallet"] as string | undefined;
+  const botWallet = req.query["botWallet"] as string | undefined;
+
   if (!depositWallet || !/^0x[0-9a-fA-F]{40}$/.test(depositWallet)) {
     res.status(400).json({ error: "depositWallet must be a valid 0x address" });
     return;
   }
+  if (botWallet && !/^0x[0-9a-fA-F]{40}$/.test(botWallet)) {
+    res.status(400).json({ error: "botWallet must be a valid 0x address" });
+    return;
+  }
 
   try {
-    const positions = await fetchPositions(depositWallet);
-    res.json({ positions });
+    const promises: Promise<PolyPosition[]>[] = [fetchPositions(depositWallet)];
+    // Fetch the bot's own trading wallet positions when it differs from the deposit wallet.
+    if (botWallet && botWallet.toLowerCase() !== depositWallet.toLowerCase()) {
+      promises.push(fetchPositions(botWallet));
+    }
+    const [depositPositions, botPositions = []] = await Promise.all(promises);
+
+    // Merge, tagging each position with its source wallet. Deduplicate by
+    // (conditionId + outcomeIndex) — prefer the deposit wallet if duplicated.
+    const seen = new Set<string>();
+    const merged: (PolyPosition & { sourceWallet: string })[] = [];
+    for (const p of depositPositions) {
+      const key = `${p.conditionId}:${p.outcomeIndex}`;
+      seen.add(key);
+      merged.push({ ...p, sourceWallet: depositWallet });
+    }
+    for (const p of botPositions) {
+      const key = `${p.conditionId}:${p.outcomeIndex}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push({ ...p, sourceWallet: botWallet! });
+      }
+    }
+
+    res.json({ positions: merged });
   } catch (err) {
     console.error("positions fetch error", err);
     res
@@ -81,16 +110,32 @@ positionsRouter.get("/", async (req: Request, res: Response) => {
   }
 });
 
-// GET /positions/summary?depositWallet=<address>
+// GET /positions/summary?depositWallet=<address>[&botWallet=<address>]
 positionsRouter.get("/summary", async (req: Request, res: Response) => {
   const depositWallet = req.query["depositWallet"] as string | undefined;
+  const botWallet = req.query["botWallet"] as string | undefined;
+
   if (!depositWallet || !/^0x[0-9a-fA-F]{40}$/.test(depositWallet)) {
     res.status(400).json({ error: "depositWallet must be a valid 0x address" });
     return;
   }
 
   try {
-    const positions = await fetchPositions(depositWallet);
+    const promises: Promise<PolyPosition[]>[] = [fetchPositions(depositWallet)];
+    if (botWallet && botWallet.toLowerCase() !== depositWallet.toLowerCase()) {
+      promises.push(fetchPositions(botWallet));
+    }
+    const allPositions = (await Promise.all(promises)).flat();
+
+    // Deduplicate by (conditionId + outcomeIndex)
+    const seen = new Set<string>();
+    const positions = allPositions.filter((p) => {
+      const key = `${p.conditionId}:${p.outcomeIndex}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
     const totalSharesValue = positions.reduce(
       (sum, p) => sum + (p.currentValue ?? 0),
       0,

@@ -28,6 +28,7 @@ import { useMicrostructure } from "./hooks/use-microstructure";
 import { useUser } from "./hooks/use-user";
 import { useBotStatus } from "./hooks/use-bot-status";
 import { usePositions, type SharePosition } from "./hooks/use-positions";
+import { useTradeHistory } from "./hooks/use-trade-history";
 import { UserOnboarding } from "./components/UserOnboarding";
 import { AdminPanel } from "./components/AdminPanel";
 import { WalletsModal } from "./components/WalletsModal";
@@ -1901,20 +1902,34 @@ function ResolutionLagView({
   depositWallet,
   botWalletIndex,
   metamaskAddress,
+  botProxyWallet,
 }: {
   bot: BotSummary;
   onBack: () => void;
   depositWallet?: string;
   botWalletIndex?: number | null;
   metamaskAddress?: string;
+  botProxyWallet?: string;
 }) {
   const { data, loading, error } = useResolutionLag();
+
+  // Sync with parent prop — parent fetches /api/bot/5/config asynchronously,
+  // so the prop may arrive after this component mounts. useEffect keeps the
+  // local state in sync instead of locking in undefined at mount.
+  const [botProxyWalletState, setBotProxyWalletState] = React.useState<
+    string | undefined
+  >(botProxyWallet);
+  React.useEffect(() => {
+    setBotProxyWalletState(botProxyWallet);
+  }, [botProxyWallet]);
+
   const {
     positions: sharePositions,
     summary: sharesSummary,
     loading: sharesLoading,
     refresh: refreshShares,
-  } = usePositions(depositWallet);
+  } = usePositions(depositWallet, botProxyWalletState);
+  const { trades: tradeHistory, loading: tradesLoading } = useTradeHistory(5);
   const [redeemingId, setRedeemingId] = React.useState<string | null>(null);
   const { positions, totalRealizedPnl, opportunities, scannedAt, metrics } =
     data;
@@ -1922,24 +1937,48 @@ function ResolutionLagView({
   const openPositions = positions.filter((p) => p.status === "open").length;
 
   const handleRedeem = async (pos: SharePosition) => {
-    if (botWalletIndex == null) {
-      toast.error("Bot wallet index not available — refresh the page");
-      return;
-    }
     const key = pos.conditionId + ":" + pos.outcomeIndex;
     setRedeemingId(key);
     try {
-      const res = await fetch("/api/treasury/redeem", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          index: botWalletIndex,
-          conditionId: pos.conditionId,
-          outcomeIndex: pos.outcomeIndex,
-          negativeRisk: pos.negativeRisk,
-          tokenId: pos.tokenId,
-        }),
-      });
+      let res: Response;
+
+      // Positions from the bot's own proxy wallet are redeemed via the bot's
+      // /redeem endpoint (uses BOT_SIGNER_KEY directly on CTF).
+      // Positions from the deposit wallet use the treasury HD-wallet flow.
+      const isBotWalletPos =
+        botProxyWalletState &&
+        depositWallet &&
+        pos.sourceWallet.toLowerCase() === botProxyWalletState.toLowerCase() &&
+        pos.sourceWallet.toLowerCase() !== depositWallet.toLowerCase();
+
+      if (isBotWalletPos) {
+        res = await fetch("/api/bot/5/redeem", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conditionId: pos.conditionId,
+            outcomeIndex: pos.outcomeIndex,
+            tokenId: pos.tokenId,
+          }),
+        });
+      } else {
+        if (botWalletIndex == null) {
+          toast.error("Bot wallet index not available — refresh the page");
+          return;
+        }
+        res = await fetch("/api/treasury/redeem", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            index: botWalletIndex,
+            conditionId: pos.conditionId,
+            outcomeIndex: pos.outcomeIndex,
+            negativeRisk: pos.negativeRisk,
+            tokenId: pos.tokenId,
+          }),
+        });
+      }
+
       if (!res.ok) {
         const body = (await res.json()) as { error?: string };
         throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -2298,7 +2337,7 @@ function ResolutionLagView({
           </div>
           {sharePositions.length === 0 && !sharesLoading ? (
             <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
-              No ERC-1155 share positions found for this deposit wallet.
+              No share positions found.
             </p>
           ) : (
             <div style={{ overflowX: "auto" }}>
@@ -2346,10 +2385,14 @@ function ResolutionLagView({
                   {sharePositions.map((sp) => {
                     const key = sp.conditionId + ":" + sp.outcomeIndex;
                     const isRedeeming = redeemingId === key;
+                    const isResolved = sp.status === "resolved";
                     return (
                       <tr
                         key={key}
-                        style={{ borderTop: "1px solid var(--border)" }}
+                        style={{
+                          borderTop: "1px solid var(--border)",
+                          opacity: isResolved ? 0.55 : 1,
+                        }}
                       >
                         <td
                           style={{
@@ -2393,13 +2436,13 @@ function ResolutionLagView({
                           style={{
                             padding: "8px 10px",
                             textAlign: "right",
-                            color: sp.cashPnl >= 0 ? "#4caf50" : "#ff6b6b",
+                            color: sp.pnl >= 0 ? "#4caf50" : "#ff6b6b",
                           }}
                         >
-                          {sp.cashPnl >= 0 ? "+" : ""}${sp.cashPnl.toFixed(2)}
+                          {sp.pnl >= 0 ? "+" : ""}${sp.pnl.toFixed(2)}
                         </td>
                         <td style={{ padding: "8px 10px", textAlign: "right" }}>
-                          {sp.redeemable ? (
+                          {sp.status === "redeemable" ? (
                             <button
                               className="btn-primary"
                               style={{
@@ -2412,6 +2455,15 @@ function ResolutionLagView({
                             >
                               {isRedeeming ? "…" : "Redeem"}
                             </button>
+                          ) : sp.status === "resolved" ? (
+                            <span
+                              style={{
+                                color: "var(--text-secondary)",
+                                fontSize: 11,
+                              }}
+                            >
+                              expired
+                            </span>
                           ) : (
                             <span
                               style={{
@@ -2496,14 +2548,178 @@ function ResolutionLagView({
         </div>
       </div>
 
+      {/* Trade History */}
+      <div style={{ marginBottom: 32 }}>
+        <div
+          className="section-label"
+          style={{
+            marginBottom: 10,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          Trade History
+          {tradesLoading && (
+            <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+              loading…
+            </span>
+          )}
+          {!tradesLoading && (
+            <span
+              style={{
+                color: "var(--text-secondary)",
+                fontSize: 11,
+                fontWeight: 400,
+              }}
+            >
+              {tradeHistory.length} closed trade
+              {tradeHistory.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+        {!tradesLoading && tradeHistory.length === 0 ? (
+          <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+            No closed trades recorded yet. Future resolved positions will appear
+            here.
+          </p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 12,
+                background: "var(--card)",
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: "var(--background)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {[
+                    "Market",
+                    "Outcome",
+                    "Shares",
+                    "Buy Price",
+                    "Settle Price",
+                    "PnL",
+                    "Status",
+                    "Date",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: h === "Market" ? "left" : "right",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tradeHistory.map((t) => (
+                  <tr
+                    key={t.id}
+                    style={{ borderTop: "1px solid var(--border)" }}
+                  >
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        maxWidth: 240,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={t.market_question}
+                    >
+                      {t.market_question}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color:
+                          (t.outcome ?? "").toUpperCase() === "YES"
+                            ? "#4caf50"
+                            : (t.outcome ?? "").toUpperCase() === "NO"
+                              ? "#ff6b6b"
+                              : "var(--text)",
+                      }}
+                    >
+                      {t.outcome ?? "—"}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {t.shares.toFixed(2)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {t.avg_price.toFixed(4)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {t.settled_price.toFixed(4)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color: t.realized_pnl >= 0 ? "#4caf50" : "#ff6b6b",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {t.realized_pnl >= 0 ? "+" : ""}$
+                      {t.realized_pnl.toFixed(2)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color:
+                          t.status === "won"
+                            ? "#4caf50"
+                            : t.status === "lost"
+                              ? "#ff6b6b"
+                              : "var(--text-secondary)",
+                        fontSize: 11,
+                        textTransform: "uppercase",
+                        letterSpacing: 1,
+                      }}
+                    >
+                      {t.status}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color: "var(--text-secondary)",
+                        fontSize: 11,
+                      }}
+                    >
+                      {t.closed_at
+                        ? new Date(t.closed_at).toLocaleDateString()
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div style={{ marginTop: 32 }}>
         <OpenClawChat botId={Number(bot.id)} />
       </div>
     </div>
   );
 }
-
-// ── Microstructure View ───────────────────────────────────────────────────────
 function MicrostructureView({
   bot,
   onBack,
@@ -2956,9 +3172,11 @@ const SEEN_KEY = "openclaw:seen-redeemable";
 
 function NotificationPoller({
   depositWallet,
+  botWallet,
   onSelectResolutionLag,
 }: {
   depositWallet: string;
+  botWallet?: string;
   onSelectResolutionLag: () => void;
 }) {
   const seen = React.useRef<Set<string>>(
@@ -2975,8 +3193,12 @@ function NotificationPoller({
 
   const check = React.useCallback(async () => {
     try {
+      const botWalletParam =
+        botWallet && botWallet.toLowerCase() !== depositWallet.toLowerCase()
+          ? `&botWallet=${encodeURIComponent(botWallet)}`
+          : "";
       const res = await fetch(
-        `/api/orchestrator/positions?depositWallet=${encodeURIComponent(depositWallet)}`,
+        `/api/orchestrator/positions?depositWallet=${encodeURIComponent(depositWallet)}${botWalletParam}`,
       );
       if (!res.ok) return;
       const raw = (await res.json()) as {
@@ -3014,7 +3236,7 @@ function NotificationPoller({
     } catch {
       // silently ignore polling errors
     }
-  }, [depositWallet, onSelectResolutionLag]);
+  }, [depositWallet, botWallet, onSelectResolutionLag]);
 
   React.useEffect(() => {
     void check();
@@ -3028,6 +3250,19 @@ function NotificationPoller({
 // ── Root App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [selectedBot, setSelectedBot] = useState<BotSummary | null>(null);
+  // The resolution-lag bot's own proxy wallet (0xD7CA8219…) — may hold older positions.
+  const [lagBotProxyWallet, setLagBotProxyWallet] = useState<
+    string | undefined
+  >(undefined);
+  React.useEffect(() => {
+    fetch("/api/bot/5/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg: { walletAddress?: string } | null) => {
+        if (cfg?.walletAddress) setLagBotProxyWallet(cfg.walletAddress);
+      })
+      .catch(() => {});
+  }, []);
+
   const { address, isConnected } = useAccount();
   const {
     user,
@@ -3197,6 +3432,7 @@ export default function App() {
       {balance?.depositWalletAddress && (
         <NotificationPoller
           depositWallet={balance.depositWalletAddress}
+          botWallet={lagBotProxyWallet}
           onSelectResolutionLag={() => {
             // Find bot id=5 from portfolio if needed — for now just navigate back
             setSelectedBot(null);
@@ -3232,6 +3468,7 @@ export default function App() {
             depositWallet={balance?.depositWalletAddress}
             botWalletIndex={user?.botWalletIndex}
             metamaskAddress={user?.metamaskAddress}
+            botProxyWallet={lagBotProxyWallet}
           />
         ) : selectedBot.id === "6" ? (
           <MicrostructureView
