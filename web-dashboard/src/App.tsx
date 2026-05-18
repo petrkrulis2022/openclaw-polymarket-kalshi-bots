@@ -25,6 +25,7 @@ import { OpenClawChat } from "./components/OpenClawChat";
 import { useInMarketArb } from "./hooks/use-in-market-arb";
 import { useResolutionLag } from "./hooks/use-resolution-lag";
 import { useMicrostructure } from "./hooks/use-microstructure";
+import { useSportsBot } from "./hooks/use-sports-bot";
 import { useUser } from "./hooks/use-user";
 import { useBotStatus } from "./hooks/use-bot-status";
 import { usePositions, type SharePosition } from "./hooks/use-positions";
@@ -3088,6 +3089,226 @@ function MicrostructureView({
   );
 }
 
+// ── Sports Bot View ───────────────────────────────────────────────────────────
+function SportsBotView({
+  bot,
+  onBack,
+}: {
+  bot: BotSummary;
+  onBack: () => void;
+}) {
+  const { data, loading, error } = useSportsBot();
+  const { trades, openPosition, totalPnl, gameOver, matchSlug, metrics } = data;
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "0 24px",
+          marginBottom: 24,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            color: "var(--text)",
+            cursor: "pointer",
+            padding: "6px 14px",
+            fontSize: 13,
+          }}
+        >
+          ← Back
+        </button>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 18 }}>⚽ {bot.name}</div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+            {bot.strategy} · {matchSlug || "—"}
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", textAlign: "right" }}>
+          <div
+            style={{
+              fontSize: 22,
+              fontWeight: 700,
+              color: totalPnl >= 0 ? "#4caf50" : "#f44336",
+            }}
+          >
+            {totalPnl >= 0 ? "+" : ""}
+            {totalPnl.toFixed(4)} USDC
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+            Total P&L
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div
+          style={{
+            margin: "0 24px 16px",
+            padding: "10px 14px",
+            background: "#f4433620",
+            borderRadius: 8,
+            color: "#f44336",
+            fontSize: 13,
+          }}
+        >
+          {error === "Bot offline" ? "⚠ Bot not running — start it on the server" : error}
+        </div>
+      )}
+
+      {/* Status strip */}
+      <div style={{ padding: "0 24px", marginBottom: 16 }}>
+        <div className="card" style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+          <div>
+            <div className="section-label">Status</div>
+            <div style={{ fontWeight: 700, color: gameOver ? "#9e9e9e" : "#4caf50" }}>
+              {loading ? "Loading…" : gameOver ? "Full Time" : openPosition ? "In Trade" : "Watching"}
+            </div>
+          </div>
+          <div>
+            <div className="section-label">Equity</div>
+            <div style={{ fontWeight: 700 }}>
+              {metrics ? metrics.equity.toFixed(2) : bot.equity} USDC
+            </div>
+          </div>
+          <div>
+            <div className="section-label">Trades</div>
+            <div style={{ fontWeight: 700 }}>{trades.length}</div>
+          </div>
+          <div>
+            <div className="section-label">Open Position</div>
+            <div style={{ fontWeight: 700, color: openPosition ? "#ff9800" : "var(--text-secondary)" }}>
+              {openPosition ? openPosition.label : "—"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Open position detail */}
+      {openPosition && (
+        <div style={{ padding: "0 24px", marginBottom: 16 }}>
+          <div className="section-label">Open Position</div>
+          <div className="card">
+            <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Token</div>
+                <div style={{ fontWeight: 700 }}>{openPosition.label}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Entry</div>
+                <div>{openPosition.entryAsk.toFixed(4)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Size</div>
+                <div>{openPosition.size} shares</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Cost</div>
+                <div>{(openPosition.entryAsk * openPosition.size).toFixed(2)} USDC</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Order ID</div>
+                <div style={{ fontSize: 11, fontFamily: "monospace" }}>
+                  {openPosition.orderId.slice(0, 12)}…
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trade history */}
+      <div style={{ padding: "0 24px 24px" }}>
+        <div className="section-label">Trade History</div>
+        {trades.length === 0 ? (
+          <div
+            className="card"
+            style={{ color: "var(--text-secondary)", fontSize: 13, textAlign: "center", padding: 24 }}
+          >
+            {loading ? "Loading…" : "No trades yet — waiting for a goal"}
+          </div>
+        ) : (
+          <div className="card" style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+                  <th style={{ textAlign: "left", padding: "6px 10px" }}>Token</th>
+                  <th style={{ textAlign: "right", padding: "6px 10px" }}>Buy</th>
+                  <th style={{ textAlign: "right", padding: "6px 10px" }}>Sell</th>
+                  <th style={{ textAlign: "right", padding: "6px 10px" }}>Size</th>
+                  <th style={{ textAlign: "right", padding: "6px 10px" }}>P&L</th>
+                  <th style={{ textAlign: "center", padding: "6px 10px" }}>Reason</th>
+                  <th style={{ textAlign: "right", padding: "6px 10px" }}>Duration</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trades.map((t) => {
+                  const dur = Math.round((t.closedAtMs - t.boughtAtMs) / 1000);
+                  return (
+                    <tr
+                      key={t.orderId}
+                      style={{ borderBottom: "1px solid var(--border)" }}
+                    >
+                      <td style={{ padding: "6px 10px", fontWeight: 600 }}>{t.label}</td>
+                      <td style={{ textAlign: "right", padding: "6px 10px" }}>{t.entryAsk.toFixed(4)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 10px" }}>{t.sellPrice.toFixed(4)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 10px" }}>{t.size}</td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          padding: "6px 10px",
+                          fontWeight: 700,
+                          color: t.pnl >= 0 ? "#4caf50" : "#f44336",
+                        }}
+                      >
+                        {t.pnl >= 0 ? "+" : ""}{t.pnl.toFixed(4)}
+                      </td>
+                      <td style={{ textAlign: "center", padding: "6px 10px" }}>
+                        <span
+                          style={{
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background:
+                              t.reason === "profit"
+                                ? "#4caf5030"
+                                : t.reason === "stop-loss"
+                                  ? "#f4433620"
+                                  : "#ff980020",
+                            color:
+                              t.reason === "profit"
+                                ? "#4caf50"
+                                : t.reason === "stop-loss"
+                                  ? "#f44336"
+                                  : "#ff9800",
+                          }}
+                        >
+                          {t.reason}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "right", padding: "6px 10px", color: "var(--text-secondary)" }}>
+                        {dur}s
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Portfolio section ─────────────────────────────────────────────────────────
 function PortfolioSection({
   onSelectBot,
@@ -3511,6 +3732,11 @@ export default function App() {
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
             metamaskAddress={user?.metamaskAddress}
+          />
+        ) : selectedBot.id === "8" ? (
+          <SportsBotView
+            bot={selectedBot}
+            onBack={() => setSelectedBot(null)}
           />
         ) : (
           <BotDetailView

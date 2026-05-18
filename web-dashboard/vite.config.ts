@@ -42,6 +42,11 @@ const proxyConfig = {
     changeOrigin: true,
     rewrite: (path: string) => path.replace(/^\/api\/bot\/7/, ""),
   },
+  "/api/bot/8": {
+    target: "http://localhost:3009",
+    changeOrigin: true,
+    rewrite: (path: string) => path.replace(/^\/api\/bot\/8/, ""),
+  },
 };
 
 export default defineConfig({

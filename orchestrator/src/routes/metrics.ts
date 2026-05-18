@@ -17,14 +17,14 @@ interface MetricsBody {
   extra?: Record<string, unknown>;
 }
 
-const VALID_BOT_IDS = new Set([1, 2, 3, 4, 5, 6, 7]);
+const VALID_BOT_IDS = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
 
 metricsRouter.post("/", async (req: Request, res: Response) => {
   const body = req.body as MetricsBody;
 
   const botId = Number(body.botId);
   if (!VALID_BOT_IDS.has(botId)) {
-    res.status(400).json({ error: "botId must be 1, 2, 3, 4, 5, 6, or 7" });
+    res.status(400).json({ error: "botId must be 1–8" });
     return;
   }
 

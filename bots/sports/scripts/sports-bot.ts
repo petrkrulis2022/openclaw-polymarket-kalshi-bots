@@ -17,6 +17,7 @@
  */
 
 import "../src/config.js"; // side-effect: loads dotenv
+import express from "express";
 import { config } from "../src/config.js";
 import {
   findArsenalBurnleyStaticId,
@@ -381,6 +382,45 @@ process.on("SIGINT", async () => {
   }
   printReport();
   process.exit(0);
+});
+
+// ── HTTP API (dashboard integration) ─────────────────────────────────────────
+
+const httpApp = express();
+httpApp.use(express.json());
+
+httpApp.get("/health", (_req, res) => {
+  res.json({ ok: true, botId: config.botId, name: "sports-bot", gameOver: gameIsOver, matchSlug: config.matchSlug });
+});
+
+httpApp.get("/metrics", (_req, res) => {
+  const spent = trades.reduce((s, t) => s + t.entryAsk * t.size, 0);
+  const equity = Math.max(0, config.maxPositionUsd - spent + totalPnl);
+  res.json({
+    botId: config.botId,
+    equity: equity.toFixed(4),
+    pnl: totalPnl.toFixed(4),
+    realizedPnl: totalPnl.toFixed(4),
+    openPositions: openPosition ? 1 : 0,
+    utilization: openPosition ? 1 : 0,
+  });
+});
+
+httpApp.get("/trades", (_req, res) => {
+  res.json({
+    trades,
+    openPosition,
+    totalPnl,
+    gameOver: gameIsOver,
+    matchSlug: config.matchSlug,
+    market: market
+      ? { yesTokenId: market.yesTokenId, noTokenId: market.noTokenId, question: market.question }
+      : null,
+  });
+});
+
+httpApp.listen(config.port, () => {
+  console.log(`[api]  Sports Bot HTTP API listening on :${config.port}`);
 });
 
 // ── Entry point ───────────────────────────────────────────────────────────────

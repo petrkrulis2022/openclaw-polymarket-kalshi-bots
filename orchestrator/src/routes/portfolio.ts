@@ -70,6 +70,7 @@ portfolioRouter.get("/summary", async (_req: Request, res: Response) => {
         { id: 5, name: "Resolution Lag", strategy: "Oracle Delay" },
         { id: 6, name: "Microstructure", strategy: "Low-Price MM" },
         { id: 7, name: "BTC Lag", strategy: "CEX Candle Lag" },
+        { id: 8, name: "Sports Bot", strategy: "Goal Data-Lag Arb" },
       ];
     }
 
@@ -108,8 +109,8 @@ portfolioRouter.get("/summary", async (_req: Request, res: Response) => {
 // GET /portfolio/bot/:id
 portfolioRouter.get("/bot/:id", async (req: Request, res: Response) => {
   const botId = parseInt(req.params["id"] ?? "", 10);
-  if (![1, 2, 3, 4, 5, 6, 7].includes(botId)) {
-    res.status(400).json({ error: "botId must be 1–7" });
+  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(botId)) {
+    res.status(400).json({ error: "botId must be 1–8" });
     return;
   }
 
