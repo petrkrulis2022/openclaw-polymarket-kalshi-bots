@@ -4439,7 +4439,7 @@ export default function App() {
             </div>
           )}
           {/* Only show legacy portfolio/chat when user is not mid-onboarding */}
-          {(!isConnected || !user || user.botsRunning || user.hasApiKeys) && (
+          {!showOnboarding && (
             <>
               <PortfolioSection
                 onSelectBot={setSelectedBot}
