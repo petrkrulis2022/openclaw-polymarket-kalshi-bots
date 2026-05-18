@@ -188,9 +188,7 @@ async function checkAndSell(forceSell = false): Promise<void> {
   }
 
   const avgSellPrice =
-    sellFill.filledShares > 0
-      ? sellFill.filledUsdc / sellFill.filledShares
-      : 0;
+    sellFill.filledShares > 0 ? sellFill.filledUsdc / sellFill.filledShares : 0;
   const costBasis = openPosition.entryAsk * openPosition.size;
   const pnl = sellFill.filledUsdc - costBasis;
   totalPnl += pnl;
@@ -280,6 +278,16 @@ async function goalserveLoop(): Promise<void> {
     // Check for full time
     if (isFullTime(state.status)) {
       console.log("\n[gs] ⏱️  FULL TIME detected");
+      gameIsOver = true;
+      break;
+    }
+
+    // Safety: if status is not live (not a running-minute, not HT) it's some
+    // end-of-game state we haven't seen before — treat it as game over.
+    if (!isLiveStatus(state.status)) {
+      console.log(
+        `\n[gs] ⚠️  Unrecognised non-live status "${state.status}" — treating as game over`,
+      );
       gameIsOver = true;
       break;
     }

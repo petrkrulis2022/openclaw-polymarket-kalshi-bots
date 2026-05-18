@@ -192,7 +192,9 @@ export function isFullTime(status: string): boolean {
     status === "FT" ||
     status === "AET" ||
     s === "full time" ||
+    s === "full-time" ||    // Goalserve hyphenated form (mirrors "Half-time")
     s === "finished" ||
-    s === "ended"
+    s === "ended" ||
+    s === "after extra time"
   );
 }
