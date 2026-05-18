@@ -4,7 +4,7 @@
  * fetchArsenalMarket  — fetch YES/NO token IDs from Gamma events API
  * getOrderBook        — read current bids/asks for a token
  * getBestAsk / getBestBid — convenience helpers
- * placeLimitOrder     — sign and submit an order via clob-client-v2
+ * placeMarketOrder    — submit FOK market order via clob-client-v2 (immediate fill or cancel)
  */
 
 import { ClobClient, Chain, Side } from "@polymarket/clob-client-v2";
@@ -201,19 +201,43 @@ export async function getBestBid(tokenId: string): Promise<number> {
 
 // ── Order placement ───────────────────────────────────────────────────────────
 
-export async function placeLimitOrder(
+export async function placeMarketOrder(
   tokenId: string,
   side: "BUY" | "SELL",
-  price: number,
-  size: number,
-): Promise<{ orderId: string }> {
+  amount: number, // USDC to spend (BUY) or shares to sell (SELL)
+): Promise<{ orderId: string; filledShares: number; filledUsdc: number }> {
   const c = await getSigningClient();
-  const result = await c.createAndPostOrder({
-    tokenID: tokenId,
-    side: side === "BUY" ? Side.BUY : Side.SELL,
-    price,
-    size,
-  });
-  const orderId = (result as { orderID?: string }).orderID ?? "unknown";
-  return { orderId };
+
+  // For BUY: worst acceptable price = 1.0 (pay any ask)
+  // For SELL: worst acceptable price = 0.01 (accept any bid)
+  const worstPrice = side === "BUY" ? 1.0 : 0.01;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await (c as any).createAndPostMarketOrder(
+    {
+      tokenID: tokenId,
+      side: side === "BUY" ? Side.BUY : Side.SELL,
+      amount,
+      price: worstPrice,
+    },
+    undefined, // options (tick size auto-detected by library)
+    "FOK",     // Fill Or Kill — fill immediately at market price or cancel
+  );
+
+  const r = result as Record<string, unknown>;
+  const errorMsg = String(r["errorMsg"] ?? "");
+  if (errorMsg && errorMsg !== "" && errorMsg !== "null" && errorMsg !== "undefined") {
+    throw new Error(`Market order rejected: ${errorMsg}`);
+  }
+
+  const orderId = String(r["orderID"] ?? "unknown");
+  // Amounts are in micro-units (1e6). For BUY: making=USDC given, taking=shares received.
+  // For SELL: making=shares given, taking=USDC received.
+  const makingAmt = parseFloat(String(r["makingAmount"] ?? "0")) / 1e6;
+  const takingAmt = parseFloat(String(r["takingAmount"] ?? "0")) / 1e6;
+
+  const filledUsdc   = side === "BUY" ? makingAmt : takingAmt;
+  const filledShares = side === "BUY" ? takingAmt : makingAmt;
+
+  return { orderId, filledShares, filledUsdc };
 }

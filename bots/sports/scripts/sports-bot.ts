@@ -29,9 +29,8 @@ import {
 import {
   fetchArsenalMarket,
   getOrderBook,
-  getBestAsk,
   getBestBid,
-  placeLimitOrder,
+  placeMarketOrder,
   type ArsenalMarket,
 } from "../src/polymarket.js";
 
@@ -102,53 +101,42 @@ async function onGoalDetected(
   console.log(
     `\n[trade] 🚨 GOAL: ${scoringTeam} scored! Score: ${state.scoreHome}-${state.scoreAway} (${state.minute}')`,
   );
-  console.log(`[trade] → Buying ${label} immediately at stale ask price`);
-
-  // Fetch current ask (stale = before repricing)
-  const currentAsk = await getBestAsk(tokenId);
-  if (currentAsk <= 0) {
-    console.warn(`[trade] No valid ask for ${label}: ${currentAsk} — skipping`);
-    return;
-  }
-
-  const sizeShares =
-    Math.floor((config.maxPositionUsd / currentAsk) * 100) / 100;
-
-  const costUsdc = sizeShares * currentAsk;
   console.log(
-    `[trade] BUY ${sizeShares} ${label} @ ${fmt(currentAsk)} = ${fmt(costUsdc, 2)} USDC`,
+    `[trade] → Market BUY ${label} (${fmt(config.maxPositionUsd, 2)} USDC, FOK)`,
   );
 
-  let orderId: string;
+  let fill: Awaited<ReturnType<typeof placeMarketOrder>>;
   try {
-    const result = await placeLimitOrder(
-      tokenId,
-      "BUY",
-      currentAsk,
-      sizeShares,
-    );
-    orderId = result.orderId;
+    fill = await placeMarketOrder(tokenId, "BUY", config.maxPositionUsd);
   } catch (err) {
-    console.error("[trade] BUY order failed:", (err as Error).message);
+    console.error("[trade] BUY market order failed:", (err as Error).message);
     return;
   }
+
+  if (fill.filledShares <= 0) {
+    console.warn(
+      `[trade] ⚠️  Market BUY got zero fill — orderbook empty, no position opened`,
+    );
+    return;
+  }
+
+  const avgPrice = fill.filledUsdc / fill.filledShares;
 
   openPosition = {
     tokenId,
     label,
-    entryAsk: currentAsk,
-    size: sizeShares,
-    orderId,
+    entryAsk: avgPrice,
+    size: fill.filledShares,
+    orderId: fill.orderId,
     boughtAtMs: Date.now(),
   };
 
   console.log(
-    `[trade] ✅ BUY order placed: id=${orderId} | entry=${fmt(currentAsk)} | ` +
-      `size=${sizeShares} | cost=${fmt(costUsdc, 2)} USDC`,
+    `[trade] ✅ Bought ${fill.filledShares} ${label} @ avg ${fmt(avgPrice)} = ${fmt(fill.filledUsdc, 2)} USDC`,
   );
   console.log(
-    `[trade]    Sell targets: profit bid≥${fmt(currentAsk + config.minProfitCents)} | ` +
-      `stop-loss bid≤${fmt(currentAsk * config.stopLossRatio)} | ` +
+    `[trade]    Sell targets: profit bid≥${fmt(avgPrice + config.minProfitCents)} | ` +
+      `stop-loss bid≤${fmt(avgPrice * config.stopLossRatio)} | ` +
       `timeout ${config.sellTimeoutMinutes}min`,
   );
 }
@@ -182,41 +170,41 @@ async function checkAndSell(forceSell = false): Promise<void> {
         ? "stop-loss"
         : "timeout";
 
-  // Sell at best bid (or slightly below to guarantee fill)
-  const sellPrice = bestBid > 0 ? bestBid : openPosition.entryAsk * 0.9;
-
   console.log(
-    `\n[trade] 💰 SELL ${openPosition.size} ${openPosition.label} @ ${fmt(sellPrice)} (${reason})`,
+    `\n[trade] 💰 Market SELL ${openPosition.size} ${openPosition.label} (${reason})`,
   );
 
-  let sellOrderId = "unknown";
+  let sellFill: Awaited<ReturnType<typeof placeMarketOrder>>;
   try {
-    const result = await placeLimitOrder(
+    sellFill = await placeMarketOrder(
       openPosition.tokenId,
       "SELL",
-      sellPrice,
       openPosition.size,
     );
-    sellOrderId = result.orderId;
   } catch (err) {
-    console.error("[trade] SELL order failed:", (err as Error).message);
+    console.error("[trade] SELL market order failed:", (err as Error).message);
     // Don't clear position — will retry on next tick
     return;
   }
 
-  const pnl = (sellPrice - openPosition.entryAsk) * openPosition.size;
+  const avgSellPrice =
+    sellFill.filledShares > 0
+      ? sellFill.filledUsdc / sellFill.filledShares
+      : 0;
+  const costBasis = openPosition.entryAsk * openPosition.size;
+  const pnl = sellFill.filledUsdc - costBasis;
   totalPnl += pnl;
 
   trades.push({
     ...openPosition,
-    sellPrice,
+    sellPrice: avgSellPrice,
     pnl,
     reason,
     closedAtMs: Date.now(),
   });
 
   console.log(
-    `[trade] ✅ SELL order placed: id=${sellOrderId} | pnl=${pnlStr(pnl)} | total_pnl=${pnlStr(totalPnl)}`,
+    `[trade] ✅ Sold ${openPosition.size} shares @ avg ${fmt(avgSellPrice)} = ${fmt(sellFill.filledUsdc, 2)} USDC | pnl=${pnlStr(pnl)} | total_pnl=${pnlStr(totalPnl)}`,
   );
 
   openPosition = null;
@@ -395,7 +383,9 @@ httpApp.get("/health", (_req, res) => {
 
 httpApp.get("/metrics", (_req, res) => {
   const spent = trades.reduce((s, t) => s + t.entryAsk * t.size, 0);
-  const walletBalance = parseFloat(process.env["WALLET_BALANCE"] ?? String(config.maxPositionUsd));
+  const walletBalance = parseFloat(
+    process.env["WALLET_BALANCE"] ?? String(config.maxPositionUsd),
+  );
   const equity = Math.max(0, walletBalance - spent + totalPnl);
   res.json({
     botId: config.botId,
