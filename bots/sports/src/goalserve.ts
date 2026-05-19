@@ -80,21 +80,24 @@ function findStaticIdRecursive(
 }
 
 /**
- * Fetch today's home feed and return the @static_id for the Arsenal vs Burnley match.
+ * Fetch today's home feed and return the @static_id for the configured match.
+ * Teams are read from config.matchTeamHome / config.matchTeamAway.
  * Falls back to GOALSERVE_MATCH_STATIC_ID env var if not found in feed.
  */
-export async function findArsenalBurnleyStaticId(): Promise<string> {
+export async function findMatchStaticId(): Promise<string> {
+  const home = config.matchTeamHome;
+  const away = config.matchTeamAway;
   try {
     const data = await gsGet("soccernew/home?json=1");
-    const staticId = findStaticIdRecursive(data, "Arsenal", "Burnley");
+    const staticId = findStaticIdRecursive(data, home, away);
     if (staticId) {
       console.log(
-        `[goalserve] Found Arsenal vs Burnley: static_id=${staticId}`,
+        `[goalserve] Found ${home} vs ${away}: static_id=${staticId}`,
       );
       return staticId;
     }
     console.warn(
-      "[goalserve] Arsenal vs Burnley not found in home feed — match may not be listed yet",
+      `[goalserve] ${home} vs ${away} not found in home feed — match may not be listed yet`,
     );
   } catch (err) {
     console.error("[goalserve] Home feed error:", (err as Error).message);
@@ -108,7 +111,7 @@ export async function findArsenalBurnleyStaticId(): Promise<string> {
   }
 
   throw new Error(
-    "Could not find Arsenal vs Burnley static_id. " +
+    `Could not find ${home} vs ${away} static_id. ` +
       "Set GOALSERVE_MATCH_STATIC_ID in .env as a fallback.",
   );
 }
@@ -192,7 +195,7 @@ export function isFullTime(status: string): boolean {
     status === "FT" ||
     status === "AET" ||
     s === "full time" ||
-    s === "full-time" ||    // Goalserve hyphenated form (mirrors "Half-time")
+    s === "full-time" || // Goalserve hyphenated form (mirrors "Half-time")
     s === "finished" ||
     s === "ended" ||
     s === "after extra time"

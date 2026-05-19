@@ -1,7 +1,7 @@
 /**
  * polymarket.ts — Gamma + CLOB client for sports bot.
  *
- * fetchArsenalMarket  — fetch YES/NO token IDs from Gamma events API
+ * fetchHomeTeamMarket  — fetch YES/NO token IDs from Gamma events API
  * getOrderBook        — read current bids/asks for a token
  * getBestAsk / getBestBid — convenience helpers
  * placeMarketOrder    — submit FOK market order via clob-client-v2 (immediate fill or cancel)
@@ -15,10 +15,10 @@ import { config } from "./config.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface ArsenalMarket {
-  /** Arsenal wins YES — price ~89¢ pre-game */
+export interface HomeTeamMarket {
+  /** Home team wins YES */
   yesTokenId: string;
-  /** Arsenal does NOT win (Draw or Burnley) NO — price ~11¢ pre-game */
+  /** Home team does NOT win (Draw or Away win) NO */
   noTokenId: string;
   conditionId: string;
   question: string;
@@ -31,9 +31,11 @@ export interface OrderBook {
   asks: Array<{ price: number; size: number }>;
 }
 
-// ── Gamma — fetch Arsenal YES/NO token IDs ────────────────────────────────────
+// ── Gamma — fetch home team YES/NO token IDs ─────────────────────────────────
 
-export async function fetchArsenalMarket(slug: string): Promise<ArsenalMarket> {
+export async function fetchHomeTeamMarket(
+  slug: string,
+): Promise<HomeTeamMarket> {
   const url = `${config.polymarket.gammaApi}/events?slug=${slug}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`Gamma API ${res.status} for slug=${slug}`);
@@ -44,10 +46,11 @@ export async function fetchArsenalMarket(slug: string): Promise<ArsenalMarket> {
   const event = events[0];
   const markets = (event["markets"] as Array<Record<string, unknown>>) ?? [];
 
-  // Find the Arsenal sub-market in the 3-way neg-risk moneyline.
-  // Identify by sportsMarketType containing "moneyline" + groupItemTitle = "Arsenal FC"
-  // or question containing "Arsenal" without halftime/corner/score keywords.
-  let arsenalMarket: Record<string, unknown> | null = null;
+  // Find the home-team sub-market in the 3-way neg-risk moneyline.
+  // Identify by sportsMarketType containing "moneyline" + groupItemTitle / question
+  // containing the home team name (case-insensitive).
+  const homeTeam = config.matchTeamHome.toLowerCase();
+  let homeTeamMarket: Record<string, unknown> | null = null;
 
   for (const m of markets) {
     const mType = String(m["sportsMarketType"] ?? "").toLowerCase();
@@ -61,44 +64,44 @@ export async function fetchArsenalMarket(slug: string): Promise<ArsenalMarket> {
         !question.includes("corner") &&
         !question.includes("score"));
 
-    const isArsenal =
-      groupTitle.includes("arsenal") || question.includes("arsenal");
+    const isHomeTeam =
+      groupTitle.includes(homeTeam) || question.includes(homeTeam);
 
-    if (isMoneyline && isArsenal) {
-      arsenalMarket = m;
+    if (isMoneyline && isHomeTeam) {
+      homeTeamMarket = m;
       break;
     }
   }
 
-  if (!arsenalMarket) {
+  if (!homeTeamMarket) {
     throw new Error(
-      `Could not find Arsenal moneyline market in event ${slug}. ` +
+      `Could not find ${config.matchTeamHome} moneyline market in event ${slug}. ` +
         `Markets found: ${markets.map((m) => m["question"]).join(", ")}`,
     );
   }
 
   // clobTokenIds is a JSON-encoded string: "[\"tokenId1\",\"tokenId2\"]"
-  const rawTokenIds = String(arsenalMarket["clobTokenIds"] ?? "[]");
+  const rawTokenIds = String(homeTeamMarket["clobTokenIds"] ?? "[]");
   const tokenIds = JSON.parse(rawTokenIds) as string[];
 
   if (tokenIds.length < 2) {
     throw new Error(
-      `Unexpected clobTokenIds for Arsenal market: ${rawTokenIds}`,
+      `Unexpected clobTokenIds for ${config.matchTeamHome} market: ${rawTokenIds}`,
     );
   }
 
   const conditionId = String(
-    arsenalMarket["conditionId"] ?? arsenalMarket["condition_id"] ?? "",
+    homeTeamMarket["conditionId"] ?? homeTeamMarket["condition_id"] ?? "",
   );
-  const question = String(arsenalMarket["question"] ?? "");
+  const question = String(homeTeamMarket["question"] ?? "");
 
   console.log(
-    `[polymarket] Arsenal market: "${question}" YES=${tokenIds[0].slice(0, 12)}... NO=${tokenIds[1].slice(0, 12)}...`,
+    `[polymarket] ${config.matchTeamHome} market: "${question}" YES=${tokenIds[0].slice(0, 12)}... NO=${tokenIds[1].slice(0, 12)}...`,
   );
 
   return {
-    yesTokenId: tokenIds[0], // Arsenal wins
-    noTokenId: tokenIds[1], // Arsenal doesn't win
+    yesTokenId: tokenIds[0], // Home team wins
+    noTokenId: tokenIds[1], // Home team doesn't win
     conditionId,
     question,
   };
@@ -221,12 +224,17 @@ export async function placeMarketOrder(
       price: worstPrice,
     },
     undefined, // options (tick size auto-detected by library)
-    "FOK",     // Fill Or Kill — fill immediately at market price or cancel
+    "FOK", // Fill Or Kill — fill immediately at market price or cancel
   );
 
   const r = result as Record<string, unknown>;
   const errorMsg = String(r["errorMsg"] ?? "");
-  if (errorMsg && errorMsg !== "" && errorMsg !== "null" && errorMsg !== "undefined") {
+  if (
+    errorMsg &&
+    errorMsg !== "" &&
+    errorMsg !== "null" &&
+    errorMsg !== "undefined"
+  ) {
     throw new Error(`Market order rejected: ${errorMsg}`);
   }
 
@@ -236,7 +244,7 @@ export async function placeMarketOrder(
   const makingAmt = parseFloat(String(r["makingAmount"] ?? "0")) / 1e6;
   const takingAmt = parseFloat(String(r["takingAmount"] ?? "0")) / 1e6;
 
-  const filledUsdc   = side === "BUY" ? makingAmt : takingAmt;
+  const filledUsdc = side === "BUY" ? makingAmt : takingAmt;
   const filledShares = side === "BUY" ? takingAmt : makingAmt;
 
   return { orderId, filledShares, filledUsdc };

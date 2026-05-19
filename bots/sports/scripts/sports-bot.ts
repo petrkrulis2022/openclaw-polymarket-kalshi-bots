@@ -7,9 +7,9 @@
  *   3. Waits for CLOB bid to move up as market reprices
  *   4. Sells for profit as soon as bid clears the profit threshold
  *
- * Tokens traded (Arsenal binary YES/NO):
- *   Arsenal scores → buy Arsenal YES (~89¢), sell after repricing up
- *   Burnley scores → buy Arsenal NO  (~11¢), sell after repricing up
+ * Tokens traded (Home team binary YES/NO):
+ *   Home scores → buy Home WIN YES, sell after repricing up
+ *   Away scores → buy Home WIN NO  (away win / draw), sell after repricing up
  *
  * Run:
  *   cd bots/sports && npx tsx scripts/sports-bot.ts
@@ -20,18 +20,18 @@ import "../src/config.js"; // side-effect: loads dotenv
 import express from "express";
 import { config } from "../src/config.js";
 import {
-  findArsenalBurnleyStaticId,
+  findMatchStaticId,
   pollLiveMatch,
   isLiveStatus,
   isFullTime,
   type MatchState,
 } from "../src/goalserve.js";
 import {
-  fetchArsenalMarket,
+  fetchHomeTeamMarket,
   getOrderBook,
   getBestBid,
   placeMarketOrder,
-  type ArsenalMarket,
+  type HomeTeamMarket,
 } from "../src/polymarket.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -54,7 +54,7 @@ interface ClosedTrade extends OpenPosition {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-let market: ArsenalMarket;
+let market: HomeTeamMarket;
 let staticId: string;
 
 let lastScoreHome = NaN;
@@ -93,9 +93,11 @@ async function onGoalDetected(
     return;
   }
 
-  const isArsenalGoal = scorer === "home"; // Arsenal is always home (Emirates)
-  const tokenId = isArsenalGoal ? market.yesTokenId : market.noTokenId;
-  const label = isArsenalGoal ? "Arsenal YES" : "Arsenal NO";
+  const isHomeGoal = scorer === "home";
+  const tokenId = isHomeGoal ? market.yesTokenId : market.noTokenId;
+  const label = isHomeGoal
+    ? `${config.matchTeamHome} WIN`
+    : `${config.matchTeamAway} WIN`;
   const scoringTeam = scorer === "home" ? state.teamHome : state.teamAway;
 
   console.log(
@@ -222,8 +224,8 @@ async function logPrices(): Promise<void> {
   const noAsk = noBook.asks[0]?.price ?? 0;
 
   console.log(
-    `[clob]  Arsenal YES: bid=${fmt(yesBid)} ask=${fmt(yesAsk)} | ` +
-      `Arsenal NO: bid=${fmt(noBid)} ask=${fmt(noAsk)}`,
+    `[clob]  ${config.matchTeamHome} YES: bid=${fmt(yesBid)} ask=${fmt(yesAsk)} | ` +
+      `${config.matchTeamAway} WIN: bid=${fmt(noBid)} ask=${fmt(noAsk)}`,
   );
 }
 
@@ -233,6 +235,10 @@ function printReport(): void {
   console.log("\n" + "═".repeat(60));
   console.log("SPORTS BOT SESSION REPORT");
   console.log("═".repeat(60));
+
+  console.log(
+    `Match: ${config.matchTeamHome} vs ${config.matchTeamAway} | slug=${config.matchSlug}`,
+  );
 
   if (!trades.length) {
     console.log("No trades executed this session.");
@@ -430,15 +436,17 @@ httpApp.listen(config.port, () => {
 
 async function main(): Promise<void> {
   console.log("═".repeat(60));
-  console.log("SPORTS BOT — Arsenal vs Burnley | Live Goal Arbitrage");
+  console.log(
+    `SPORTS BOT — ${config.matchTeamHome} vs ${config.matchTeamAway} | Live Goal Arbitrage`,
+  );
   console.log(
     `match=${config.matchSlug} | budget=${config.maxPositionUsd} USDC`,
   );
   console.log("═".repeat(60) + "\n");
 
   // Step 1: Fetch Polymarket token IDs
-  console.log("[setup] Fetching Arsenal YES/NO tokens from Gamma...");
-  market = await fetchArsenalMarket(config.matchSlug);
+  console.log(`[setup] Fetching ${config.matchTeamHome} YES/NO tokens from Gamma...`);
+  market = await fetchHomeTeamMarket(config.matchSlug);
   console.log(
     `[setup] Market: "${market.question}" | conditionId=${market.conditionId.slice(0, 12)}...`,
   );
@@ -453,7 +461,7 @@ async function main(): Promise<void> {
 
   // Step 4: Find Goalserve match ID
   console.log("\n[setup] Finding Goalserve match ID...");
-  staticId = await findArsenalBurnleyStaticId();
+  staticId = await findMatchStaticId();
 
   // Step 5: Wait for kickoff
   await waitForKickoff();
