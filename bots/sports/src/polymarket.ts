@@ -210,9 +210,9 @@ export async function placeMarketOrder(
 ): Promise<{ orderId: string; filledShares: number; filledUsdc: number }> {
   const c = await getSigningClient();
 
-  // For BUY: worst acceptable price = 1.0 (pay any ask)
-  // For SELL: worst acceptable price = 0.01 (accept any bid)
-  const worstPrice = side === "BUY" ? 1.0 : 0.01;
+  // For BUY: worst acceptable price = 0.99 (CLOB max; pay any ask up to 99¢)
+  // For SELL: worst acceptable price = 0.01 (CLOB min; accept any bid down to 1¢)
+  const worstPrice = side === "BUY" ? 0.99 : 0.01;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await (c as any).createAndPostMarketOrder(
