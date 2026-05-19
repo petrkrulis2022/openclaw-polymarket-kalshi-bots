@@ -115,9 +115,9 @@ async function onGoalDetected(
     return;
   }
 
-  if (fill.filledShares <= 0) {
+  if (!(fill.filledShares > 0)) {
     console.warn(
-      `[trade] ⚠️  Market BUY got zero fill — orderbook empty, no position opened`,
+      `[trade] ⚠️  Market BUY got zero fill (filledShares=${fill.filledShares}) — orderbook empty or parse error, no position opened`,
     );
     return;
   }
@@ -445,7 +445,9 @@ async function main(): Promise<void> {
   console.log("═".repeat(60) + "\n");
 
   // Step 1: Fetch Polymarket token IDs
-  console.log(`[setup] Fetching ${config.matchTeamHome} YES/NO tokens from Gamma...`);
+  console.log(
+    `[setup] Fetching ${config.matchTeamHome} YES/NO tokens from Gamma...`,
+  );
   market = await fetchHomeTeamMarket(config.matchSlug);
   console.log(
     `[setup] Market: "${market.question}" | conditionId=${market.conditionId.slice(0, 12)}...`,

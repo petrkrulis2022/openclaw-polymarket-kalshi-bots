@@ -238,10 +238,11 @@ export async function placeMarketOrder(
   }
 
   const orderId = String(r["orderID"] ?? "unknown");
+  console.log("[placeMarketOrder] raw result:", JSON.stringify(r));
   // Amounts are in micro-units (1e6). For BUY: making=USDC given, taking=shares received.
   // For SELL: making=shares given, taking=USDC received.
-  const makingAmt = parseFloat(String(r["makingAmount"] ?? "0")) / 1e6;
-  const takingAmt = parseFloat(String(r["takingAmount"] ?? "0")) / 1e6;
+  const makingAmt = (parseFloat(String(r["makingAmount"] || "0")) || 0) / 1e6;
+  const takingAmt = (parseFloat(String(r["takingAmount"] || "0")) || 0) / 1e6;
 
   const filledUsdc = side === "BUY" ? makingAmt : takingAmt;
   const filledShares = side === "BUY" ? takingAmt : makingAmt;
