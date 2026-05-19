@@ -177,14 +177,13 @@ export async function getOrderBook(tokenId: string): Promise<OrderBook> {
   try {
     const raw = await getReadClient().getOrderBook(tokenId);
     return {
-      bids: (raw.bids ?? []).map((b) => ({
-        price: parseFloat(b.price),
-        size: parseFloat(b.size),
-      })),
-      asks: (raw.asks ?? []).map((a) => ({
-        price: parseFloat(a.price),
-        size: parseFloat(a.size),
-      })),
+      // Sort to guarantee correct order regardless of what the CLOB client returns
+      bids: (raw.bids ?? [])
+        .map((b) => ({ price: parseFloat(b.price), size: parseFloat(b.size) }))
+        .sort((a, b) => b.price - a.price), // descending: best (highest) bid first
+      asks: (raw.asks ?? [])
+        .map((a) => ({ price: parseFloat(a.price), size: parseFloat(a.size) }))
+        .sort((a, b) => a.price - b.price), // ascending: best (lowest) ask first
     };
   } catch (err) {
     console.error("[clob] getOrderBook error:", (err as Error).message);
