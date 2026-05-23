@@ -4,6 +4,43 @@ import { inMemoryMetrics } from "../store.js";
 
 export const portfolioRouter = Router();
 
+type BotDef = {
+  id: number;
+  name: string;
+  strategy?: string;
+  description?: string;
+};
+
+const DEFAULT_BOTS: BotDef[] = [
+  { id: 1, name: "Market Maker", strategy: "Liquidity Provision" },
+  { id: 2, name: "Arb Bot", strategy: "Cross-Market Arb" },
+  { id: 3, name: "Copy Trader", strategy: "Trader Mirroring" },
+  { id: 4, name: "In-Market Arb", strategy: "YES+NO Arb" },
+  { id: 5, name: "Resolution Lag", strategy: "Oracle Delay" },
+  { id: 6, name: "Microstructure", strategy: "Low-Price MM" },
+  { id: 7, name: "BTC Lag", strategy: "CEX Candle Lag" },
+  {
+    id: 8,
+    name: "Football Bot",
+    strategy: "Goalserve Football Data-Lag Arb",
+  },
+  {
+    id: 10,
+    name: "Hockey Bot",
+    strategy: "Goalserve Hockey Data-Lag Arb",
+  },
+];
+
+function mergeBotsWithDefaults(dbBots: BotDef[]): BotDef[] {
+  const byId = new Map<number, BotDef>();
+  for (const bot of DEFAULT_BOTS) byId.set(bot.id, bot);
+  for (const bot of dbBots) {
+    // Keep canonical names/strategies for known bot ids; only include unknown ids from DB.
+    if (!byId.has(bot.id)) byId.set(bot.id, bot);
+  }
+  return Array.from(byId.values()).sort((a, b) => a.id - b.id);
+}
+
 // Latest metric row per bot
 async function latestMetrics() {
   const { data, error } = await supabase
@@ -31,7 +68,7 @@ async function latestMetrics() {
 portfolioRouter.get("/summary", async (_req: Request, res: Response) => {
   try {
     let rows: Awaited<ReturnType<typeof latestMetrics>> = [];
-    let bots: { id: number; name: string; strategy?: string }[] = [];
+    let bots: BotDef[] = [];
 
     try {
       rows = await latestMetrics();
@@ -60,19 +97,7 @@ portfolioRouter.get("/summary", async (_req: Request, res: Response) => {
       }
     }
 
-    // Fall back to the known bots if DB is empty/unreachable
-    if (bots.length === 0) {
-      bots = [
-        { id: 1, name: "Market Maker", strategy: "Liquidity Provision" },
-        { id: 2, name: "Arb Bot", strategy: "Cross-Market Arb" },
-        { id: 3, name: "Copy Trader", strategy: "Trader Mirroring" },
-        { id: 4, name: "In-Market Arb", strategy: "YES+NO Arb" },
-        { id: 5, name: "Resolution Lag", strategy: "Oracle Delay" },
-        { id: 6, name: "Microstructure", strategy: "Low-Price MM" },
-        { id: 7, name: "BTC Lag", strategy: "CEX Candle Lag" },
-        { id: 8, name: "Sports Bot", strategy: "Goal Data-Lag Arb" },
-      ];
-    }
+    bots = mergeBotsWithDefaults(bots);
 
     const totalEquity = rows.reduce((s, r) => s + Number(r.equity), 0);
     const totalPnl = rows.reduce((s, r) => s + Number(r.pnl ?? 0), 0);
@@ -109,8 +134,8 @@ portfolioRouter.get("/summary", async (_req: Request, res: Response) => {
 // GET /portfolio/bot/:id
 portfolioRouter.get("/bot/:id", async (req: Request, res: Response) => {
   const botId = parseInt(req.params["id"] ?? "", 10);
-  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(botId)) {
-    res.status(400).json({ error: "botId must be 1–8" });
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 10].includes(botId)) {
+    res.status(400).json({ error: "botId must be one of 1,2,3,4,5,6,7,8,10" });
     return;
   }
 
@@ -147,7 +172,7 @@ portfolioRouter.get("/agent-context", async (_req: Request, res: Response) => {
         .catch(() => null),
     ]);
 
-    const bots = botsResult.data ?? [];
+    const bots = mergeBotsWithDefaults((botsResult.data ?? []) as BotDef[]);
     const wallets: Array<{
       name: string;
       address: string;
