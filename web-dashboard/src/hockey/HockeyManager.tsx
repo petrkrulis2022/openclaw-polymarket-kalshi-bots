@@ -144,6 +144,8 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
   const [polymarketInputByKey, setPolymarketInputByKey] = useState<
     Record<string, string>
   >({});
+  const [savingSlugByKey, setSavingSlugByKey] = useState<Record<string, boolean>>({});
+  const [savedSlugByKey, setSavedSlugByKey] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedKeys));
@@ -254,8 +256,8 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
   const persistSelection = async (
     keys: string[],
     slugInputMap: Record<string, string> = polymarketInputByKey,
-  ) => {
-    if (!metamaskAddress) return;
+  ): Promise<boolean> => {
+    if (!metamaskAddress) return false;
     const games: WatchedGameDto[] = keys
       .map((key) => byKey[key])
       .filter((m): m is HockeyFeedMatch => Boolean(m))
@@ -287,8 +289,10 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
           body: JSON.stringify({ games }),
         },
       );
+      return true;
     } catch {
       // dashboard still works with local cache
+      return false;
     }
   };
 
@@ -311,6 +315,7 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
   };
 
   const onPolymarketInputChange = (key: string, value: string) => {
+    setSavedSlugByKey((prev) => ({ ...prev, [key]: false }));
     setPolymarketInputByKey((prev) => {
       const next = { ...prev, [key]: value };
       if (selectedKeys.includes(key)) {
@@ -318,6 +323,15 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
       }
       return next;
     });
+  };
+
+  const savePolymarketUrl = async (key: string) => {
+    if (!selectedKeys.includes(key)) return;
+    const nextMap = { ...polymarketInputByKey };
+    setSavingSlugByKey((prev) => ({ ...prev, [key]: true }));
+    const ok = await persistSelection(selectedKeys, nextMap);
+    setSavingSlugByKey((prev) => ({ ...prev, [key]: false }));
+    setSavedSlugByKey((prev) => ({ ...prev, [key]: ok }));
   };
 
   return (
@@ -352,7 +366,9 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
                   onClick={() => toggleGame(m.key)}
                 >
                   <div className="hky-game-row-top">
-                    <span className="hky-chip">{m.status || "Not Started"}</span>
+                    <span className="hky-chip">
+                      {m.status || "Not Started"}
+                    </span>
                     <span className="hky-muted">{m.time} UTC</span>
                   </div>
                   <div className="hky-game-title">
@@ -361,11 +377,16 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
                   <div className="hky-game-id">
                     #{m.staticId || m.fixId || m.key}
                   </div>
-                  <div className="hky-game-added">{added ? "Added" : "Add"}</div>
+                  <div className="hky-game-added">
+                    {added ? "Added" : "Add"}
+                  </div>
                 </button>
                 {added && (
                   <div className="hky-polymarket-box">
-                    <label className="hky-polymarket-label" htmlFor={`poly-${m.key}`}>
+                    <label
+                      className="hky-polymarket-label"
+                      htmlFor={`poly-${m.key}`}
+                    >
                       Polymarket URL or slug
                     </label>
                     <input
@@ -373,10 +394,31 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
                       className="hky-polymarket-input"
                       placeholder="https://polymarket.com/sports/iihf/wch-svk-cze-2026-05-23"
                       value={polymarketInputByKey[m.key] ?? ""}
-                      onChange={(e) => onPolymarketInputChange(m.key, e.target.value)}
+                      onChange={(e) =>
+                        onPolymarketInputChange(m.key, e.target.value)
+                      }
+                      onBlur={() => {
+                        void savePolymarketUrl(m.key);
+                      }}
                     />
+                    <div className="hky-polymarket-actions">
+                      <button
+                        className="hky-save-url-btn"
+                        onClick={() => {
+                          void savePolymarketUrl(m.key);
+                        }}
+                        disabled={savingSlugByKey[m.key] === true}
+                      >
+                        {savingSlugByKey[m.key] ? "Saving..." : "Save URL"}
+                      </button>
+                      {savedSlugByKey[m.key] ? (
+                        <span className="hky-polymarket-saved">Saved</span>
+                      ) : null}
+                    </div>
                     <div className="hky-polymarket-hint">
-                      Saved to bot as slug: {extractMatchSlug(polymarketInputByKey[m.key] ?? "") || "(none yet)"}
+                      Saved to bot as slug:{" "}
+                      {extractMatchSlug(polymarketInputByKey[m.key] ?? "") ||
+                        "(none yet)"}
                     </div>
                   </div>
                 )}
@@ -394,7 +436,9 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
                   onClick={() => toggleGame(m.key)}
                 >
                   <div className="hky-game-row-top">
-                    <span className="hky-chip">{m.status || "Not Started"}</span>
+                    <span className="hky-chip">
+                      {m.status || "Not Started"}
+                    </span>
                     <span className="hky-muted">{m.time} UTC</span>
                   </div>
                   <div className="hky-game-title">
@@ -403,11 +447,16 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
                   <div className="hky-game-id">
                     #{m.staticId || m.fixId || m.key}
                   </div>
-                  <div className="hky-game-added">{added ? "Added" : "Add"}</div>
+                  <div className="hky-game-added">
+                    {added ? "Added" : "Add"}
+                  </div>
                 </button>
                 {added && (
                   <div className="hky-polymarket-box">
-                    <label className="hky-polymarket-label" htmlFor={`poly-${m.key}`}>
+                    <label
+                      className="hky-polymarket-label"
+                      htmlFor={`poly-${m.key}`}
+                    >
                       Polymarket URL or slug
                     </label>
                     <input
@@ -415,10 +464,31 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
                       className="hky-polymarket-input"
                       placeholder="https://polymarket.com/sports/iihf/wch-svk-cze-2026-05-23"
                       value={polymarketInputByKey[m.key] ?? ""}
-                      onChange={(e) => onPolymarketInputChange(m.key, e.target.value)}
+                      onChange={(e) =>
+                        onPolymarketInputChange(m.key, e.target.value)
+                      }
+                      onBlur={() => {
+                        void savePolymarketUrl(m.key);
+                      }}
                     />
+                    <div className="hky-polymarket-actions">
+                      <button
+                        className="hky-save-url-btn"
+                        onClick={() => {
+                          void savePolymarketUrl(m.key);
+                        }}
+                        disabled={savingSlugByKey[m.key] === true}
+                      >
+                        {savingSlugByKey[m.key] ? "Saving..." : "Save URL"}
+                      </button>
+                      {savedSlugByKey[m.key] ? (
+                        <span className="hky-polymarket-saved">Saved</span>
+                      ) : null}
+                    </div>
                     <div className="hky-polymarket-hint">
-                      Saved to bot as slug: {extractMatchSlug(polymarketInputByKey[m.key] ?? "") || "(none yet)"}
+                      Saved to bot as slug:{" "}
+                      {extractMatchSlug(polymarketInputByKey[m.key] ?? "") ||
+                        "(none yet)"}
                     </div>
                   </div>
                 )}

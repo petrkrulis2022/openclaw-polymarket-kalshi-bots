@@ -178,6 +178,33 @@
   font-size: 11px;
 }
 
+.hky-polymarket-actions {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hky-save-url-btn {
+  background: #14376f;
+  border: 1px solid #2f7ce5;
+  color: #dcecff;
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.hky-save-url-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.hky-polymarket-saved {
+  color: #9af0be;
+  font-size: 11px;
+}
+
 .hky-main {
   padding: 14px;
   overflow-x: hidden;
