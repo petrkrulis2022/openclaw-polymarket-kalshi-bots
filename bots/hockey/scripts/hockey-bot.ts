@@ -220,6 +220,34 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
   }
 }
 
+async function ensureMarketReady(): Promise<void> {
+  while (true) {
+    if (!activeMatchSlug) {
+      console.warn(
+        "[setup] No match slug configured yet; waiting for watched game selection...",
+      );
+    } else {
+      try {
+        console.log(
+          `[setup] Fetching ${activeTeamHome} YES/NO tokens from Gamma (slug=${activeMatchSlug})...`,
+        );
+        market = await fetchHomeTeamMarket(activeMatchSlug);
+        console.log(
+          `[setup] Market: \"${market.question}\" | conditionId=${market.conditionId.slice(0, 12)}...`,
+        );
+        return;
+      } catch (err) {
+        console.warn(
+          `[setup] Market resolution failed for slug=${activeMatchSlug}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    await sleep(10_000);
+    await loadWatchedGamesFromOrchestrator();
+  }
+}
+
 // ── Trade logic ───────────────────────────────────────────────────────────────
 
 async function onGoalDetected(
@@ -541,6 +569,23 @@ httpApp.get("/health", (_req, res) => {
   });
 });
 
+httpApp.get("/diagnostics", (_req, res) => {
+  res.json({
+    ok: true,
+    botId: config.botId,
+    name: "hockey-bot",
+    healthy: true,
+    gameOver: gameIsOver,
+    matchSlug: activeMatchSlug,
+    watchedGamesCount: watchedGames.length,
+    selectedWatchedGameKey,
+    lastGoalservePollAt,
+    openPositions: openPosition ? 1 : 0,
+    totalPnl,
+    tradesExecuted: trades.length,
+  });
+});
+
 httpApp.get("/metrics", (_req, res) => {
   const spent = trades.reduce((s, t) => s + t.entryAsk * t.size, 0);
   const walletBalance = parseFloat(
@@ -618,23 +663,19 @@ async function main(): Promise<void> {
   );
   console.log("═".repeat(60) + "\n");
 
-  // Step 1: Fetch Polymarket token IDs
-  console.log(`[setup] Fetching ${activeTeamHome} YES/NO tokens from Gamma...`);
-  market = await fetchHomeTeamMarket(activeMatchSlug);
-  console.log(
-    `[setup] Market: "${market.question}" | conditionId=${market.conditionId.slice(0, 12)}...`,
-  );
+  // Step 1: Load watched games (if user-scoped bot env is configured)
+  await loadWatchedGamesFromOrchestrator();
 
-  // Step 2: Log initial CLOB prices
+  // Step 2: Resolve market and keep retrying until available.
+  await ensureMarketReady();
+
+  // Step 3: Log initial CLOB prices
   await logPrices();
 
-  // Step 3: Warm up signing client (derive API key) before game starts
+  // Step 4: Warm up signing client (derive API key) before game starts
   console.log("\n[setup] Initialising CLOB signing client...");
   const { getSigningClient } = await import("../src/polymarket.js");
   await getSigningClient();
-
-  // Step 4: Load watched games (if user-scoped bot env is configured)
-  await loadWatchedGamesFromOrchestrator();
 
   // Step 5: Find Goalserve match ID unless watched list already supplied one
   if (!staticId) {

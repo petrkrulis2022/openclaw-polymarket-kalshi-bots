@@ -41,7 +41,7 @@ export const config = {
     watchedGamesPollMs:
       parseInt(process.env["WATCHED_GAMES_POLL_SECONDS"] ?? "2", 10) * 1_000,
   },
-  matchSlug: process.env["MATCH_SLUG"] ?? "iihf-can-swe-2026-05-22",
+  matchSlug: process.env["MATCH_SLUG"] ?? "",
   matchTeamHome: process.env["MATCH_TEAM_HOME"] ?? "Canada",
   matchTeamAway: process.env["MATCH_TEAM_AWAY"] ?? "Sweden",
   maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "10"),

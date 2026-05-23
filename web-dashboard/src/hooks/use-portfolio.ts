@@ -28,6 +28,8 @@ const BOT_ROUTE_NAMES: Record<string, string> = {
   "4": "in-market-arb",
   "5": "resolution-lag",
   "6": "microstructure",
+  "8": "sports-bot",
+  "10": "hockey-bot",
 };
 
 export function usePortfolio(metamaskAddress?: string) {
@@ -74,6 +76,49 @@ export function usePortfolio(metamaskAddress?: string) {
       );
       const diagnosticsById = new Map(diagnosticsEntries);
 
+      let copyRuntime: {
+        equity: number;
+        realizedPnl: number;
+        openPositions: number;
+      } | null = null;
+
+      if (metamaskAddress) {
+        try {
+          const base = `/api/orchestrator/users/${metamaskAddress}/bots/copy-trader/proxy`;
+          const [metricsRes, positionsRes] = await Promise.all([
+            fetch(`${base}/metrics`),
+            fetch(`${base}/positions`),
+          ]);
+          if (metricsRes.ok && positionsRes.ok) {
+            const metrics = (await metricsRes.json()) as {
+              equity?: number;
+              realizedPnl?: number;
+            };
+            const positionsPayload = (await positionsRes.json()) as {
+              positions?: Array<{ netSize?: number }>;
+              totalRealizedPnl?: number;
+            };
+
+            const positions = Array.isArray(positionsPayload.positions)
+              ? positionsPayload.positions
+              : [];
+            const openPositions = positions.filter(
+              (p) => Number(p.netSize ?? 0) > 0.001,
+            ).length;
+
+            copyRuntime = {
+              equity: Number(metrics.equity ?? 0),
+              realizedPnl: Number(
+                positionsPayload.totalRealizedPnl ?? metrics.realizedPnl ?? 0,
+              ),
+              openPositions,
+            };
+          }
+        } catch {
+          // Keep portfolio summary values if runtime endpoints are unavailable.
+        }
+      }
+
       const data: Portfolio = {
         totalEquity: parseFloat(raw.totalEquity) || 0,
         totalPnl: parseFloat(raw.totalPnl) || 0,
@@ -88,6 +133,20 @@ export function usePortfolio(metamaskAddress?: string) {
                   lastScanAt?: string;
                 })
               : undefined;
+          const isCopyTrader = String(b.id) === "3";
+          const rawEquity = parseFloat(b.equity as string) || 0;
+          const rawPnl = parseFloat(b.pnl as string) || 0;
+          const rawOpenPositions = Number(b.openPositions) || 0;
+
+          const equity =
+            isCopyTrader && copyRuntime ? copyRuntime.equity : rawEquity;
+          const pnl =
+            isCopyTrader && copyRuntime ? copyRuntime.realizedPnl : rawPnl;
+          const openPositions =
+            isCopyTrader && copyRuntime
+              ? copyRuntime.openPositions
+              : rawOpenPositions;
+
           return {
             id: String(b.id),
             name: b.name,
@@ -97,12 +156,12 @@ export function usePortfolio(metamaskAddress?: string) {
               statusByName.get(BOT_ROUTE_NAMES[String(b.id)] ?? "")?.status ??
                 "idle",
             ),
-            equity: parseFloat(b.equity as string) || 0,
-            pnl: parseFloat(b.pnl as string) || 0,
+            equity,
+            pnl,
             allocationPct: parseFloat(b.allocationPct as string) || 0,
             utilization:
               b.utilization != null ? parseFloat(b.utilization as string) : 0,
-            openPositions: Number(b.openPositions) || 0,
+            openPositions,
             enabled: statusByName.get(BOT_ROUTE_NAMES[String(b.id)] ?? "")
               ? Boolean(
                   statusByName.get(BOT_ROUTE_NAMES[String(b.id)] ?? "")
