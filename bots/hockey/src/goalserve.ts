@@ -22,6 +22,37 @@ export interface MatchState {
 
 type MatchNode = Record<string, unknown>;
 
+function normalizeTeamName(input: string): string {
+  return input
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildTeamAliases(team: string): string[] {
+  const normalized = normalizeTeamName(team);
+  const aliases = new Set<string>([normalized]);
+  aliases.add(normalized.replace(/\brepublic\b/g, "").replace(/\s+/g, " ").trim());
+
+  if (normalized === "czech republic") aliases.add("czechia");
+  if (normalized === "czechia") aliases.add("czech republic");
+  if (normalized === "slovak republic") aliases.add("slovakia");
+  if (normalized === "united states") {
+    aliases.add("usa");
+    aliases.add("us");
+  }
+
+  return Array.from(aliases).filter(Boolean);
+}
+
+function teamNameMatches(feedName: string, requestedTeam: string): boolean {
+  const n = normalizeTeamName(feedName);
+  const aliases = buildTeamAliases(requestedTeam);
+  return aliases.some((a) => n.includes(a));
+}
+
 async function gsGet(path: string): Promise<unknown> {
   const url = `${config.goalserve.baseUrl}/${config.goalserve.apiKey}/${path}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
@@ -56,14 +87,12 @@ function findMatchNodeRecursive(
   const visitor = obj["visitorteam"] as Record<string, unknown> | undefined;
 
   if (local && visitor) {
-    const localName = String(local["@name"] ?? "").toLowerCase();
-    const visitorName = String(visitor["@name"] ?? "").toLowerCase();
-    const a = teamA.toLowerCase();
-    const b = teamB.toLowerCase();
+    const localName = String(local["@name"] ?? "");
+    const visitorName = String(visitor["@name"] ?? "");
 
     const isMatch =
-      (localName.includes(a) && visitorName.includes(b)) ||
-      (localName.includes(b) && visitorName.includes(a));
+      (teamNameMatches(localName, teamA) && teamNameMatches(visitorName, teamB)) ||
+      (teamNameMatches(localName, teamB) && teamNameMatches(visitorName, teamA));
 
     if (isMatch) {
       return obj;
@@ -137,7 +166,9 @@ export async function findMatchStaticIdForTeams(
       );
       return staticId;
     }
-    console.warn(`[goalserve] ${home} vs ${away} not found in hockey/home feed`);
+    console.warn(
+      `[goalserve] ${home} vs ${away} not found in hockey/home feed`,
+    );
   } catch (err) {
     console.error("[goalserve] Home feed error:", (err as Error).message);
   }
@@ -257,6 +288,12 @@ export function isLiveStatus(status: string): boolean {
   if (
     s === "ht" ||
     s === "half-time" ||
+    s === "1st period" ||
+    s === "2nd period" ||
+    s === "3rd period" ||
+    s === "first period" ||
+    s === "second period" ||
+    s === "third period" ||
     s === "q1" ||
     s === "q2" ||
     s === "q3" ||
@@ -271,6 +308,7 @@ export function isLiveStatus(status: string): boolean {
     s === "live"
   )
     return true;
+  if (s.includes("period") && !s.includes("intermission")) return true;
   // Numeric minute: "1" .. "90" or "45+2" etc
   return /^\d/.test(status);
 }
