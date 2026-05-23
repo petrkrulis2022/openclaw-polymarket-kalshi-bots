@@ -41,6 +41,7 @@ import { SEED_PHRASE, POLYGON_RPC } from "../wdk.js";
 // ── Contract addresses (Polygon mainnet) ─────────────────────────────────────
 
 const USDCE_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+const PUSD_ADDRESS = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
 
 const DEPOSIT_WALLET_FACTORY = "0x00000000000Fb5C9ADea0298D729A0CB3823Cc07";
 const DEPOSIT_WALLET_IMPL = "0x58CA52ebe0DadfdF531Cde7062e76746de4Db1eB";
@@ -346,11 +347,22 @@ const router = Router();
 
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { index, toAddress, amountUsdce } = req.body as {
+    const { index, toAddress, amountUsdce, asset } = req.body as {
       index?: unknown;
       toAddress?: unknown;
       amountUsdce?: unknown;
+      asset?: unknown;
     };
+
+    const assetName =
+      typeof asset === "string" ? asset.toLowerCase().trim() : "usdce";
+    if (assetName !== "usdce" && assetName !== "pusd") {
+      return res.status(400).json({
+        error: "asset must be either 'usdce' or 'pusd'",
+      });
+    }
+    const tokenAddress = assetName === "pusd" ? PUSD_ADDRESS : USDCE_ADDRESS;
+    const tokenLabel = assetName === "pusd" ? "pUSD" : "USDC.e";
 
     // ── Input validation ──────────────────────────────────────────────────────
 
@@ -384,21 +396,18 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       `[withdraw-deposit] index=${index} eoa=${eoaAddress} depositWallet=${depositWalletAddress}`,
     );
 
-    // ── Check USDC.e balance in deposit wallet ────────────────────────────────
+    // ── Check token balance in deposit wallet ─────────────────────────────────
 
     const erc20If = new Interface(ERC20_ABI);
     const balCalldata = erc20If.encodeFunctionData("balanceOf", [
       depositWalletAddress,
     ]);
-    const balResult = await provider.call({
-      to: USDCE_ADDRESS,
-      data: balCalldata,
-    });
+    const balResult = await provider.call({ to: tokenAddress, data: balCalldata });
     const balance = BigInt(balResult);
 
     if (balance === 0n) {
       return res.status(400).json({
-        error: "No USDC.e balance in deposit wallet",
+        error: `No ${tokenLabel} balance in deposit wallet`,
         depositWallet: depositWalletAddress,
       });
     }
@@ -428,7 +437,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     }
 
     console.log(
-      `[withdraw-deposit] Sending ${(Number(amount) / 1e6).toFixed(2)} USDC.e → ${toAddress}`,
+      `[withdraw-deposit] Sending ${(Number(amount) / 1e6).toFixed(2)} ${tokenLabel} → ${toAddress}`,
     );
 
     // ── Build ERC20 transfer calldata ─────────────────────────────────────────
@@ -438,9 +447,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       amount,
     ]);
 
-    const calls = [
-      { target: USDCE_ADDRESS, value: "0", data: transferCalldata },
-    ];
+    const calls = [{ target: tokenAddress, value: "0", data: transferCalldata }];
 
     // ── Get CLOB / builder API keys ───────────────────────────────────────────
 
@@ -528,6 +535,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       from: depositWalletAddress,
       to: toAddress,
       amount: amountFormatted,
+      asset: tokenLabel,
     });
   } catch (err) {
     next(err);
