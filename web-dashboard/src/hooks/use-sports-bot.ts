@@ -33,8 +33,14 @@ export interface SportsBotData {
 }
 
 const DEFAULT_BOT_ID = 8;
+const BOT_ROUTE_NAMES: Record<number, string> = {
+  10: "hockey-bot",
+};
 
-export function useSportsBot(botId: number = DEFAULT_BOT_ID) {
+export function useSportsBot(
+  botId: number = DEFAULT_BOT_ID,
+  metamaskAddress?: string,
+) {
   const [data, setData] = useState<SportsBotData>({
     trades: [],
     openPosition: null,
@@ -50,9 +56,15 @@ export function useSportsBot(botId: number = DEFAULT_BOT_ID) {
 
   const fetch_ = useCallback(async () => {
     try {
+      const botName = BOT_ROUTE_NAMES[botId];
+      const base =
+        metamaskAddress && botName
+          ? `/api/orchestrator/users/${metamaskAddress}/bots/${botName}/proxy`
+          : `/api/bot/${botId}`;
+
       const [tradesRes, metricsRes] = await Promise.all([
-        fetch(`/api/bot/${botId}/trades`),
-        fetch(`/api/bot/${botId}/metrics`),
+        fetch(`${base}/trades`),
+        fetch(`${base}/metrics`),
       ]);
       const t = tradesRes.ok ? await tradesRes.json() : {};
       const m = metricsRes.ok ? await metricsRes.json() : null;
@@ -77,7 +89,7 @@ export function useSportsBot(botId: number = DEFAULT_BOT_ID) {
     } finally {
       setLoading(false);
     }
-  }, [botId]);
+  }, [botId, metamaskAddress]);
 
   useEffect(() => {
     setLoading(true);

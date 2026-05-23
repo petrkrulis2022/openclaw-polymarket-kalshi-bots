@@ -3094,13 +3094,18 @@ function MicrostructureView({
 function SportsBotView({
   bot,
   onBack,
+  metamaskAddress,
   onOpenGameManager,
 }: {
   bot: BotSummary;
   onBack: () => void;
+  metamaskAddress?: string;
   onOpenGameManager?: () => void;
 }) {
-  const { data, loading, error } = useSportsBot(Number(bot.id));
+  const { data, loading, error } = useSportsBot(
+    Number(bot.id),
+    metamaskAddress,
+  );
   const { trades, openPosition, totalPnl, gameOver, matchSlug, metrics } = data;
 
   return (
@@ -3626,14 +3631,6 @@ export default function App() {
   const [lagBotProxyWallet, setLagBotProxyWallet] = useState<
     string | undefined
   >(undefined);
-  React.useEffect(() => {
-    fetch("/api/bot/5/config")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((cfg: { walletAddress?: string } | null) => {
-        if (cfg?.walletAddress) setLagBotProxyWallet(cfg.walletAddress);
-      })
-      .catch(() => {});
-  }, []);
 
   const { address, isConnected } = useAccount();
   const {
@@ -3651,6 +3648,10 @@ export default function App() {
     withdrawFunds,
     depositToPolymarket,
   } = useUser(isConnected ? address : undefined);
+
+  React.useEffect(() => {
+    setLagBotProxyWallet(user?.funderAddress ?? undefined);
+  }, [user?.funderAddress]);
 
   // Show onboarding if connected but setup not complete.
   // Bypass if deposit wallet already has pUSD — bots are running even if DB flag is stale.
@@ -3831,6 +3832,7 @@ export default function App() {
           ) : (
             <SportsBotView
               bot={selectedBot}
+              metamaskAddress={user?.metamaskAddress}
               onBack={() => {
                 setShowHockeyGameManager(false);
                 setSelectedBot(null);
@@ -3868,6 +3870,7 @@ export default function App() {
         ) : isSportsBotSummary(selectedBot) ? (
           <SportsBotView
             bot={selectedBot}
+            metamaskAddress={user?.metamaskAddress}
             onBack={() => setSelectedBot(null)}
           />
         ) : (

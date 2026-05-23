@@ -6,6 +6,7 @@ const BOT_ROUTE_NAMES: Record<number, string> = {
   4: "in-market-arb",
   5: "resolution-lag",
   6: "microstructure",
+  10: "hockey-bot",
 };
 
 export interface BotDiagnostics {

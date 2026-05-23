@@ -28,7 +28,6 @@ const BOT_ROUTE_NAMES: Record<string, string> = {
   "4": "in-market-arb",
   "5": "resolution-lag",
   "6": "microstructure",
-  "8": "sports-bot",
   "10": "hockey-bot",
 };
 
@@ -60,6 +59,11 @@ export function usePortfolio(metamaskAddress?: string) {
           if (!metamaskAddress) return [String(b.id), null] as const;
           const botName = BOT_ROUTE_NAMES[String(b.id)];
           if (!botName) return [String(b.id), null] as const;
+          const statusRow = statusByName.get(botName);
+          const isEnabled = statusRow ? Boolean(statusRow.enabled) : true;
+          const status = String(statusRow?.status ?? "");
+          const isOnline = status.toLowerCase() === "online";
+          if (!isEnabled || !isOnline) return [String(b.id), null] as const;
           try {
             const diagRes = await fetch(
               `/api/orchestrator/users/${metamaskAddress}/bots/${botName}/diagnostics`,
@@ -164,21 +168,24 @@ export function usePortfolio(metamaskAddress?: string) {
           const rawPnl = parseFloat(b.pnl as string) || 0;
           const rawOpenPositions = Number(b.openPositions) || 0;
 
-          const equity = isCopyTrader && copyRuntime
-            ? copyRuntime.equity
-            : isHockey && hockeyRuntime
-              ? hockeyRuntime.equity
-              : rawEquity;
-          const pnl = isCopyTrader && copyRuntime
-            ? copyRuntime.realizedPnl
-            : isHockey && hockeyRuntime
-              ? hockeyRuntime.pnl
-              : rawPnl;
-          const openPositions = isCopyTrader && copyRuntime
-            ? copyRuntime.openPositions
-            : isHockey && hockeyRuntime
-              ? hockeyRuntime.openPositions
-              : rawOpenPositions;
+          const equity =
+            isCopyTrader && copyRuntime
+              ? copyRuntime.equity
+              : isHockey && hockeyRuntime
+                ? hockeyRuntime.equity
+                : rawEquity;
+          const pnl =
+            isCopyTrader && copyRuntime
+              ? copyRuntime.realizedPnl
+              : isHockey && hockeyRuntime
+                ? hockeyRuntime.pnl
+                : rawPnl;
+          const openPositions =
+            isCopyTrader && copyRuntime
+              ? copyRuntime.openPositions
+              : isHockey && hockeyRuntime
+                ? hockeyRuntime.openPositions
+                : rawOpenPositions;
 
           return {
             id: String(b.id),
