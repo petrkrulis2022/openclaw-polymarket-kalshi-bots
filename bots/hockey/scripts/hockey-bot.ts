@@ -90,11 +90,16 @@ interface WatchlistStateRow {
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let market: HomeTeamMarket;
-let staticId: string;
+let staticId = "";
 let fixId: string | undefined;
-let activeMatchSlug = config.matchSlug;
-let activeTeamHome = config.matchTeamHome || "HOME";
-let activeTeamAway = config.matchTeamAway || "AWAY";
+let activeMatchSlug = config.orchestrator.userAddress ? "" : config.matchSlug;
+let activeTeamHome = config.orchestrator.userAddress
+  ? "HOME"
+  : config.matchTeamHome || "HOME";
+let activeTeamAway = config.orchestrator.userAddress
+  ? "AWAY"
+  : config.matchTeamAway || "AWAY";
+let activeMarketBindingKey = "";
 let watchedGames: WatchedGame[] = [];
 let selectedWatchedGameKey: string | null = null;
 const watchlistLiveState = new Map<string, WatchlistStateRow>();
@@ -186,7 +191,12 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
     const payload = (await res.json()) as { games?: WatchedGame[] };
     watchedGames = Array.isArray(payload.games) ? payload.games : [];
     seedWatchlistStateFromWatchedGames();
-    if (watchedGames.length === 0) return;
+    if (watchedGames.length === 0) {
+      selectedWatchedGameKey = null;
+      activeMatchSlug = "";
+      activeMarketBindingKey = "";
+      return;
+    }
 
     const selected = watchedGames[0];
     if (!selected) return;
@@ -221,9 +231,11 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
       }
     }
 
-    if (activeMatchSlug) {
+    const nextBindingKey = `${activeMatchSlug}|${activeTeamHome.toLowerCase()}`;
+    if (activeMatchSlug && nextBindingKey !== activeMarketBindingKey) {
       try {
         market = await fetchHomeTeamMarket(activeMatchSlug, activeTeamHome);
+        activeMarketBindingKey = nextBindingKey;
         console.log(
           `[watch] Using watched game market slug=${activeMatchSlug} (${activeTeamHome} vs ${activeTeamAway})`,
         );
@@ -239,7 +251,10 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
       const prevEffectiveStaticId = staticId;
       staticId = watchedStaticId;
       fixId = selected.fixId;
-      if (prevEffectiveStaticId !== staticId || prevKey !== selectedWatchedGameKey) {
+      if (
+        prevEffectiveStaticId !== staticId ||
+        prevKey !== selectedWatchedGameKey
+      ) {
         console.log(
           `[watch] Using watched game staticId=${staticId} (${activeTeamHome} vs ${activeTeamAway})`,
         );
@@ -304,6 +319,7 @@ async function ensureMarketReady(): Promise<void> {
           `[setup] Fetching ${activeTeamHome} YES/NO tokens from Gamma (slug=${activeMatchSlug})...`,
         );
         market = await fetchHomeTeamMarket(activeMatchSlug, activeTeamHome);
+        activeMarketBindingKey = `${activeMatchSlug}|${activeTeamHome.toLowerCase()}`;
         console.log(
           `[setup] Market: \"${market.question}\" | conditionId=${market.conditionId.slice(0, 12)}...`,
         );
@@ -774,17 +790,22 @@ httpApp.listen(config.port, () => {
 
 async function main(): Promise<void> {
   console.log("═".repeat(60));
-  console.log(
-    `HOCKEY BOT — ${activeTeamHome} vs ${activeTeamAway} | Live Score Arbitrage`,
-  );
-  console.log(
-    `match=${activeMatchSlug} | budget=${config.maxPositionUsd} USDC`,
-  );
+  console.log("HOCKEY BOT — Live Score Arbitrage");
+  console.log(`budget=${config.maxPositionUsd} USDC`);
   console.log("═".repeat(60) + "\n");
 
   // Step 1: Load watched games (if user-scoped bot env is configured)
   await loadWatchedGamesFromOrchestrator();
   startWatchedGamesWatcher();
+
+  console.log("═".repeat(60));
+  console.log(
+    `HOCKEY BOT — ${activeTeamHome} vs ${activeTeamAway} | Live Score Arbitrage`,
+  );
+  console.log(
+    `match=${activeMatchSlug || "(awaiting watched game slug)"} | budget=${config.maxPositionUsd} USDC`,
+  );
+  console.log("═".repeat(60) + "\n");
 
   // Step 2: Resolve market and keep retrying until available.
   await ensureMarketReady();
