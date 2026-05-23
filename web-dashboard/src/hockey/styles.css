@@ -91,6 +91,10 @@
   color: #dcecff;
 }
 
+.hky-game-row-wrap {
+  margin-bottom: 8px;
+}
+
 .hky-game-row-added {
   border-color: #2f7ce5;
   box-shadow: inset 0 0 0 1px #2f7ce5;
@@ -134,6 +138,44 @@
 
 .hky-game-added {
   margin-top: 6px;
+}
+
+.hky-polymarket-box {
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid #1f3c72;
+  border-radius: 8px;
+  background: #08142f;
+}
+
+.hky-polymarket-label {
+  display: block;
+  color: #bbd4ff;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.hky-polymarket-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0b1735;
+  border: 1px solid #2f538f;
+  border-radius: 6px;
+  color: #dcecff;
+  font-size: 12px;
+  padding: 7px 8px;
+}
+
+.hky-polymarket-input:focus {
+  outline: none;
+  border-color: #2f7ce5;
+  box-shadow: 0 0 0 1px #2f7ce5;
+}
+
+.hky-polymarket-hint {
+  margin-top: 4px;
+  color: #89a8d8;
+  font-size: 11px;
 }
 
 .hky-main {

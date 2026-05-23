@@ -23,8 +23,31 @@ type WatchedGameDto = {
   date?: string;
   time?: string;
   statusAtAdd?: string;
+  matchSlug?: string;
   createdAt: number;
 };
+
+function extractMatchSlug(input: string): string | undefined {
+  const raw = input.trim();
+  if (!raw) return undefined;
+
+  // Allow full Polymarket URL, path, or direct slug value.
+  let candidate = raw;
+  try {
+    const url = new URL(raw);
+    const parts = url.pathname.split("/").filter(Boolean);
+    candidate = parts[parts.length - 1] ?? "";
+  } catch {
+    const cleaned = raw.split("?")[0]?.split("#")[0] ?? raw;
+    const parts = cleaned.split("/").filter(Boolean);
+    candidate = parts[parts.length - 1] ?? cleaned;
+  }
+
+  const slug = candidate.trim().toLowerCase();
+  if (!slug) return undefined;
+  if (!/^[a-z0-9-]+$/.test(slug)) return undefined;
+  return slug;
+}
 
 function asArray<T>(value: T | T[] | null | undefined): T[] {
   if (Array.isArray(value)) return value;
@@ -118,6 +141,9 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
       return [];
     }
   });
+  const [polymarketInputByKey, setPolymarketInputByKey] = useState<
+    Record<string, string>
+  >({});
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedKeys));
@@ -135,8 +161,17 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
         if (!res.ok) return;
         const payload = (await res.json()) as { games?: WatchedGameDto[] };
         if (stopped) return;
-        const keys = (payload.games ?? []).map((g) => g.key).filter(Boolean);
+        const games = payload.games ?? [];
+        const keys = games.map((g) => g.key).filter(Boolean);
         if (keys.length > 0) setSelectedKeys(keys);
+
+        const nextInputs: Record<string, string> = {};
+        for (const game of games) {
+          if (game.matchSlug) {
+            nextInputs[game.key] = game.matchSlug;
+          }
+        }
+        setPolymarketInputByKey(nextInputs);
       } catch {
         // local fallback remains active
       }
@@ -216,25 +251,32 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
     return map;
   }, [allMatches]);
 
-  const persistSelection = async (keys: string[]) => {
+  const persistSelection = async (
+    keys: string[],
+    slugInputMap: Record<string, string> = polymarketInputByKey,
+  ) => {
     if (!metamaskAddress) return;
     const games: WatchedGameDto[] = keys
       .map((key) => byKey[key])
       .filter((m): m is HockeyFeedMatch => Boolean(m))
-      .map((m) => ({
-        key: m.key,
-        sport: "hockey",
-        staticId: m.staticId,
-        fixId: m.fixId,
-        leagueName: m.leagueName,
-        country: m.country,
-        homeTeam: m.homeTeam,
-        awayTeam: m.awayTeam,
-        date: m.date,
-        time: m.time,
-        statusAtAdd: m.status,
-        createdAt: Date.now(),
-      }));
+      .map((m) => {
+        const slug = extractMatchSlug(slugInputMap[m.key] ?? "");
+        return {
+          key: m.key,
+          sport: "hockey",
+          staticId: m.staticId,
+          fixId: m.fixId,
+          leagueName: m.leagueName,
+          country: m.country,
+          homeTeam: m.homeTeam,
+          awayTeam: m.awayTeam,
+          date: m.date,
+          time: m.time,
+          statusAtAdd: m.status,
+          matchSlug: slug,
+          createdAt: Date.now(),
+        };
+      });
 
     try {
       await fetch(
@@ -268,6 +310,16 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
     });
   };
 
+  const onPolymarketInputChange = (key: string, value: string) => {
+    setPolymarketInputByKey((prev) => {
+      const next = { ...prev, [key]: value };
+      if (selectedKeys.includes(key)) {
+        void persistSelection(selectedKeys, next);
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="hky-shell">
       <div className="hky-header">
@@ -294,23 +346,41 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
           {todayMatches.map((m) => {
             const added = selectedKeys.includes(m.key);
             return (
-              <button
-                key={`today-${m.key}`}
-                className={`hky-game-row ${added ? "hky-game-row-added" : ""}`}
-                onClick={() => toggleGame(m.key)}
-              >
-                <div className="hky-game-row-top">
-                  <span className="hky-chip">{m.status || "Not Started"}</span>
-                  <span className="hky-muted">{m.time} UTC</span>
-                </div>
-                <div className="hky-game-title">
-                  {m.homeTeam} vs {m.awayTeam}
-                </div>
-                <div className="hky-game-id">
-                  #{m.staticId || m.fixId || m.key}
-                </div>
-                <div className="hky-game-added">{added ? "Added" : "Add"}</div>
-              </button>
+              <div key={`today-${m.key}`} className="hky-game-row-wrap">
+                <button
+                  className={`hky-game-row ${added ? "hky-game-row-added" : ""}`}
+                  onClick={() => toggleGame(m.key)}
+                >
+                  <div className="hky-game-row-top">
+                    <span className="hky-chip">{m.status || "Not Started"}</span>
+                    <span className="hky-muted">{m.time} UTC</span>
+                  </div>
+                  <div className="hky-game-title">
+                    {m.homeTeam} vs {m.awayTeam}
+                  </div>
+                  <div className="hky-game-id">
+                    #{m.staticId || m.fixId || m.key}
+                  </div>
+                  <div className="hky-game-added">{added ? "Added" : "Add"}</div>
+                </button>
+                {added && (
+                  <div className="hky-polymarket-box">
+                    <label className="hky-polymarket-label" htmlFor={`poly-${m.key}`}>
+                      Polymarket URL or slug
+                    </label>
+                    <input
+                      id={`poly-${m.key}`}
+                      className="hky-polymarket-input"
+                      placeholder="https://polymarket.com/sports/iihf/wch-svk-cze-2026-05-23"
+                      value={polymarketInputByKey[m.key] ?? ""}
+                      onChange={(e) => onPolymarketInputChange(m.key, e.target.value)}
+                    />
+                    <div className="hky-polymarket-hint">
+                      Saved to bot as slug: {extractMatchSlug(polymarketInputByKey[m.key] ?? "") || "(none yet)"}
+                    </div>
+                  </div>
+                )}
+              </div>
             );
           })}
 
@@ -318,23 +388,41 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
           {tomorrowMatches.map((m) => {
             const added = selectedKeys.includes(m.key);
             return (
-              <button
-                key={`tomorrow-${m.key}`}
-                className={`hky-game-row ${added ? "hky-game-row-added" : ""}`}
-                onClick={() => toggleGame(m.key)}
-              >
-                <div className="hky-game-row-top">
-                  <span className="hky-chip">{m.status || "Not Started"}</span>
-                  <span className="hky-muted">{m.time} UTC</span>
-                </div>
-                <div className="hky-game-title">
-                  {m.homeTeam} vs {m.awayTeam}
-                </div>
-                <div className="hky-game-id">
-                  #{m.staticId || m.fixId || m.key}
-                </div>
-                <div className="hky-game-added">{added ? "Added" : "Add"}</div>
-              </button>
+              <div key={`tomorrow-${m.key}`} className="hky-game-row-wrap">
+                <button
+                  className={`hky-game-row ${added ? "hky-game-row-added" : ""}`}
+                  onClick={() => toggleGame(m.key)}
+                >
+                  <div className="hky-game-row-top">
+                    <span className="hky-chip">{m.status || "Not Started"}</span>
+                    <span className="hky-muted">{m.time} UTC</span>
+                  </div>
+                  <div className="hky-game-title">
+                    {m.homeTeam} vs {m.awayTeam}
+                  </div>
+                  <div className="hky-game-id">
+                    #{m.staticId || m.fixId || m.key}
+                  </div>
+                  <div className="hky-game-added">{added ? "Added" : "Add"}</div>
+                </button>
+                {added && (
+                  <div className="hky-polymarket-box">
+                    <label className="hky-polymarket-label" htmlFor={`poly-${m.key}`}>
+                      Polymarket URL or slug
+                    </label>
+                    <input
+                      id={`poly-${m.key}`}
+                      className="hky-polymarket-input"
+                      placeholder="https://polymarket.com/sports/iihf/wch-svk-cze-2026-05-23"
+                      value={polymarketInputByKey[m.key] ?? ""}
+                      onChange={(e) => onPolymarketInputChange(m.key, e.target.value)}
+                    />
+                    <div className="hky-polymarket-hint">
+                      Saved to bot as slug: {extractMatchSlug(polymarketInputByKey[m.key] ?? "") || "(none yet)"}
+                    </div>
+                  </div>
+                )}
+              </div>
             );
           })}
         </aside>
