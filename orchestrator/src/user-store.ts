@@ -35,6 +35,7 @@ db.exec(`
     poly_api_passphrase TEXT,
     poly_funder_address TEXT,
     bot_allocations_json TEXT NOT NULL DEFAULT '{}',
+    watched_games_json TEXT NOT NULL DEFAULT '{}',
     bots_running       INTEGER NOT NULL DEFAULT 0,
     autonomous_mode    INTEGER NOT NULL DEFAULT 0,
     created_at         INTEGER NOT NULL DEFAULT (unixepoch())
@@ -86,6 +87,19 @@ if (
   );
 }
 
+// Migration: add watched_games_json to databases that predate this column
+if (
+  !db
+    .prepare(
+      "SELECT name FROM pragma_table_info('users') WHERE name = 'watched_games_json'",
+    )
+    .get()
+) {
+  db.exec(
+    "ALTER TABLE users ADD COLUMN watched_games_json TEXT NOT NULL DEFAULT '{}'",
+  );
+}
+
 // ── Prepared statements ───────────────────────────────────────────────────────
 
 const stmtGetUser = db.prepare<[string]>(
@@ -105,6 +119,9 @@ const stmtUpdateFunderAddress = db.prepare<[string, string]>(
 );
 const stmtUpdateBotAllocations = db.prepare<[string, string]>(
   "UPDATE users SET bot_allocations_json = ? WHERE metamask_address = ?",
+);
+const stmtUpdateWatchedGames = db.prepare<[string, string]>(
+  "UPDATE users SET watched_games_json = ? WHERE metamask_address = ?",
 );
 const stmtSetBotsRunning = db.prepare<[number, string]>(
   "UPDATE users SET bots_running = ? WHERE metamask_address = ?",
@@ -131,9 +148,29 @@ export interface User {
   poly_api_passphrase: string | null;
   poly_funder_address: string | null;
   bot_allocations_json: string | null;
+  watched_games_json: string | null;
   bots_running: number;
   autonomous_mode: number;
   created_at: number;
+}
+
+export interface WatchedGame {
+  key: string;
+  sport: string;
+  staticId?: string;
+  fixId?: string;
+  leagueName?: string;
+  country?: string;
+  homeTeam: string;
+  awayTeam: string;
+  date?: string;
+  time?: string;
+  statusAtAdd?: string;
+  matchSlug?: string;
+  yesTokenId?: string;
+  noTokenId?: string;
+  conditionId?: string;
+  createdAt: number;
 }
 
 function parseBotAllocations(
@@ -154,6 +191,64 @@ function parseBotAllocations(
 
 function stringifyBotAllocations(allocations: Record<string, boolean>): string {
   return JSON.stringify(allocations);
+}
+
+function parseWatchedGamesMap(
+  raw: string | null | undefined,
+): Record<string, WatchedGame[]> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const result: Record<string, WatchedGame[]> = {};
+    for (const [botName, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      result[botName] = value
+        .map((entry) => {
+          if (typeof entry !== "object" || entry === null) return null;
+          const row = entry as Record<string, unknown>;
+          const key = String(row["key"] ?? "").trim();
+          const homeTeam = String(row["homeTeam"] ?? "").trim();
+          const awayTeam = String(row["awayTeam"] ?? "").trim();
+          if (!key || !homeTeam || !awayTeam) return null;
+          return {
+            key,
+            sport: String(row["sport"] ?? "hockey"),
+            staticId: row["staticId"] ? String(row["staticId"]) : undefined,
+            fixId: row["fixId"] ? String(row["fixId"]) : undefined,
+            leagueName: row["leagueName"]
+              ? String(row["leagueName"])
+              : undefined,
+            country: row["country"] ? String(row["country"]) : undefined,
+            homeTeam,
+            awayTeam,
+            date: row["date"] ? String(row["date"]) : undefined,
+            time: row["time"] ? String(row["time"]) : undefined,
+            statusAtAdd: row["statusAtAdd"]
+              ? String(row["statusAtAdd"])
+              : undefined,
+            matchSlug: row["matchSlug"] ? String(row["matchSlug"]) : undefined,
+            yesTokenId: row["yesTokenId"]
+              ? String(row["yesTokenId"])
+              : undefined,
+            noTokenId: row["noTokenId"] ? String(row["noTokenId"]) : undefined,
+            conditionId: row["conditionId"]
+              ? String(row["conditionId"])
+              : undefined,
+            createdAt: Number(row["createdAt"] ?? Date.now()),
+          } as WatchedGame;
+        })
+        .filter((row): row is WatchedGame => row !== null);
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function stringifyWatchedGamesMap(
+  watchedGames: Record<string, WatchedGame[]>,
+): string {
+  return JSON.stringify(watchedGames);
 }
 
 // ── Public helpers ────────────────────────────────────────────────────────────
@@ -234,6 +329,26 @@ export function setAllBotAllocations(
     stringifyBotAllocations(allocations),
     metamaskAddress,
   );
+}
+
+export function getWatchedGames(
+  metamaskAddress: string,
+  botName: string,
+): WatchedGame[] {
+  const user = getUser(metamaskAddress);
+  const map = parseWatchedGamesMap(user?.watched_games_json);
+  return map[botName] ?? [];
+}
+
+export function setWatchedGames(
+  metamaskAddress: string,
+  botName: string,
+  games: WatchedGame[],
+): void {
+  const user = getUser(metamaskAddress);
+  const map = parseWatchedGamesMap(user?.watched_games_json);
+  map[botName] = games;
+  stmtUpdateWatchedGames.run(stringifyWatchedGamesMap(map), metamaskAddress);
 }
 
 export function setBotsRunning(
