@@ -261,6 +261,75 @@ function runCmd(cmd: string, args: string[], cwd?: string): Promise<string> {
   });
 }
 
+type Pm2Proc = {
+  name: string;
+  pm2_env?: { status?: string };
+};
+
+async function getPm2Processes(): Promise<Pm2Proc[]> {
+  const raw = await runCmd("pm2", ["jlist"]);
+  return JSON.parse(raw) as Pm2Proc[];
+}
+
+async function ensureUserBotProcess(
+  user: User,
+  botName: string,
+  totalEnabledBots: number,
+): Promise<string> {
+  const bot = getBotDef(botName);
+  if (!bot) {
+    throw new Error(`Unknown bot \"${botName}\"`);
+  }
+
+  const slot = userSlot(user.bot_wallet_index);
+  const pmName = `${bot.name}-u${slot}`;
+
+  try {
+    const list = await getPm2Processes();
+    const exists = list.some((p) => p.name === pmName);
+    if (exists) return pmName;
+  } catch {
+    // Fall through and try creating the process definition.
+  }
+
+  const [{ signerKey }, { depositWalletAddress }] = await Promise.all([
+    deriveWallet(user.bot_wallet_index),
+    getDepositWalletAddress(user.bot_wallet_index),
+  ]);
+
+  if (!fs.existsSync(ENVS_DIR)) fs.mkdirSync(ENVS_DIR, { recursive: true });
+
+  const app = {
+    name: pmName,
+    script: "npx",
+    args: `tsx ${bot.entrypoint}`,
+    cwd: path.join(REPO_ROOT, "bots", bot.folder),
+    env: {
+      PORT: String(userBasePort(user.bot_wallet_index) + bot.portOffset),
+      BOT_ID: String(bot.botId),
+      USER_METAMASK_ADDRESS: user.metamask_address,
+      POLYMARKET_WALLET_ADDRESS: depositWalletAddress,
+      BOT_SIGNER_KEY: signerKey,
+      POLYMARKET_FUNDER_ADDRESS: depositWalletAddress,
+      POLYMARKET_SIGNATURE_TYPE: "POLY_1271",
+      ORCHESTRATOR_URL: `http://localhost:${process.env["PORT"] ?? 3002}`,
+      TREASURY_URL: WDK_TREASURY_URL,
+      BOT_COUNT: String(Math.max(1, totalEnabledBots)),
+      PAPER_TRADING: "",
+    },
+  };
+
+  const ecosystemPath = path.join(ENVS_DIR, `ecosystem-${pmName}.json`);
+  fs.writeFileSync(ecosystemPath, JSON.stringify({ apps: [app] }, null, 2), {
+    mode: 0o600,
+  });
+
+  await runCmd("pm2", ["start", ecosystemPath]);
+  await runCmd("pm2", ["save"]);
+
+  return pmName;
+}
+
 const router = Router();
 
 // ── POST /users/register ─────────────────────────────────────────────────────
@@ -799,9 +868,13 @@ router.post(
         });
       }
 
+      const enabledCount = BOT_DEFS.filter((bot) =>
+        isBotEnabled(user, bot.name),
+      ).length;
       const slot = userSlot(user.bot_wallet_index);
       const pmName = `${botName}-u${slot}`;
       setBotAllocation(address, botName, true);
+      await ensureUserBotProcess(user, botName, Math.max(1, enabledCount));
       await runCmd("pm2", ["start", pmName]);
       return res.json({ ok: true, bot: pmName, action: "started" });
     } catch (err) {
@@ -840,6 +913,10 @@ router.put(
 
       if (enabled) {
         if (user.bots_running === 1) {
+          const enabledCount = BOT_DEFS.filter((bot) =>
+            isBotEnabled(user, bot.name),
+          ).length;
+          await ensureUserBotProcess(user, botName, Math.max(1, enabledCount));
           await runCmd("pm2", ["start", pmName]);
         }
       } else {
@@ -945,7 +1022,9 @@ router.all(
 
       const wildcard = (req.params as Record<string, string>)?.["0"] ?? "";
       const targetPath = wildcard.startsWith("/") ? wildcard : `/${wildcard}`;
-      const query = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+      const query = req.url.includes("?")
+        ? req.url.slice(req.url.indexOf("?"))
+        : "";
       const targetUrl = `${botBaseUrl}${targetPath}${query}`;
 
       const headers: Record<string, string> = {};
@@ -955,12 +1034,21 @@ router.all(
       const method = req.method.toUpperCase();
       const hasBody = !["GET", "HEAD"].includes(method);
 
-      const upstream = await fetch(targetUrl, {
-        method,
-        headers,
-        body: hasBody ? JSON.stringify(req.body ?? {}) : undefined,
-        signal: AbortSignal.timeout(8_000),
-      });
+      let upstream: Response;
+      try {
+        upstream = await fetch(targetUrl, {
+          method,
+          headers,
+          body: hasBody ? JSON.stringify(req.body ?? {}) : undefined,
+          signal: AbortSignal.timeout(8_000),
+        });
+      } catch (err) {
+        return res.status(502).json({
+          ok: false,
+          bot: bot.name,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
 
       const bodyText = await upstream.text();
       const upstreamType = upstream.headers.get("content-type") ?? "";
