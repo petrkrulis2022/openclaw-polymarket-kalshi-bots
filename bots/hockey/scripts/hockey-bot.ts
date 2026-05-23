@@ -89,6 +89,7 @@ interface WatchlistStateRow {
 
 let market: HomeTeamMarket;
 let staticId: string;
+let fixId: string | undefined;
 let activeMatchSlug = config.matchSlug;
 let activeTeamHome = config.matchTeamHome || "HOME";
 let activeTeamAway = config.matchTeamAway || "AWAY";
@@ -209,6 +210,7 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
     const watchedStaticId = selected.staticId || selected.fixId;
     if (watchedStaticId) {
       staticId = watchedStaticId;
+      fixId = selected.fixId;
       console.log(
         `[watch] Using watched game staticId=${staticId} (${activeTeamHome} vs ${activeTeamAway})`,
       );
@@ -448,7 +450,12 @@ function printReport(): void {
  */
 async function goalserveLoop(): Promise<void> {
   while (!gameIsOver) {
-    const state = await pollLiveMatch(staticId);
+    const state = await pollLiveMatch(
+      staticId,
+      activeTeamHome,
+      activeTeamAway,
+      fixId,
+    );
     lastGoalservePollAt = new Date().toISOString();
 
     if (!state) {
@@ -523,7 +530,9 @@ async function sellMonitorLoop(): Promise<void> {
 // ── Pre-game wait ─────────────────────────────────────────────────────────────
 
 async function waitForKickoff(): Promise<void> {
-  const watchedSelection = watchedGames.find((g) => g.key === selectedWatchedGameKey);
+  const watchedSelection = watchedGames.find(
+    (g) => g.key === selectedWatchedGameKey,
+  );
   const kickoffHint =
     watchedSelection?.date && watchedSelection?.time
       ? `${watchedSelection.date} ${watchedSelection.time}`
@@ -531,15 +540,18 @@ async function waitForKickoff(): Promise<void> {
         ? watchedSelection.date
         : activeMatchSlug || "unknown";
 
-  console.log(
-    `\n[bot]  Waiting for kickoff (match=${kickoffHint})`,
-  );
+  console.log(`\n[bot]  Waiting for kickoff (match=${kickoffHint})`);
   console.log(
     `[bot]  Polling Goalserve every ${config.preGamePollMs / 1000}s for game status...\n`,
   );
 
   while (true) {
-    const state = await pollLiveMatch(staticId);
+    const state = await pollLiveMatch(
+      staticId,
+      activeTeamHome,
+      activeTeamAway,
+      fixId,
+    );
 
     if (state) {
       console.log(
@@ -608,6 +620,12 @@ httpApp.get("/diagnostics", (_req, res) => {
     healthy: true,
     gameOver: gameIsOver,
     matchSlug: activeMatchSlug,
+    teams: {
+      home: activeTeamHome,
+      away: activeTeamAway,
+    },
+    staticId,
+    fixId,
     watchedGamesCount: watchedGames.length,
     selectedWatchedGameKey,
     lastGoalservePollAt,

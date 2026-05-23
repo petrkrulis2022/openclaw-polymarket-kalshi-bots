@@ -63,11 +63,25 @@ export function LiveManager({
         if (!res.ok) return;
         const payload = (await res.json()) as {
           games?: Array<Partial<HockeyFeedMatch> & { key: string }>;
+          lastGoalservePollAt?: string | null;
         };
         if (stopped) return;
+
+        // If bot hasn't successfully polled Goalserve yet, don't let seeded
+        // watchlist defaults override fresher discovery-feed values.
+        if (!payload.lastGoalservePollAt) {
+          setLiveByKey({});
+          setPollTick((t) => t + 1);
+          return;
+        }
+
         const next: Record<string, HockeyFeedMatch> = {};
         for (const match of payload.games ?? []) {
           const base = baseByKey[match.key] as HockeyFeedMatch | undefined;
+          const liveStatus = String(match.status ?? base?.status ?? "Not Started");
+          const baseStatus = String(base?.status ?? "");
+          const preferBaseScore =
+            !isLiveStatus(liveStatus) && isLiveStatus(baseStatus);
           next[match.key] = {
             key: match.key,
             staticId: String(match.staticId ?? base?.staticId ?? ""),
@@ -78,10 +92,18 @@ export function LiveManager({
             country: String(match.country ?? base?.country ?? ""),
             homeTeam: String(match.homeTeam ?? base?.homeTeam ?? "Home"),
             awayTeam: String(match.awayTeam ?? base?.awayTeam ?? "Away"),
-            status: String(match.status ?? base?.status ?? "Not Started"),
-            timer: String(match.timer ?? base?.timer ?? ""),
-            scoreHome: Number(match.scoreHome ?? base?.scoreHome ?? 0),
-            scoreAway: Number(match.scoreAway ?? base?.scoreAway ?? 0),
+            status: preferBaseScore
+              ? String(base?.status ?? liveStatus)
+              : liveStatus,
+            timer: preferBaseScore
+              ? String(base?.timer ?? match.timer ?? "")
+              : String(match.timer ?? base?.timer ?? ""),
+            scoreHome: preferBaseScore
+              ? Number(base?.scoreHome ?? match.scoreHome ?? 0)
+              : Number(match.scoreHome ?? base?.scoreHome ?? 0),
+            scoreAway: preferBaseScore
+              ? Number(base?.scoreAway ?? match.scoreAway ?? 0)
+              : Number(match.scoreAway ?? base?.scoreAway ?? 0),
             periodScores: Array.isArray(match.periodScores)
               ? match.periodScores
               : (base?.periodScores ?? []),

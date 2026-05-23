@@ -124,6 +124,9 @@ export async function findMatchStaticId(): Promise<string> {
  */
 export async function pollLiveMatch(
   staticId: string,
+  homeTeam?: string,
+  awayTeam?: string,
+  fallbackId?: string,
 ): Promise<MatchState | null> {
   try {
     const data = await gsGet("hockey/home?json=1");
@@ -131,6 +134,11 @@ export async function pollLiveMatch(
     let matchNode: MatchNode | null = null;
 
     if (staticId) {
+      const wantedIds = new Set(
+        [staticId, fallbackId]
+          .map((v) => String(v ?? "").trim())
+          .filter((v) => v.length > 0),
+      );
       const findById = (node: unknown): MatchNode | null => {
         if (typeof node !== "object" || node === null) return null;
         if (Array.isArray(node)) {
@@ -142,7 +150,11 @@ export async function pollLiveMatch(
         }
         const obj = node as MatchNode;
         const id = String(obj["@static_id"] ?? obj["@id"] ?? "");
-        if (id === staticId && obj["localteam"] && obj["visitorteam"]) {
+        if (
+          wantedIds.has(id) &&
+          obj["localteam"] &&
+          (obj["visitorteam"] || obj["awayteam"])
+        ) {
           return obj;
         }
         for (const v of Object.values(obj)) {
@@ -156,10 +168,12 @@ export async function pollLiveMatch(
     }
 
     if (!matchNode) {
+      const resolvedHome = (homeTeam && homeTeam.trim()) || config.matchTeamHome;
+      const resolvedAway = (awayTeam && awayTeam.trim()) || config.matchTeamAway;
       matchNode = findMatchNodeRecursive(
         data,
-        config.matchTeamHome,
-        config.matchTeamAway,
+        resolvedHome,
+        resolvedAway,
       );
     }
 
@@ -167,7 +181,9 @@ export async function pollLiveMatch(
 
     const m = matchNode as Record<string, unknown>;
     const local = m["localteam"] as Record<string, unknown> | undefined;
-    const visitor = m["visitorteam"] as Record<string, unknown> | undefined;
+    const visitor =
+      (m["visitorteam"] as Record<string, unknown> | undefined) ??
+      (m["awayteam"] as Record<string, unknown> | undefined);
     const scoreHomeRaw =
       local?.["@goals"] ?? local?.["@score"] ?? local?.["goals"] ?? "?";
     const scoreAwayRaw =

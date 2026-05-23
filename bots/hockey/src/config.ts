@@ -1,12 +1,6 @@
 import "dotenv/config";
 import { SignatureTypeV2 } from "@polymarket/clob-client-v2";
 
-function req(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var: ${name}`);
-  return v;
-}
-
 function signatureTypeFromEnv(): SignatureTypeV2 {
   switch (process.env["POLYMARKET_SIGNATURE_TYPE"]) {
     case "POLY_PROXY":
@@ -28,7 +22,7 @@ export const config = {
     matchStaticId: process.env["GOALSERVE_MATCH_STATIC_ID"] ?? "",
   },
   polymarket: {
-    walletAddress: req("POLYMARKET_WALLET_ADDRESS"),
+    walletAddress: process.env["POLYMARKET_WALLET_ADDRESS"] ?? "",
     signerKey: process.env["BOT_SIGNER_KEY"] ?? "",
     funderAddress: process.env["POLYMARKET_FUNDER_ADDRESS"] ?? "",
     signatureType: signatureTypeFromEnv(),
