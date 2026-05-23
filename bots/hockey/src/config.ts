@@ -41,9 +41,9 @@ export const config = {
     watchedGamesPollMs:
       parseInt(process.env["WATCHED_GAMES_POLL_SECONDS"] ?? "2", 10) * 1_000,
   },
-  matchSlug: process.env["MATCH_SLUG"] ?? "",
-  matchTeamHome: process.env["MATCH_TEAM_HOME"] ?? "Canada",
-  matchTeamAway: process.env["MATCH_TEAM_AWAY"] ?? "Sweden",
+  matchSlug: (process.env["MATCH_SLUG"] ?? "").trim(),
+  matchTeamHome: (process.env["MATCH_TEAM_HOME"] ?? "").trim(),
+  matchTeamAway: (process.env["MATCH_TEAM_AWAY"] ?? "").trim(),
   maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "10"),
   minProfitCents: parseFloat(process.env["MIN_PROFIT_CENTS"] ?? "0.04"),
   stopLossRatio: parseFloat(process.env["STOP_LOSS_RATIO"] ?? "0.5"),

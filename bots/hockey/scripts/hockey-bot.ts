@@ -90,8 +90,8 @@ interface WatchlistStateRow {
 let market: HomeTeamMarket;
 let staticId: string;
 let activeMatchSlug = config.matchSlug;
-let activeTeamHome = config.matchTeamHome;
-let activeTeamAway = config.matchTeamAway;
+let activeTeamHome = config.matchTeamHome || "HOME";
+let activeTeamAway = config.matchTeamAway || "AWAY";
 let watchedGames: WatchedGame[] = [];
 let selectedWatchedGameKey: string | null = null;
 const watchlistLiveState = new Map<string, WatchlistStateRow>();
@@ -245,6 +245,21 @@ async function ensureMarketReady(): Promise<void> {
 
     await sleep(10_000);
     await loadWatchedGamesFromOrchestrator();
+  }
+}
+
+async function ensureSigningClientReady(): Promise<void> {
+  while (true) {
+    try {
+      const { getSigningClient } = await import("../src/polymarket.js");
+      await getSigningClient();
+      return;
+    } catch (err) {
+      console.warn(
+        `[setup] Signing client init failed: ${(err as Error).message}`,
+      );
+      await sleep(10_000);
+    }
   }
 }
 
@@ -674,8 +689,7 @@ async function main(): Promise<void> {
 
   // Step 4: Warm up signing client (derive API key) before game starts
   console.log("\n[setup] Initialising CLOB signing client...");
-  const { getSigningClient } = await import("../src/polymarket.js");
-  await getSigningClient();
+  await ensureSigningClientReady();
 
   // Step 5: Find Goalserve match ID unless watched list already supplied one
   if (!staticId) {

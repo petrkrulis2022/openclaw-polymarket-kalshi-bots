@@ -127,12 +127,17 @@ function getReadClient(): ClobClient {
 export async function getSigningClient(): Promise<ClobClient> {
   if (_signingClient) return _signingClient;
 
-  const key = config.polymarket.signerKey;
-  if (!key) throw new Error("BOT_SIGNER_KEY not set");
+  const rawKey = config.polymarket.signerKey.trim();
+  if (!rawKey) throw new Error("BOT_SIGNER_KEY not set");
+  const keyNoPrefix = rawKey.startsWith("0x") ? rawKey.slice(2) : rawKey;
+  if (!/^[0-9a-fA-F]{64}$/.test(keyNoPrefix)) {
+    throw new Error(
+      "BOT_SIGNER_KEY must be a 64-char hex private key (optionally 0x-prefixed)",
+    );
+  }
+  const key = `0x${keyNoPrefix}` as `0x${string}`;
 
-  const account = privateKeyToAccount(
-    (key.startsWith("0x") ? key : `0x${key}`) as `0x${string}`,
-  );
+  const account = privateKeyToAccount(key);
   const signer = createWalletClient({
     account,
     chain: polygon,
