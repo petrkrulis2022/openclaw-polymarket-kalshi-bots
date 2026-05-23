@@ -32,7 +32,12 @@ import {
   pruneTerminal,
 } from "./pending.js";
 import { executeTrade } from "./executor.js";
-import { getCollateralBalance, fetchTradeHistory } from "./clob.js";
+import {
+  getCollateralBalance,
+  fetchTradeHistory,
+  getBestBid,
+  placeLimitOrder,
+} from "./clob.js";
 import {
   getAllPositions,
   getTotalRealizedPnl,
@@ -236,6 +241,54 @@ app.get("/positions", (_req: Request, res: Response) => {
     positions,
     totalRealizedPnl: getTotalRealizedPnl(),
   });
+});
+
+// Emergency/manual close: sell all currently held inventory at best bid.
+app.post("/positions/close-all", async (_req: Request, res: Response) => {
+  const positions = getAllPositions().filter((p) => p.netSize > 0.001);
+  if (positions.length === 0) {
+    res.json({ ok: true, closed: [], skipped: [], message: "No open positions" });
+    return;
+  }
+
+  const closed: Array<{
+    tokenId: string;
+    size: number;
+    price: number;
+    orderId: string;
+  }> = [];
+  const skipped: Array<{ tokenId: string; reason: string }> = [];
+
+  for (const pos of positions) {
+    try {
+      const price = await getBestBid(pos.tokenId);
+      if (!Number.isFinite(price) || price <= 0 || price >= 1) {
+        skipped.push({ tokenId: pos.tokenId, reason: `Invalid bid price: ${price}` });
+        continue;
+      }
+
+      const size = pos.netSize;
+      const { orderId } = await placeLimitOrder(
+        pos.tokenId,
+        "SELL",
+        price,
+        size,
+        "[MANUAL CLOSE-ALL]",
+      );
+
+      // Keep local inventory in sync immediately after successful order post.
+      recordFill(pos.tokenId, "manual-close", "SELL", price, size);
+
+      closed.push({ tokenId: pos.tokenId, size, price, orderId });
+    } catch (err) {
+      skipped.push({
+        tokenId: pos.tokenId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  res.json({ ok: true, closed, skipped });
 });
 
 // ── Pending queue ─────────────────────────────────────────────────────────────
