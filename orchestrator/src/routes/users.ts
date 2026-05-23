@@ -113,7 +113,7 @@ function getUserBotBaseUrl(user: User, botName: string): string | null {
   const bot = getBotDef(botName);
   if (!bot) return null;
   const port = userBasePort(user.bot_wallet_index) + bot.portOffset;
-  return `http://localhost:${port}`;
+  return `http://127.0.0.1:${port}`;
 }
 
 async function fetchGoalserveHockey(pathname: "home" | "d1"): Promise<unknown> {
@@ -958,7 +958,7 @@ router.get(
 
       const slot = userSlot(user.bot_wallet_index);
       const port = userBasePort(user.bot_wallet_index) + bot.portOffset;
-      const url = `http://localhost:${port}/diagnostics`;
+      const url = `http://127.0.0.1:${port}/diagnostics`;
 
       try {
         const diagRes = await fetch(url, {
