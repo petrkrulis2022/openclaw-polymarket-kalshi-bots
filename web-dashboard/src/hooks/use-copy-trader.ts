@@ -76,10 +76,9 @@ export interface CopyTraderState {
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-const BASE = "/api/bot/3";
 const POLL_MS = 5_000;
 
-export function useCopyTrader() {
+export function useCopyTrader(metamaskAddress?: string) {
   const [state, setState] = useState<CopyTraderState>({
     traders: [],
     pending: [],
@@ -91,11 +90,15 @@ export function useCopyTrader() {
   });
 
   const refresh = useCallback(async () => {
+    const base = metamaskAddress
+      ? `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/bots/copy-trader/proxy`
+      : "/api/bot/3";
+
     try {
       const [tradersRes, pendingRes, positionsRes] = await Promise.all([
-        fetch(`${BASE}/traders`),
-        fetch(`${BASE}/pending`),
-        fetch(`${BASE}/positions`),
+        fetch(`${base}/traders`),
+        fetch(`${base}/pending`),
+        fetch(`${base}/positions`),
       ]);
 
       if (!tradersRes.ok || !pendingRes.ok || !positionsRes.ok) {
@@ -115,7 +118,7 @@ export function useCopyTrader() {
         traders.map(async (t) => {
           try {
             const r = await fetch(
-              `${BASE}/traders/${encodeURIComponent(t.address)}/snapshot`,
+              `${base}/traders/${encodeURIComponent(t.address)}/snapshot`,
             );
             if (!r.ok) return [t.address, []] as [string, TraderDataPosition[]];
             const data = (await r.json()) as TraderDataPosition[];
@@ -139,7 +142,7 @@ export function useCopyTrader() {
     } catch {
       setState((s) => ({ ...s, online: false, loading: false }));
     }
-  }, []);
+  }, [metamaskAddress]);
 
   useEffect(() => {
     void refresh();
@@ -152,7 +155,10 @@ export function useCopyTrader() {
   const addTrader = useCallback(
     async (trader: Omit<TrackedTrader, "addedAt">): Promise<boolean> => {
       try {
-        const res = await fetch(`${BASE}/traders`, {
+          const base = metamaskAddress
+            ? `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/bots/copy-trader/proxy`
+            : "/api/bot/3";
+          const res = await fetch(`${base}/traders`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(trader),
@@ -164,14 +170,17 @@ export function useCopyTrader() {
         return false;
       }
     },
-    [refresh],
+    [refresh, metamaskAddress],
   );
 
   const removeTrader = useCallback(
     async (address: string): Promise<boolean> => {
       try {
+        const base = metamaskAddress
+          ? `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/bots/copy-trader/proxy`
+          : "/api/bot/3";
         const res = await fetch(
-          `${BASE}/traders/${encodeURIComponent(address)}`,
+          `${base}/traders/${encodeURIComponent(address)}`,
           {
             method: "DELETE",
           },
@@ -183,7 +192,7 @@ export function useCopyTrader() {
         return false;
       }
     },
-    [refresh],
+    [refresh, metamaskAddress],
   );
 
   const updateTrader = useCallback(
@@ -192,8 +201,11 @@ export function useCopyTrader() {
       patch: Partial<Omit<TrackedTrader, "address" | "addedAt">>,
     ): Promise<boolean> => {
       try {
+        const base = metamaskAddress
+          ? `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/bots/copy-trader/proxy`
+          : "/api/bot/3";
         const res = await fetch(
-          `${BASE}/traders/${encodeURIComponent(address)}`,
+          `${base}/traders/${encodeURIComponent(address)}`,
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -207,14 +219,17 @@ export function useCopyTrader() {
         return false;
       }
     },
-    [refresh],
+    [refresh, metamaskAddress],
   );
 
   const approveTrade = useCallback(
     async (id: string): Promise<boolean> => {
       try {
+        const base = metamaskAddress
+          ? `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/bots/copy-trader/proxy`
+          : "/api/bot/3";
         const res = await fetch(
-          `${BASE}/pending/${encodeURIComponent(id)}/approve`,
+          `${base}/pending/${encodeURIComponent(id)}/approve`,
           {
             method: "POST",
           },
@@ -226,14 +241,17 @@ export function useCopyTrader() {
         return false;
       }
     },
-    [refresh],
+    [refresh, metamaskAddress],
   );
 
   const rejectTrade = useCallback(
     async (id: string): Promise<boolean> => {
       try {
+        const base = metamaskAddress
+          ? `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/bots/copy-trader/proxy`
+          : "/api/bot/3";
         const res = await fetch(
-          `${BASE}/pending/${encodeURIComponent(id)}/reject`,
+          `${base}/pending/${encodeURIComponent(id)}/reject`,
           {
             method: "POST",
           },
@@ -245,7 +263,7 @@ export function useCopyTrader() {
         return false;
       }
     },
-    [refresh],
+    [refresh, metamaskAddress],
   );
 
   return {

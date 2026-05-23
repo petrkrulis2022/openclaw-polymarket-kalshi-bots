@@ -25,6 +25,9 @@ import {
   setBotAllocation,
   setBotsRunning,
   setAutonomousMode,
+  getWatchedGames,
+  setWatchedGames,
+  type WatchedGame,
   type User,
 } from "../user-store.js";
 
@@ -35,24 +38,140 @@ const ENVS_DIR = path.join(DATA_DIR, "envs");
 
 const WDK_TREASURY_URL =
   process.env["WDK_TREASURY_URL"] ?? "http://localhost:3001";
+const GOALSERVE_API_KEY =
+  process.env["GOALSERVE_API_KEY"] ?? "edc0ecd4f73c4c1a20f808dea8e5ebf2";
+const GOALSERVE_HOCKEY_FEED_BASE = `https://www.goalserve.com/getfeed/${GOALSERVE_API_KEY}/hockey`;
+const HOCKEY_DISCOVERY_TTL_MS = 10_000;
 
-// Bot definitions: name → { folder, botId, portOffset }
-// portOffset 0-4 relative to user base port
+type HockeyDiscoveryCache = {
+  updatedAtMs: number;
+  today: unknown;
+  tomorrow: unknown;
+};
+
+let hockeyDiscoveryCache: HockeyDiscoveryCache | null = null;
+
+// Bot definitions: name → { folder, botId, portOffset, entrypoint }
+// portOffset 0-5 relative to user base port
 const BOT_DEFS = [
-  { name: "market-maker", folder: "market-maker", botId: 1, portOffset: 0 },
-  { name: "copy-trader", folder: "copy-trader", botId: 3, portOffset: 1 },
-  { name: "in-market-arb", folder: "in-market-arb", botId: 4, portOffset: 2 },
+  {
+    name: "market-maker",
+    folder: "market-maker",
+    botId: 1,
+    portOffset: 0,
+    entrypoint: "src/index.ts",
+  },
+  {
+    name: "copy-trader",
+    folder: "copy-trader",
+    botId: 3,
+    portOffset: 1,
+    entrypoint: "src/index.ts",
+  },
+  {
+    name: "in-market-arb",
+    folder: "in-market-arb",
+    botId: 4,
+    portOffset: 2,
+    entrypoint: "src/index.ts",
+  },
   {
     name: "resolution-lag",
     folder: "resolution-lag",
     botId: 5,
     portOffset: 3,
+    entrypoint: "src/index.ts",
   },
-  { name: "microstructure", folder: "microstructure", botId: 6, portOffset: 4 },
+  {
+    name: "microstructure",
+    folder: "microstructure",
+    botId: 6,
+    portOffset: 4,
+    entrypoint: "src/index.ts",
+  },
+  {
+    name: "hockey-bot",
+    folder: "hockey",
+    botId: 10,
+    portOffset: 5,
+    entrypoint: "scripts/hockey-bot.ts",
+  },
 ] as const;
+
+const WATCHLIST_BOTS = new Set([
+  ...BOT_DEFS.map((b) => b.name),
+  "sports-bot",
+  "football-bot",
+  "hockey-bot",
+]);
 
 function getBotDef(botName: string) {
   return BOT_DEFS.find((b) => b.name === botName);
+}
+
+function getUserBotBaseUrl(user: User, botName: string): string | null {
+  const bot = getBotDef(botName);
+  if (!bot) return null;
+  const port = userBasePort(user.bot_wallet_index) + bot.portOffset;
+  return `http://localhost:${port}`;
+}
+
+async function fetchGoalserveHockey(pathname: "home" | "d1"): Promise<unknown> {
+  const res = await fetch(`${GOALSERVE_HOCKEY_FEED_BASE}/${pathname}?json=1`, {
+    signal: AbortSignal.timeout(6_000),
+  });
+  if (!res.ok) {
+    throw new Error(`Goalserve hockey ${pathname} failed (${res.status})`);
+  }
+  return res.json();
+}
+
+async function getHockeyDiscoveryCached(): Promise<{
+  cacheUpdatedAtMs: number;
+  stale: boolean;
+  today: unknown;
+  tomorrow: unknown;
+}> {
+  const now = Date.now();
+  if (
+    hockeyDiscoveryCache &&
+    now - hockeyDiscoveryCache.updatedAtMs < HOCKEY_DISCOVERY_TTL_MS
+  ) {
+    return {
+      cacheUpdatedAtMs: hockeyDiscoveryCache.updatedAtMs,
+      stale: false,
+      today: hockeyDiscoveryCache.today,
+      tomorrow: hockeyDiscoveryCache.tomorrow,
+    };
+  }
+
+  try {
+    const [today, tomorrow] = await Promise.all([
+      fetchGoalserveHockey("home"),
+      fetchGoalserveHockey("d1"),
+    ]);
+    hockeyDiscoveryCache = {
+      updatedAtMs: now,
+      today,
+      tomorrow,
+    };
+    return {
+      cacheUpdatedAtMs: now,
+      stale: false,
+      today,
+      tomorrow,
+    };
+  } catch (err) {
+    if (hockeyDiscoveryCache) {
+      return {
+        cacheUpdatedAtMs: hockeyDiscoveryCache.updatedAtMs,
+        stale: true,
+        today: hockeyDiscoveryCache.today,
+        tomorrow: hockeyDiscoveryCache.tomorrow,
+      };
+    }
+    throw err;
+  }
 }
 
 /** User slot = bot_wallet_index - 10 (indices 0-9 reserved for treasury/system) */
@@ -304,11 +423,12 @@ router.post(
         return {
           name: pmName,
           script: "npx",
-          args: "tsx src/index.ts",
+          args: `tsx ${bot.entrypoint}`,
           cwd: botDir,
           env: {
             PORT: String(port),
             BOT_ID: String(bot.botId),
+            USER_METAMASK_ADDRESS: user.metamask_address,
             // Deposit wallet is the maker on all orders and the balance holder.
             // The EOA private key (BOT_SIGNER_KEY) signs on its behalf.
             POLYMARKET_WALLET_ADDRESS: depositWalletAddress,
@@ -359,6 +479,189 @@ router.post(
         basePort,
         enabledBots: enabledBots.map((b) => b.name),
       });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── GET /users/:address/bots/:botName/watched-games ─────────────────────────
+
+router.get("/:address/bots/:botName/watched-games", (req, res) => {
+  const { address, botName } = req.params;
+  const user = getUser(address);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  if (!WATCHLIST_BOTS.has(botName)) {
+    return res.status(400).json({
+      error: `Unknown bot "${botName}" for watched games`,
+    });
+  }
+
+  const games = getWatchedGames(address, botName);
+  return res.json({ botName, games });
+});
+
+// ── PUT /users/:address/bots/:botName/watched-games ─────────────────────────
+
+router.put("/:address/bots/:botName/watched-games", (req, res) => {
+  const { address, botName } = req.params;
+  const user = getUser(address);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  if (!WATCHLIST_BOTS.has(botName)) {
+    return res.status(400).json({
+      error: `Unknown bot "${botName}" for watched games`,
+    });
+  }
+
+  const { games } = req.body as { games?: WatchedGame[] };
+  if (!Array.isArray(games)) {
+    return res.status(400).json({ error: "games array is required" });
+  }
+
+  const normalized: WatchedGame[] = games
+    .map((g) => {
+      const key = String(g?.key ?? "").trim();
+      const homeTeam = String(g?.homeTeam ?? "").trim();
+      const awayTeam = String(g?.awayTeam ?? "").trim();
+      if (!key || !homeTeam || !awayTeam) return null;
+      return {
+        key,
+        sport: String(g?.sport ?? "hockey"),
+        staticId: g?.staticId ? String(g.staticId) : undefined,
+        fixId: g?.fixId ? String(g.fixId) : undefined,
+        leagueName: g?.leagueName ? String(g.leagueName) : undefined,
+        country: g?.country ? String(g.country) : undefined,
+        homeTeam,
+        awayTeam,
+        date: g?.date ? String(g.date) : undefined,
+        time: g?.time ? String(g.time) : undefined,
+        statusAtAdd: g?.statusAtAdd ? String(g.statusAtAdd) : undefined,
+        matchSlug: g?.matchSlug ? String(g.matchSlug) : undefined,
+        yesTokenId: g?.yesTokenId ? String(g.yesTokenId) : undefined,
+        noTokenId: g?.noTokenId ? String(g.noTokenId) : undefined,
+        conditionId: g?.conditionId ? String(g.conditionId) : undefined,
+        createdAt: Number(g?.createdAt ?? Date.now()),
+      } as WatchedGame;
+    })
+    .filter((row): row is WatchedGame => row !== null);
+
+  setWatchedGames(address, botName, normalized);
+  return res.json({ ok: true, botName, games: normalized });
+});
+
+// ── GET /users/:address/bots/hockey-bot/discovery ───────────────────────────
+
+router.get("/:address/bots/hockey-bot/discovery", async (req, res, next) => {
+  try {
+    const { address } = req.params;
+    const user = getUser(address);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    try {
+      const payload = await getHockeyDiscoveryCached();
+      return res.json({
+        ok: true,
+        bot: "hockey-bot",
+        cacheTtlMs: HOCKEY_DISCOVERY_TTL_MS,
+        cacheUpdatedAtMs: payload.cacheUpdatedAtMs,
+        stale: payload.stale,
+        today: payload.today,
+        tomorrow: payload.tomorrow,
+      });
+    } catch (err) {
+      return res.status(502).json({
+        ok: false,
+        bot: "hockey-bot",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ── GET /users/:address/bots/hockey-bot/watchlist-state ─────────────────────
+
+router.get(
+  "/:address/bots/hockey-bot/watchlist-state",
+  async (req, res, next) => {
+    try {
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const botBaseUrl = getUserBotBaseUrl(user, "hockey-bot");
+      if (!botBaseUrl) {
+        return res.status(500).json({
+          ok: false,
+          bot: "hockey-bot",
+          error: "Hockey bot definition not found",
+        });
+      }
+      const targetUrl = `${botBaseUrl}/watchlist-state`;
+      try {
+        const botRes = await fetch(targetUrl, {
+          signal: AbortSignal.timeout(4_000),
+        });
+        if (!botRes.ok) {
+          return res.status(502).json({
+            ok: false,
+            bot: "hockey-bot",
+            error: `Hockey bot watchlist-state returned ${botRes.status}`,
+          });
+        }
+        return res.json(await botRes.json());
+      } catch (err) {
+        return res.status(502).json({
+          ok: false,
+          bot: "hockey-bot",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── GET /users/:address/bots/hockey-bot/watchlist-state/:key ────────────────
+
+router.get(
+  "/:address/bots/hockey-bot/watchlist-state/:key",
+  async (req, res, next) => {
+    try {
+      const { address, key } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const botBaseUrl = getUserBotBaseUrl(user, "hockey-bot");
+      if (!botBaseUrl) {
+        return res.status(500).json({
+          ok: false,
+          bot: "hockey-bot",
+          error: "Hockey bot definition not found",
+        });
+      }
+      const targetUrl = `${botBaseUrl}/watchlist-state/${encodeURIComponent(key ?? "")}`;
+      try {
+        const botRes = await fetch(targetUrl, {
+          signal: AbortSignal.timeout(4_000),
+        });
+        if (!botRes.ok) {
+          return res.status(502).json({
+            ok: false,
+            bot: "hockey-bot",
+            error: `Hockey bot watchlist-state returned ${botRes.status}`,
+          });
+        }
+        return res.json(await botRes.json());
+      } catch (err) {
+        return res.status(502).json({
+          ok: false,
+          bot: "hockey-bot",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     } catch (err) {
       return next(err);
     }
@@ -610,6 +913,62 @@ router.get(
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── ALL /users/:address/bots/:botName/proxy/* ───────────────────────────────
+// Generic per-user bot proxy used by dashboard hooks so they can talk to the
+// correct user-scoped bot process instead of fixed global ports.
+
+router.all(
+  "/:address/bots/:botName/proxy/*",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address, botName } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const bot = getBotDef(botName);
+      if (!bot) {
+        return res.status(400).json({
+          error: `Unknown bot "${botName}". Valid: ${BOT_DEFS.map((b) => b.name).join(", ")}`,
+        });
+      }
+
+      const botBaseUrl = getUserBotBaseUrl(user, botName);
+      if (!botBaseUrl) {
+        return res.status(400).json({ error: "Unsupported bot" });
+      }
+
+      const wildcard = (req.params as Record<string, string>)?.["0"] ?? "";
+      const targetPath = wildcard.startsWith("/") ? wildcard : `/${wildcard}`;
+      const query = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+      const targetUrl = `${botBaseUrl}${targetPath}${query}`;
+
+      const headers: Record<string, string> = {};
+      const contentType = req.header("content-type");
+      if (contentType) headers["content-type"] = contentType;
+
+      const method = req.method.toUpperCase();
+      const hasBody = !["GET", "HEAD"].includes(method);
+
+      const upstream = await fetch(targetUrl, {
+        method,
+        headers,
+        body: hasBody ? JSON.stringify(req.body ?? {}) : undefined,
+        signal: AbortSignal.timeout(8_000),
+      });
+
+      const bodyText = await upstream.text();
+      const upstreamType = upstream.headers.get("content-type") ?? "";
+      res.status(upstream.status);
+      if (upstreamType.includes("application/json")) {
+        return res.type("application/json").send(bodyText);
+      }
+      return res.type(upstreamType || "text/plain").send(bodyText);
     } catch (err) {
       return next(err);
     }

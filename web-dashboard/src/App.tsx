@@ -34,6 +34,7 @@ import { UserOnboarding } from "./components/UserOnboarding";
 import { AdminPanel } from "./components/AdminPanel";
 import { WalletsModal } from "./components/WalletsModal";
 import { AnalysisModal } from "./components/AnalysisModal";
+import { HockeyManager } from "./hockey/HockeyManager";
 import { Toaster, toast } from "sonner";
 import "./index.css";
 
@@ -670,7 +671,7 @@ function CopyTraderView({
     updateTrader,
     approveTrade,
     rejectTrade,
-  } = useCopyTrader();
+  } = useCopyTrader(metamaskAddress);
 
   // Add trader form state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -760,7 +761,7 @@ function CopyTraderView({
         />
         {!online && (
           <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            ⚠ Bot offline — start copy-trader on :3004
+            ⚠ Bot offline — start the user copy-trader process
           </span>
         )}
       </div>
@@ -3093,11 +3094,13 @@ function MicrostructureView({
 function SportsBotView({
   bot,
   onBack,
+  onOpenGameManager,
 }: {
   bot: BotSummary;
   onBack: () => void;
+  onOpenGameManager?: () => void;
 }) {
-  const { data, loading, error } = useSportsBot();
+  const { data, loading, error } = useSportsBot(Number(bot.id));
   const { trades, openPosition, totalPnl, gameOver, matchSlug, metrics } = data;
 
   return (
@@ -3131,6 +3134,15 @@ function SportsBotView({
             {bot.strategy} · {matchSlug || "—"}
           </div>
         </div>
+        {onOpenGameManager && (
+          <button
+            className="btn-secondary"
+            onClick={onOpenGameManager}
+            style={{ marginLeft: 8 }}
+          >
+            Create Games Dashboard
+          </button>
+        )}
         <div style={{ marginLeft: "auto", textAlign: "right" }}>
           <div
             style={{
@@ -3387,6 +3399,24 @@ function SportsBotView({
   );
 }
 
+function HockeyGameManagerView({
+  bot,
+  metamaskAddress,
+  onBack,
+}: {
+  bot: BotSummary;
+  metamaskAddress?: string;
+  onBack: () => void;
+}) {
+  return (
+    <HockeyManager
+      botName={bot.name}
+      metamaskAddress={metamaskAddress}
+      onBack={onBack}
+    />
+  );
+}
+
 // ── Portfolio section ─────────────────────────────────────────────────────────
 function PortfolioSection({
   onSelectBot,
@@ -3502,6 +3532,12 @@ function PortfolioSection({
   );
 }
 
+function isSportsBotSummary(bot: BotSummary): boolean {
+  if (String(bot.id) === "8") return true;
+  const name = bot.name.toLowerCase();
+  return name.includes("sports") || name.includes("football");
+}
+
 // ── Notification Poller ───────────────────────────────────────────────────────
 const SEEN_KEY = "openclaw:seen-redeemable";
 
@@ -3585,6 +3621,7 @@ function NotificationPoller({
 // ── Root App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [selectedBot, setSelectedBot] = useState<BotSummary | null>(null);
+  const [showHockeyGameManager, setShowHockeyGameManager] = useState(false);
   // The resolution-lag bot's own proxy wallet (0xD7CA8219…) — may hold older positions.
   const [lagBotProxyWallet, setLagBotProxyWallet] = useState<
     string | undefined
@@ -3784,7 +3821,24 @@ export default function App() {
       </div>
 
       {selectedBot ? (
-        selectedBot.id === "3" ? (
+        selectedBot.id === "10" ? (
+          showHockeyGameManager ? (
+            <HockeyGameManagerView
+              bot={selectedBot}
+              metamaskAddress={user?.metamaskAddress}
+              onBack={() => setShowHockeyGameManager(false)}
+            />
+          ) : (
+            <SportsBotView
+              bot={selectedBot}
+              onBack={() => {
+                setShowHockeyGameManager(false);
+                setSelectedBot(null);
+              }}
+              onOpenGameManager={() => setShowHockeyGameManager(true)}
+            />
+          )
+        ) : selectedBot.id === "3" ? (
           <CopyTraderView
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
@@ -3811,7 +3865,7 @@ export default function App() {
             onBack={() => setSelectedBot(null)}
             metamaskAddress={user?.metamaskAddress}
           />
-        ) : selectedBot.id === "8" ? (
+        ) : isSportsBotSummary(selectedBot) ? (
           <SportsBotView
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
@@ -4444,7 +4498,10 @@ export default function App() {
           {!showOnboarding && (
             <>
               <PortfolioSection
-                onSelectBot={setSelectedBot}
+                onSelectBot={(bot) => {
+                  setShowHockeyGameManager(false);
+                  setSelectedBot(bot);
+                }}
                 metamaskAddress={user?.metamaskAddress}
                 onToggleBotEnabled={async (botId, enabled) => {
                   const botNameById: Record<string, string> = {
