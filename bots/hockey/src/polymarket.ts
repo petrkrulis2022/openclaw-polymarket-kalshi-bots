@@ -31,6 +31,33 @@ export interface OrderBook {
   asks: Array<{ price: number; size: number }>;
 }
 
+export async function findEventSlugByTeams(
+  homeTeam: string,
+  awayTeam: string,
+): Promise<string | null> {
+  const home = homeTeam.trim().toLowerCase();
+  const away = awayTeam.trim().toLowerCase();
+  if (!home || !away) return null;
+
+  const url = `${config.polymarket.gammaApi}/events?active=true&closed=false&limit=1000`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+  if (!res.ok) {
+    throw new Error(`Gamma API ${res.status} when resolving slug by teams`);
+  }
+
+  const events = (await res.json()) as Array<Record<string, unknown>>;
+  for (const event of events) {
+    const title = String(event["title"] ?? "").toLowerCase();
+    const slug = String(event["slug"] ?? "").trim();
+    if (!slug) continue;
+    if (title.includes(home) && title.includes(away)) {
+      return slug;
+    }
+  }
+
+  return null;
+}
+
 // ── Gamma — fetch home team YES/NO token IDs ─────────────────────────────────
 
 export async function fetchHomeTeamMarket(

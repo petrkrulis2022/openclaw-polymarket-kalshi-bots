@@ -21,6 +21,7 @@ import express from "express";
 import { config } from "../src/config.js";
 import {
   findMatchStaticId,
+  findMatchStaticIdForTeams,
   pollLiveMatch,
   isLiveStatus,
   isFullTime,
@@ -28,6 +29,7 @@ import {
 } from "../src/goalserve.js";
 import {
   fetchHomeTeamMarket,
+  findEventSlugByTeams,
   getOrderBook,
   getBestBid,
   placeMarketOrder,
@@ -189,12 +191,34 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
     const selected = watchedGames[0];
     if (!selected) return;
 
+    const prevKey = selectedWatchedGameKey;
+    const prevStaticId = staticId;
+    const prevSlug = activeMatchSlug;
+
     selectedWatchedGameKey = selected.key;
     activeTeamHome = selected.homeTeam || activeTeamHome;
     activeTeamAway = selected.awayTeam || activeTeamAway;
 
-    if (selected.matchSlug) {
-      activeMatchSlug = selected.matchSlug;
+    // When a dashboard-selected game does not provide a market slug yet,
+    // clear stale slug from prior games and attempt auto-resolution by teams.
+    activeMatchSlug = selected.matchSlug?.trim() || "";
+    if (!activeMatchSlug) {
+      try {
+        const resolved = await findEventSlugByTeams(activeTeamHome, activeTeamAway);
+        if (resolved) {
+          activeMatchSlug = resolved;
+          console.log(
+            `[watch] Auto-resolved market slug=${activeMatchSlug} (${activeTeamHome} vs ${activeTeamAway})`,
+          );
+        }
+      } catch (err) {
+        console.warn(
+          `[watch] Failed slug auto-resolution for ${activeTeamHome} vs ${activeTeamAway}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    if (activeMatchSlug) {
       try {
         market = await fetchHomeTeamMarket(activeMatchSlug, activeTeamHome);
         console.log(
@@ -215,11 +239,48 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
         `[watch] Using watched game staticId=${staticId} (${activeTeamHome} vs ${activeTeamAway})`,
       );
     }
+
+    if (
+      prevKey &&
+      (prevKey !== selectedWatchedGameKey ||
+        prevStaticId !== staticId ||
+        prevSlug !== activeMatchSlug)
+    ) {
+      // Reset goal-delta baseline when user switches tracked game.
+      lastScoreHome = NaN;
+      lastScoreAway = NaN;
+      console.log(
+        `[watch] Switched tracked game -> key=${selectedWatchedGameKey} staticId=${staticId} slug=${activeMatchSlug || "(none)"}`,
+      );
+    }
   } catch (err) {
     console.warn(
       `[watch] watched-games fetch error: ${(err as Error).message}`,
     );
   }
+}
+
+async function ensureStaticIdReady(): Promise<void> {
+  while (!staticId) {
+    try {
+      staticId = await findMatchStaticIdForTeams(activeTeamHome, activeTeamAway);
+      return;
+    } catch (err) {
+      console.warn(
+        `[setup] Static-id resolution failed for ${activeTeamHome} vs ${activeTeamAway}: ${(err as Error).message}`,
+      );
+    }
+    await sleep(10_000);
+    await loadWatchedGamesFromOrchestrator();
+  }
+}
+
+function startWatchedGamesWatcher(): void {
+  if (!config.orchestrator.userAddress) return;
+  const ms = Math.max(2_000, config.orchestrator.watchedGamesPollMs);
+  setInterval(() => {
+    void loadWatchedGamesFromOrchestrator();
+  }, ms);
 }
 
 async function ensureMarketReady(): Promise<void> {
@@ -714,6 +775,7 @@ async function main(): Promise<void> {
 
   // Step 1: Load watched games (if user-scoped bot env is configured)
   await loadWatchedGamesFromOrchestrator();
+  startWatchedGamesWatcher();
 
   // Step 2: Resolve market and keep retrying until available.
   await ensureMarketReady();
@@ -728,6 +790,10 @@ async function main(): Promise<void> {
   // Step 5: Find Goalserve match ID unless watched list already supplied one
   if (!staticId) {
     console.log("\n[setup] Finding Goalserve match ID...");
+    await ensureStaticIdReady();
+  }
+
+  if (!staticId) {
     staticId = await findMatchStaticId();
   }
 

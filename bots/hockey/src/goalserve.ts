@@ -119,6 +119,41 @@ export async function findMatchStaticId(): Promise<string> {
   );
 }
 
+export async function findMatchStaticIdForTeams(
+  homeTeam: string,
+  awayTeam: string,
+): Promise<string> {
+  const home = homeTeam.trim();
+  const away = awayTeam.trim();
+  try {
+    const data = await gsGet("hockey/home?json=1");
+    const matchNode = findMatchNodeRecursive(data, home, away);
+    const staticId =
+      (matchNode?.["@static_id"] as string | undefined) ??
+      (matchNode?.["@id"] as string | undefined);
+    if (staticId) {
+      console.log(
+        `[goalserve] Found ${home} vs ${away}: static_id=${staticId}`,
+      );
+      return staticId;
+    }
+    console.warn(`[goalserve] ${home} vs ${away} not found in hockey/home feed`);
+  } catch (err) {
+    console.error("[goalserve] Home feed error:", (err as Error).message);
+  }
+
+  const fallback = config.goalserve.matchStaticId;
+  if (fallback) {
+    console.log(`[goalserve] Using fallback static_id=${fallback} from env`);
+    return fallback;
+  }
+
+  throw new Error(
+    `Could not find ${home} vs ${away} static_id. ` +
+      "Set GOALSERVE_MATCH_STATIC_ID in .env as a fallback.",
+  );
+}
+
 /**
  * Poll a live match for current score and status.
  */
@@ -168,13 +203,11 @@ export async function pollLiveMatch(
     }
 
     if (!matchNode) {
-      const resolvedHome = (homeTeam && homeTeam.trim()) || config.matchTeamHome;
-      const resolvedAway = (awayTeam && awayTeam.trim()) || config.matchTeamAway;
-      matchNode = findMatchNodeRecursive(
-        data,
-        resolvedHome,
-        resolvedAway,
-      );
+      const resolvedHome =
+        (homeTeam && homeTeam.trim()) || config.matchTeamHome;
+      const resolvedAway =
+        (awayTeam && awayTeam.trim()) || config.matchTeamAway;
+      matchNode = findMatchNodeRecursive(data, resolvedHome, resolvedAway);
     }
 
     if (!matchNode || typeof matchNode !== "object") return null;
