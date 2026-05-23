@@ -32,9 +32,9 @@ export interface SportsBotData {
   metrics: { equity: number; pnl: number; openPositions: number } | null;
 }
 
-const BASE = "/api/bot/8";
+const DEFAULT_BOT_ID = 8;
 
-export function useSportsBot() {
+export function useSportsBot(botId: number = DEFAULT_BOT_ID) {
   const [data, setData] = useState<SportsBotData>({
     trades: [],
     openPosition: null,
@@ -51,8 +51,8 @@ export function useSportsBot() {
   const fetch_ = useCallback(async () => {
     try {
       const [tradesRes, metricsRes] = await Promise.all([
-        fetch(`${BASE}/trades`),
-        fetch(`${BASE}/metrics`),
+        fetch(`/api/bot/${botId}/trades`),
+        fetch(`/api/bot/${botId}/metrics`),
       ]);
       const t = tradesRes.ok ? await tradesRes.json() : {};
       const m = metricsRes.ok ? await metricsRes.json() : null;
@@ -64,7 +64,11 @@ export function useSportsBot() {
         matchSlug: t.matchSlug ?? "",
         market: t.market ?? null,
         metrics: m
-          ? { equity: Number(m.equity), pnl: Number(m.pnl), openPositions: m.openPositions }
+          ? {
+              equity: Number(m.equity),
+              pnl: Number(m.pnl),
+              openPositions: m.openPositions,
+            }
           : null,
       });
       setError(null);
@@ -73,7 +77,7 @@ export function useSportsBot() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [botId]);
 
   useEffect(() => {
     setLoading(true);

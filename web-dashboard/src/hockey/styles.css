@@ -1,0 +1,275 @@
+.hky-shell {
+  background: radial-gradient(
+    circle at 20% 0%,
+    #11213f 0%,
+    #060f25 40%,
+    #040817 100%
+  );
+  border: 1px solid #253a66;
+  border-radius: 14px;
+  overflow: hidden;
+  min-height: 72vh;
+}
+
+.hky-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #20335a;
+  background: #050d22;
+}
+
+.hky-brand {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.hky-filter-chip {
+  font-size: 12px;
+  border: 1px solid #2c4e8b;
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: #9bc4ff;
+}
+
+.hky-header-right {
+  margin-left: auto;
+}
+
+.hky-small-btn {
+  background: #0f2347;
+  border: 1px solid #345c9c;
+  color: #dcecff;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.hky-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  min-height: 66vh;
+}
+
+.hky-sidebar {
+  border-right: 1px solid #20335a;
+  padding: 12px;
+  overflow-y: auto;
+  background: #050d22;
+}
+
+.hky-sidebar-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.hky-sidebar-subtitle {
+  color: #89a8d8;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.hky-day-title {
+  margin: 12px 0 8px;
+  color: #8ea8d0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.hky-game-row {
+  width: 100%;
+  text-align: left;
+  background: #0b1735;
+  border: 1px solid #1f3c72;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+  color: #dcecff;
+}
+
+.hky-game-row-added {
+  border-color: #2f7ce5;
+  box-shadow: inset 0 0 0 1px #2f7ce5;
+}
+
+.hky-game-row-top {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.hky-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #2f538f;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  background: #0e2148;
+  color: #bbd4ff;
+}
+
+.hky-chip-live {
+  border-color: #2f7ce5;
+  color: #d5e8ff;
+}
+
+.hky-game-title {
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.hky-game-id,
+.hky-game-added,
+.hky-muted {
+  color: #89a8d8;
+  font-size: 12px;
+}
+
+.hky-game-added {
+  margin-top: 6px;
+}
+
+.hky-main {
+  padding: 14px;
+  overflow-x: hidden;
+}
+
+.hky-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  color: #8ea8d0;
+  font-size: 12px;
+}
+
+.hky-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hky-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #33a1ff;
+  box-shadow: 0 0 8px #33a1ff;
+}
+
+.hky-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 12px;
+}
+
+.hky-card {
+  background: #091533;
+  border: 1px solid #1f3c72;
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.hky-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hky-close {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #0f2347;
+  color: #c6daff;
+  border: 1px solid #2d508c;
+}
+
+.hky-scoreline {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 10px;
+  font-size: 22px;
+}
+
+.hky-score {
+  font-size: 48px;
+  font-weight: 800;
+}
+
+.hky-periods {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: #9fc1f7;
+}
+
+.hky-period-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #7196cd;
+}
+
+.hky-events {
+  border-top: 1px solid #1f3c72;
+  border-bottom: 1px solid #1f3c72;
+  margin: 10px 0;
+  padding: 10px 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.hky-event-line {
+  font-size: 12px;
+  color: #dcecff;
+  padding: 2px 0;
+}
+
+.hky-footer-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hky-empty {
+  border: 1px dashed #2a4f8f;
+  border-radius: 12px;
+  padding: 24px;
+  color: #9fc1f7;
+}
+
+.hky-error {
+  color: #ff8d8d;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 1024px) {
+  .hky-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .hky-sidebar {
+    border-right: none;
+    border-bottom: 1px solid #20335a;
+    max-height: 340px;
+  }
+
+  .hky-cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hky-score {
+    font-size: 38px;
+  }
+}

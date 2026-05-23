@@ -1,0 +1,353 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { LiveManager, type HockeyFeedMatch } from "./LiveManager";
+import "./styles.css";
+
+type Props = {
+  botName: string;
+  metamaskAddress?: string;
+  onBack: () => void;
+};
+
+const STORAGE_KEY = "openclaw:hockey:selected-games";
+const BOT_NAME = "hockey-bot";
+
+type WatchedGameDto = {
+  key: string;
+  sport: "hockey";
+  staticId?: string;
+  fixId?: string;
+  leagueName?: string;
+  country?: string;
+  homeTeam: string;
+  awayTeam: string;
+  date?: string;
+  time?: string;
+  statusAtAdd?: string;
+  createdAt: number;
+};
+
+function asArray<T>(value: T | T[] | null | undefined): T[] {
+  if (Array.isArray(value)) return value;
+  return value == null ? [] : [value];
+}
+
+function parseScore(value: unknown): number {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeFeed(
+  payload: unknown,
+  bucket: "today" | "tomorrow",
+): HockeyFeedMatch[] {
+  const root = payload as Record<string, unknown>;
+  const scores = root["scores"] as Record<string, unknown> | undefined;
+  const categories = asArray(
+    (scores?.["category"] as
+      | Record<string, unknown>
+      | Record<string, unknown>[]
+      | undefined) ?? [],
+  );
+
+  const matches: HockeyFeedMatch[] = [];
+
+  for (const cat of categories) {
+    const country = String(cat["country"] ?? "");
+    const leagueName = String((cat["name"] ?? country) || "Hockey");
+    const rawMatches = asArray(
+      cat["match"] as
+        | Record<string, unknown>
+        | Record<string, unknown>[]
+        | undefined,
+    );
+
+    for (const rawMatch of rawMatches) {
+      const local =
+        (rawMatch["localteam"] as Record<string, unknown> | undefined) ?? {};
+      const visitor =
+        (rawMatch["awayteam"] as Record<string, unknown> | undefined) ?? {};
+      const id = String(rawMatch["id"] ?? "");
+      const fixId = String(rawMatch["fix_id"] ?? id);
+      const staticId = id || fixId;
+      const homeTeam = String(local["name"] ?? "Home");
+      const awayTeam = String(visitor["name"] ?? "Away");
+      const status = String(rawMatch["status"] ?? "Not Started");
+      const timer = String(rawMatch["timer"] ?? "");
+      const date = String(rawMatch["date"] ?? "");
+      const time = String(rawMatch["time"] ?? "");
+      const scoreHome = parseScore(local["totalscore"]);
+      const scoreAway = parseScore(visitor["totalscore"]);
+      const key = staticId || fixId || `${homeTeam}-${awayTeam}-${date}`;
+
+      matches.push({
+        key,
+        staticId,
+        fixId,
+        leagueName,
+        country,
+        homeTeam,
+        awayTeam,
+        status,
+        timer,
+        scoreHome,
+        scoreAway,
+        periodScores: [],
+        events: [],
+        date,
+        time,
+        bucket,
+      });
+    }
+  }
+
+  return matches;
+}
+
+export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [todayMatches, setTodayMatches] = useState<HockeyFeedMatch[]>([]);
+  const [tomorrowMatches, setTomorrowMatches] = useState<HockeyFeedMatch[]>([]);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as string[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedKeys));
+  }, [selectedKeys]);
+
+  useEffect(() => {
+    let stopped = false;
+
+    const loadPersisted = async () => {
+      if (!metamaskAddress) return;
+      try {
+        const res = await fetch(
+          `/api/orchestrator/users/${metamaskAddress}/bots/${BOT_NAME}/watched-games`,
+        );
+        if (!res.ok) return;
+        const payload = (await res.json()) as { games?: WatchedGameDto[] };
+        if (stopped) return;
+        const keys = (payload.games ?? []).map((g) => g.key).filter(Boolean);
+        if (keys.length > 0) setSelectedKeys(keys);
+      } catch {
+        // local fallback remains active
+      }
+    };
+
+    void loadPersisted();
+    return () => {
+      stopped = true;
+    };
+  }, [metamaskAddress]);
+
+  useEffect(() => {
+    let stopped = false;
+
+    const load = async () => {
+      if (!metamaskAddress) {
+        setLoading(false);
+        setError("Connect wallet to load hockey games");
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const res = await fetch(
+          `/api/orchestrator/users/${metamaskAddress}/bots/hockey-bot/discovery`,
+        );
+        if (!res.ok) {
+          throw new Error(`Discovery feed failed (${res.status})`);
+        }
+        const payload = (await res.json()) as {
+          today?: unknown;
+          tomorrow?: unknown;
+        };
+
+        if (stopped) return;
+
+        const today = normalizeFeed(payload.today, "today");
+        const tomorrow = normalizeFeed(payload.tomorrow, "tomorrow");
+
+        const iihfToday = today.filter((m) =>
+          /iihf|world championship/i.test(m.leagueName),
+        );
+        const iihfTomorrow = tomorrow.filter((m) =>
+          /iihf|world championship/i.test(m.leagueName),
+        );
+
+        setTodayMatches(iihfToday.length > 0 ? iihfToday : today);
+        setTomorrowMatches(iihfTomorrow.length > 0 ? iihfTomorrow : tomorrow);
+      } catch (err) {
+        if (!stopped) {
+          setError(
+            err instanceof Error ? err.message : "Failed to load hockey feed",
+          );
+        }
+      } finally {
+        if (!stopped) setLoading(false);
+      }
+    };
+
+    void load();
+    const id = setInterval(() => void load(), 10_000);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+  }, [metamaskAddress]);
+
+  const allMatches = useMemo(() => {
+    return [...todayMatches, ...tomorrowMatches];
+  }, [todayMatches, tomorrowMatches]);
+
+  const byKey = useMemo(() => {
+    const map: Record<string, HockeyFeedMatch> = {};
+    for (const m of allMatches) map[m.key] = m;
+    return map;
+  }, [allMatches]);
+
+  const persistSelection = async (keys: string[]) => {
+    if (!metamaskAddress) return;
+    const games: WatchedGameDto[] = keys
+      .map((key) => byKey[key])
+      .filter((m): m is HockeyFeedMatch => Boolean(m))
+      .map((m) => ({
+        key: m.key,
+        sport: "hockey",
+        staticId: m.staticId,
+        fixId: m.fixId,
+        leagueName: m.leagueName,
+        country: m.country,
+        homeTeam: m.homeTeam,
+        awayTeam: m.awayTeam,
+        date: m.date,
+        time: m.time,
+        statusAtAdd: m.status,
+        createdAt: Date.now(),
+      }));
+
+    try {
+      await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/bots/${BOT_NAME}/watched-games`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ games }),
+        },
+      );
+    } catch {
+      // dashboard still works with local cache
+    }
+  };
+
+  const toggleGame = (key: string) => {
+    setSelectedKeys((prev) => {
+      const next = prev.includes(key)
+        ? prev.filter((k) => k !== key)
+        : [...prev, key];
+      void persistSelection(next);
+      return next;
+    });
+  };
+
+  const removeGame = (key: string) => {
+    setSelectedKeys((prev) => {
+      const next = prev.filter((k) => k !== key);
+      void persistSelection(next);
+      return next;
+    });
+  };
+
+  return (
+    <div className="hky-shell">
+      <div className="hky-header">
+        <div className="hky-brand">goal.live</div>
+        <div className="hky-filter-chip">ICE HOCKEY WC</div>
+        <div className="hky-header-right">
+          <button className="hky-small-btn" onClick={onBack}>
+            Back
+          </button>
+        </div>
+      </div>
+
+      <div className="hky-layout">
+        <aside className="hky-sidebar">
+          <div className="hky-sidebar-title">Add Game</div>
+          <div className="hky-sidebar-subtitle">
+            {botName} · Goalserve hockey feed
+          </div>
+
+          {loading && <div className="hky-muted">Loading games...</div>}
+          {error && <div className="hky-error">{error}</div>}
+
+          <div className="hky-day-title">TODAY</div>
+          {todayMatches.map((m) => {
+            const added = selectedKeys.includes(m.key);
+            return (
+              <button
+                key={`today-${m.key}`}
+                className={`hky-game-row ${added ? "hky-game-row-added" : ""}`}
+                onClick={() => toggleGame(m.key)}
+              >
+                <div className="hky-game-row-top">
+                  <span className="hky-chip">{m.status || "Not Started"}</span>
+                  <span className="hky-muted">{m.time} UTC</span>
+                </div>
+                <div className="hky-game-title">
+                  {m.homeTeam} vs {m.awayTeam}
+                </div>
+                <div className="hky-game-id">
+                  #{m.staticId || m.fixId || m.key}
+                </div>
+                <div className="hky-game-added">{added ? "Added" : "Add"}</div>
+              </button>
+            );
+          })}
+
+          <div className="hky-day-title">TOMORROW</div>
+          {tomorrowMatches.map((m) => {
+            const added = selectedKeys.includes(m.key);
+            return (
+              <button
+                key={`tomorrow-${m.key}`}
+                className={`hky-game-row ${added ? "hky-game-row-added" : ""}`}
+                onClick={() => toggleGame(m.key)}
+              >
+                <div className="hky-game-row-top">
+                  <span className="hky-chip">{m.status || "Not Started"}</span>
+                  <span className="hky-muted">{m.time} UTC</span>
+                </div>
+                <div className="hky-game-title">
+                  {m.homeTeam} vs {m.awayTeam}
+                </div>
+                <div className="hky-game-id">
+                  #{m.staticId || m.fixId || m.key}
+                </div>
+                <div className="hky-game-added">{added ? "Added" : "Add"}</div>
+              </button>
+            );
+          })}
+        </aside>
+
+        <main className="hky-main">
+          <LiveManager
+            selectedKeys={selectedKeys}
+            baseByKey={byKey}
+            metamaskAddress={metamaskAddress}
+            onRemove={removeGame}
+          />
+        </main>
+      </div>
+    </div>
+  );
+}
