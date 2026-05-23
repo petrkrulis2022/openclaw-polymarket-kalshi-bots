@@ -31,12 +31,73 @@ export interface OrderBook {
   asks: Array<{ price: number; size: number }>;
 }
 
+function normalizeTeamName(input: string): string {
+  return input
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildTeamAliases(team: string): string[] {
+  const normalized = normalizeTeamName(team);
+  const aliases = new Set<string>([normalized]);
+
+  // Generic cleanup aliases
+  aliases.add(normalized.replace(/\brepublic\b/g, "").replace(/\s+/g, " ").trim());
+
+  // Hockey naming variants seen across Goalserve/Gamma feeds.
+  const canon = normalized;
+  if (canon === "czech republic") aliases.add("czechia");
+  if (canon === "czechia") aliases.add("czech republic");
+  if (canon === "slovak republic") aliases.add("slovakia");
+  if (canon === "great britain") aliases.add("britain");
+  if (canon === "united states") {
+    aliases.add("usa");
+    aliases.add("us");
+  }
+
+  return Array.from(aliases).filter(Boolean);
+}
+
+function titleMatchesTeams(title: string, homeTeam: string, awayTeam: string): boolean {
+  const normalizedTitle = normalizeTeamName(title);
+  const homeAliases = buildTeamAliases(homeTeam);
+  const awayAliases = buildTeamAliases(awayTeam);
+
+  const hasHome = homeAliases.some((a) => a && normalizedTitle.includes(a));
+  const hasAway = awayAliases.some((a) => a && normalizedTitle.includes(a));
+  return hasHome && hasAway;
+}
+
+function eventMatchesTeams(
+  event: Record<string, unknown>,
+  homeTeam: string,
+  awayTeam: string,
+): boolean {
+  const title = String(event["title"] ?? "");
+  if (titleMatchesTeams(title, homeTeam, awayTeam)) return true;
+
+  const markets = (event["markets"] as Array<Record<string, unknown>>) ?? [];
+  for (const market of markets) {
+    const q = String(market["question"] ?? "");
+    const g = String(market["groupItemTitle"] ?? "");
+    const combined = `${q} ${g}`.trim();
+    if (combined && titleMatchesTeams(combined, homeTeam, awayTeam)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export async function findEventSlugByTeams(
   homeTeam: string,
   awayTeam: string,
 ): Promise<string | null> {
-  const home = homeTeam.trim().toLowerCase();
-  const away = awayTeam.trim().toLowerCase();
+  const home = homeTeam.trim();
+  const away = awayTeam.trim();
   if (!home || !away) return null;
 
   const url = `${config.polymarket.gammaApi}/events?active=true&closed=false&limit=1000`;
@@ -47,10 +108,9 @@ export async function findEventSlugByTeams(
 
   const events = (await res.json()) as Array<Record<string, unknown>>;
   for (const event of events) {
-    const title = String(event["title"] ?? "").toLowerCase();
     const slug = String(event["slug"] ?? "").trim();
     if (!slug) continue;
-    if (title.includes(home) && title.includes(away)) {
+    if (eventMatchesTeams(event, home, away)) {
       return slug;
     }
   }

@@ -204,7 +204,10 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
     activeMatchSlug = selected.matchSlug?.trim() || "";
     if (!activeMatchSlug) {
       try {
-        const resolved = await findEventSlugByTeams(activeTeamHome, activeTeamAway);
+        const resolved = await findEventSlugByTeams(
+          activeTeamHome,
+          activeTeamAway,
+        );
         if (resolved) {
           activeMatchSlug = resolved;
           console.log(
@@ -233,11 +236,14 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
 
     const watchedStaticId = selected.staticId || selected.fixId;
     if (watchedStaticId) {
+      const prevEffectiveStaticId = staticId;
       staticId = watchedStaticId;
       fixId = selected.fixId;
-      console.log(
-        `[watch] Using watched game staticId=${staticId} (${activeTeamHome} vs ${activeTeamAway})`,
-      );
+      if (prevEffectiveStaticId !== staticId || prevKey !== selectedWatchedGameKey) {
+        console.log(
+          `[watch] Using watched game staticId=${staticId} (${activeTeamHome} vs ${activeTeamAway})`,
+        );
+      }
     }
 
     if (
@@ -263,7 +269,10 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
 async function ensureStaticIdReady(): Promise<void> {
   while (!staticId) {
     try {
-      staticId = await findMatchStaticIdForTeams(activeTeamHome, activeTeamAway);
+      staticId = await findMatchStaticIdForTeams(
+        activeTeamHome,
+        activeTeamAway,
+      );
       return;
     } catch (err) {
       console.warn(
