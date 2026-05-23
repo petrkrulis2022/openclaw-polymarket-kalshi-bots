@@ -35,6 +35,7 @@ export interface OrderBook {
 
 export async function fetchHomeTeamMarket(
   slug: string,
+  homeTeamName?: string,
 ): Promise<HomeTeamMarket> {
   const url = `${config.polymarket.gammaApi}/events?slug=${slug}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
@@ -49,7 +50,9 @@ export async function fetchHomeTeamMarket(
   // Find the home-team sub-market in the 3-way neg-risk moneyline.
   // Identify by sportsMarketType containing "moneyline" + groupItemTitle / question
   // containing the home team name (case-insensitive).
-  const homeTeam = config.matchTeamHome.toLowerCase();
+  const selectedHomeTeam =
+    (homeTeamName && homeTeamName.trim()) || config.matchTeamHome;
+  const homeTeam = selectedHomeTeam.toLowerCase();
   let homeTeamMarket: Record<string, unknown> | null = null;
 
   for (const m of markets) {
@@ -75,7 +78,7 @@ export async function fetchHomeTeamMarket(
 
   if (!homeTeamMarket) {
     throw new Error(
-      `Could not find ${config.matchTeamHome} moneyline market in event ${slug}. ` +
+      `Could not find ${selectedHomeTeam} moneyline market in event ${slug}. ` +
         `Markets found: ${markets.map((m) => m["question"]).join(", ")}`,
     );
   }
@@ -86,7 +89,7 @@ export async function fetchHomeTeamMarket(
 
   if (tokenIds.length < 2) {
     throw new Error(
-      `Unexpected clobTokenIds for ${config.matchTeamHome} market: ${rawTokenIds}`,
+      `Unexpected clobTokenIds for ${selectedHomeTeam} market: ${rawTokenIds}`,
     );
   }
 
@@ -96,7 +99,7 @@ export async function fetchHomeTeamMarket(
   const question = String(homeTeamMarket["question"] ?? "");
 
   console.log(
-    `[polymarket] ${config.matchTeamHome} market: "${question}" YES=${tokenIds[0].slice(0, 12)}... NO=${tokenIds[1].slice(0, 12)}...`,
+    `[polymarket] ${selectedHomeTeam} market: "${question}" YES=${tokenIds[0].slice(0, 12)}... NO=${tokenIds[1].slice(0, 12)}...`,
   );
 
   return {

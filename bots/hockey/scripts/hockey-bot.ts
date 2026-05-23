@@ -195,7 +195,7 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
     if (selected.matchSlug) {
       activeMatchSlug = selected.matchSlug;
       try {
-        market = await fetchHomeTeamMarket(activeMatchSlug);
+        market = await fetchHomeTeamMarket(activeMatchSlug, activeTeamHome);
         console.log(
           `[watch] Using watched game market slug=${activeMatchSlug} (${activeTeamHome} vs ${activeTeamAway})`,
         );
@@ -231,7 +231,7 @@ async function ensureMarketReady(): Promise<void> {
         console.log(
           `[setup] Fetching ${activeTeamHome} YES/NO tokens from Gamma (slug=${activeMatchSlug})...`,
         );
-        market = await fetchHomeTeamMarket(activeMatchSlug);
+        market = await fetchHomeTeamMarket(activeMatchSlug, activeTeamHome);
         console.log(
           `[setup] Market: \"${market.question}\" | conditionId=${market.conditionId.slice(0, 12)}...`,
         );
