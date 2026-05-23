@@ -523,8 +523,16 @@ async function sellMonitorLoop(): Promise<void> {
 // ── Pre-game wait ─────────────────────────────────────────────────────────────
 
 async function waitForKickoff(): Promise<void> {
+  const watchedSelection = watchedGames.find((g) => g.key === selectedWatchedGameKey);
+  const kickoffHint =
+    watchedSelection?.date && watchedSelection?.time
+      ? `${watchedSelection.date} ${watchedSelection.time}`
+      : watchedSelection?.date
+        ? watchedSelection.date
+        : activeMatchSlug || "unknown";
+
   console.log(
-    `\n[bot]  Waiting for kickoff (game_start_utc=${new Date(config.matchSlug).toUTCString()})`,
+    `\n[bot]  Waiting for kickoff (match=${kickoffHint})`,
   );
   console.log(
     `[bot]  Polling Goalserve every ${config.preGamePollMs / 1000}s for game status...\n`,
@@ -545,6 +553,14 @@ async function waitForKickoff(): Promise<void> {
           lastScoreAway = state.scoreAway;
         }
         console.log("\n[bot]  ✅ Kickoff detected — entering live mode");
+        return;
+      }
+
+      if (isFullTime(state.status)) {
+        console.log(
+          `\n[bot]  Match already finished (status=${state.status}) — skipping live loop`,
+        );
+        gameIsOver = true;
         return;
       }
 
