@@ -81,6 +81,11 @@ export function usePortfolio(metamaskAddress?: string) {
         realizedPnl: number;
         openPositions: number;
       } | null = null;
+      let hockeyRuntime: {
+        equity: number;
+        pnl: number;
+        openPositions: number;
+      } | null = null;
 
       if (metamaskAddress) {
         try {
@@ -117,6 +122,26 @@ export function usePortfolio(metamaskAddress?: string) {
         } catch {
           // Keep portfolio summary values if runtime endpoints are unavailable.
         }
+
+        try {
+          const hockeyRes = await fetch(
+            `/api/orchestrator/users/${metamaskAddress}/bots/hockey-bot/proxy/metrics`,
+          );
+          if (hockeyRes.ok) {
+            const metrics = (await hockeyRes.json()) as {
+              equity?: number | string;
+              pnl?: number | string;
+              openPositions?: number;
+            };
+            hockeyRuntime = {
+              equity: Number(metrics.equity ?? 0),
+              pnl: Number(metrics.pnl ?? 0),
+              openPositions: Number(metrics.openPositions ?? 0),
+            };
+          }
+        } catch {
+          // Keep portfolio summary values if hockey runtime endpoint is unavailable.
+        }
       }
 
       const data: Portfolio = {
@@ -134,17 +159,25 @@ export function usePortfolio(metamaskAddress?: string) {
                 })
               : undefined;
           const isCopyTrader = String(b.id) === "3";
+          const isHockey = String(b.id) === "10";
           const rawEquity = parseFloat(b.equity as string) || 0;
           const rawPnl = parseFloat(b.pnl as string) || 0;
           const rawOpenPositions = Number(b.openPositions) || 0;
 
-          const equity =
-            isCopyTrader && copyRuntime ? copyRuntime.equity : rawEquity;
-          const pnl =
-            isCopyTrader && copyRuntime ? copyRuntime.realizedPnl : rawPnl;
-          const openPositions =
-            isCopyTrader && copyRuntime
-              ? copyRuntime.openPositions
+          const equity = isCopyTrader && copyRuntime
+            ? copyRuntime.equity
+            : isHockey && hockeyRuntime
+              ? hockeyRuntime.equity
+              : rawEquity;
+          const pnl = isCopyTrader && copyRuntime
+            ? copyRuntime.realizedPnl
+            : isHockey && hockeyRuntime
+              ? hockeyRuntime.pnl
+              : rawPnl;
+          const openPositions = isCopyTrader && copyRuntime
+            ? copyRuntime.openPositions
+            : isHockey && hockeyRuntime
+              ? hockeyRuntime.openPositions
               : rawOpenPositions;
 
           return {
