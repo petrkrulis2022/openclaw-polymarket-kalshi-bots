@@ -45,7 +45,12 @@ function buildTeamAliases(team: string): string[] {
   const aliases = new Set<string>([normalized]);
 
   // Generic cleanup aliases
-  aliases.add(normalized.replace(/\brepublic\b/g, "").replace(/\s+/g, " ").trim());
+  aliases.add(
+    normalized
+      .replace(/\brepublic\b/g, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 
   // Hockey naming variants seen across Goalserve/Gamma feeds.
   const canon = normalized;
@@ -61,7 +66,11 @@ function buildTeamAliases(team: string): string[] {
   return Array.from(aliases).filter(Boolean);
 }
 
-function titleMatchesTeams(title: string, homeTeam: string, awayTeam: string): boolean {
+function titleMatchesTeams(
+  title: string,
+  homeTeam: string,
+  awayTeam: string,
+): boolean {
   const normalizedTitle = normalizeTeamName(title);
   const homeAliases = buildTeamAliases(homeTeam);
   const awayAliases = buildTeamAliases(awayTeam);
@@ -243,12 +252,36 @@ export async function getSigningClient(): Promise<ClobClient> {
     `[clob] Deriving API key for ${account.address} (sig_type=${config.polymarket.signatureType})...`,
   );
 
-  const creds = await tempClient.createOrDeriveApiKey();
+  const origConsoleError = console.error;
+  let suppressedCreateNoise = false;
+  console.error = (...args: unknown[]) => {
+    const joined = args
+      .map((arg) =>
+        typeof arg === "string" ? arg : JSON.stringify(arg ?? ""),
+      )
+      .join(" ");
+    if (joined.includes("Could not create api key")) {
+      suppressedCreateNoise = true;
+      return;
+    }
+    origConsoleError(...args);
+  };
+
+  let creds: unknown;
+  try {
+    creds = await tempClient.createOrDeriveApiKey();
+  } finally {
+    console.error = origConsoleError;
+  }
+
   const credsObj = creds as unknown as Record<string, unknown>;
   if (!credsObj["key"]) {
     throw new Error(
       `createOrDeriveApiKey returned no key: ${JSON.stringify(creds)}`,
     );
+  }
+  if (suppressedCreateNoise) {
+    console.log("[clob] Existing API key detected; using derived key.");
   }
   console.log(
     `[clob] API key ready: ${String(credsObj["key"]).slice(0, 8)}...`,
