@@ -61,34 +61,39 @@ function fmtDate(ts: number): string {
 }
 
 function botAllocSummary(allocations?: Record<string, boolean>): string {
-  const botNames = [
-    "market-maker",
-    "copy-trader",
-    "in-market-arb",
-    "resolution-lag",
-    "microstructure",
+  const botKeys: Array<{ key: string; label: string }> = [
+    { key: "market-maker", label: "market-maker" },
+    { key: "copy-trader", label: "copy-trader" },
+    { key: "in-market-arb", label: "in-market-arb" },
+    { key: "resolution-lag", label: "resolution-lag" },
+    { key: "microstructure", label: "microstructure" },
+    { key: "football-bot", label: "football-bot" },
   ];
-  return botNames
-    .map((name) => `${name}:${allocations?.[name] === false ? "off" : "on"}`)
+  return botKeys
+    .map(
+      ({ key, label }) =>
+        `${label}:${allocations?.[key] === false ? "off" : "on"}`,
+    )
     .join(" · ");
 }
 
 function botDiagSummary(diagnostics?: Record<string, unknown>): string {
-  const botNames = [
-    "market-maker",
-    "copy-trader",
-    "in-market-arb",
-    "resolution-lag",
-    "microstructure",
+  const botKeys: Array<{ key: string; label: string }> = [
+    { key: "market-maker", label: "market-maker" },
+    { key: "copy-trader", label: "copy-trader" },
+    { key: "in-market-arb", label: "in-market-arb" },
+    { key: "resolution-lag", label: "resolution-lag" },
+    { key: "microstructure", label: "microstructure" },
+    { key: "football-bot", label: "football-bot" },
   ];
-  return botNames
-    .map((name) => {
+  return botKeys
+    .map(({ key, label }) => {
       const d =
         diagnostics && typeof diagnostics === "object"
-          ? (diagnostics as Record<string, any>)[name]
+          ? (diagnostics as Record<string, any>)[key]
           : undefined;
       const state = d?.healthy === false ? "offline" : d ? "ok" : "unknown";
-      return `${name}:${state}`;
+      return `${label}:${state}`;
     })
     .join(" · ");
 }
@@ -150,6 +155,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             "in-market-arb",
             "resolution-lag",
             "microstructure",
+            "football-bot",
           ];
           const entries = await Promise.all(
             botNames.map(async (botName) => {

@@ -34,6 +34,7 @@ export interface SportsBotData {
 
 const DEFAULT_BOT_ID = 8;
 const BOT_ROUTE_NAMES: Record<number, string> = {
+  8: "football-bot",
   10: "hockey-bot",
 };
 

@@ -35,6 +35,7 @@ import { AdminPanel } from "./components/AdminPanel";
 import { WalletsModal } from "./components/WalletsModal";
 import { AnalysisModal } from "./components/AnalysisModal";
 import { HockeyManager } from "./hockey/HockeyManager";
+import { FootballManager } from "./football/FootballManager";
 import { Toaster, toast } from "sonner";
 import "./index.css";
 
@@ -3422,6 +3423,24 @@ function HockeyGameManagerView({
   );
 }
 
+function FootballGameManagerView({
+  bot,
+  metamaskAddress,
+  onBack,
+}: {
+  bot: BotSummary;
+  metamaskAddress?: string;
+  onBack: () => void;
+}) {
+  return (
+    <FootballManager
+      botName={bot.name}
+      metamaskAddress={metamaskAddress}
+      onBack={onBack}
+    />
+  );
+}
+
 // ── Portfolio section ─────────────────────────────────────────────────────────
 function PortfolioSection({
   onSelectBot,
@@ -3627,6 +3646,7 @@ function NotificationPoller({
 export default function App() {
   const [selectedBot, setSelectedBot] = useState<BotSummary | null>(null);
   const [showHockeyGameManager, setShowHockeyGameManager] = useState(false);
+  const [showFootballGameManager, setShowFootballGameManager] = useState(false);
   // The resolution-lag bot's own proxy wallet (0xD7CA8219…) — may hold older positions.
   const [lagBotProxyWallet, setLagBotProxyWallet] = useState<
     string | undefined
@@ -3838,6 +3858,24 @@ export default function App() {
                 setSelectedBot(null);
               }}
               onOpenGameManager={() => setShowHockeyGameManager(true)}
+            />
+          )
+        ) : selectedBot.id === "8" ? (
+          showFootballGameManager ? (
+            <FootballGameManagerView
+              bot={selectedBot}
+              metamaskAddress={user?.metamaskAddress}
+              onBack={() => setShowFootballGameManager(false)}
+            />
+          ) : (
+            <SportsBotView
+              bot={selectedBot}
+              metamaskAddress={user?.metamaskAddress}
+              onBack={() => {
+                setShowFootballGameManager(false);
+                setSelectedBot(null);
+              }}
+              onOpenGameManager={() => setShowFootballGameManager(true)}
             />
           )
         ) : selectedBot.id === "3" ? (
@@ -4503,6 +4541,7 @@ export default function App() {
               <PortfolioSection
                 onSelectBot={(bot) => {
                   setShowHockeyGameManager(false);
+                  setShowFootballGameManager(false);
                   setSelectedBot(bot);
                 }}
                 metamaskAddress={user?.metamaskAddress}

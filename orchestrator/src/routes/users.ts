@@ -41,7 +41,9 @@ const WDK_TREASURY_URL =
 const GOALSERVE_API_KEY =
   process.env["GOALSERVE_API_KEY"] ?? "edc0ecd4f73c4c1a20f808dea8e5ebf2";
 const GOALSERVE_HOCKEY_FEED_BASE = `https://www.goalserve.com/getfeed/${GOALSERVE_API_KEY}/hockey`;
+const GOALSERVE_FOOTBALL_FEED_BASE = `https://www.goalserve.com/getfeed/${GOALSERVE_API_KEY}/soccernew`;
 const HOCKEY_DISCOVERY_TTL_MS = 10_000;
+const FOOTBALL_DISCOVERY_TTL_MS = 10_000;
 
 type HockeyDiscoveryCache = {
   updatedAtMs: number;
@@ -49,7 +51,14 @@ type HockeyDiscoveryCache = {
   tomorrow: unknown;
 };
 
+type FootballDiscoveryCache = {
+  updatedAtMs: number;
+  today: unknown;
+  tomorrow: unknown;
+};
+
 let hockeyDiscoveryCache: HockeyDiscoveryCache | null = null;
+let footballDiscoveryCache: FootballDiscoveryCache | null = null;
 
 // Bot definitions: name → { folder, botId, portOffset, entrypoint }
 // portOffset 0-5 relative to user base port
@@ -96,11 +105,17 @@ const BOT_DEFS = [
     portOffset: 5,
     entrypoint: "scripts/hockey-bot.ts",
   },
+  {
+    name: "football-bot",
+    folder: "football",
+    botId: 8,
+    portOffset: 6,
+    entrypoint: "scripts/football-bot.ts",
+  },
 ] as const;
 
 const WATCHLIST_BOTS = new Set([
   ...BOT_DEFS.map((b) => b.name),
-  "sports-bot",
   "football-bot",
   "hockey-bot",
 ]);
@@ -122,6 +137,19 @@ async function fetchGoalserveHockey(pathname: "home" | "d1"): Promise<unknown> {
   });
   if (!res.ok) {
     throw new Error(`Goalserve hockey ${pathname} failed (${res.status})`);
+  }
+  return res.json();
+}
+
+async function fetchGoalserveFootball(
+  pathname: "home" | "d1",
+): Promise<unknown> {
+  const res = await fetch(
+    `${GOALSERVE_FOOTBALL_FEED_BASE}/${pathname}?json=1`,
+    { signal: AbortSignal.timeout(6_000) },
+  );
+  if (!res.ok) {
+    throw new Error(`Goalserve football ${pathname} failed (${res.status})`);
   }
   return res.json();
 }
@@ -168,6 +196,54 @@ async function getHockeyDiscoveryCached(): Promise<{
         stale: true,
         today: hockeyDiscoveryCache.today,
         tomorrow: hockeyDiscoveryCache.tomorrow,
+      };
+    }
+    throw err;
+  }
+}
+
+async function getFootballDiscoveryCached(): Promise<{
+  cacheUpdatedAtMs: number;
+  stale: boolean;
+  today: unknown;
+  tomorrow: unknown;
+}> {
+  const now = Date.now();
+  if (
+    footballDiscoveryCache &&
+    now - footballDiscoveryCache.updatedAtMs < FOOTBALL_DISCOVERY_TTL_MS
+  ) {
+    return {
+      cacheUpdatedAtMs: footballDiscoveryCache.updatedAtMs,
+      stale: false,
+      today: footballDiscoveryCache.today,
+      tomorrow: footballDiscoveryCache.tomorrow,
+    };
+  }
+
+  try {
+    const [today, tomorrow] = await Promise.all([
+      fetchGoalserveFootball("home"),
+      fetchGoalserveFootball("d1"),
+    ]);
+    footballDiscoveryCache = {
+      updatedAtMs: now,
+      today,
+      tomorrow,
+    };
+    return {
+      cacheUpdatedAtMs: now,
+      stale: false,
+      today,
+      tomorrow,
+    };
+  } catch (err) {
+    if (footballDiscoveryCache) {
+      return {
+        cacheUpdatedAtMs: footballDiscoveryCache.updatedAtMs,
+        stale: true,
+        today: footballDiscoveryCache.today,
+        tomorrow: footballDiscoveryCache.tomorrow,
       };
     }
     throw err;
@@ -648,6 +724,125 @@ router.get("/:address/bots/hockey-bot/discovery", async (req, res, next) => {
     return next(err);
   }
 });
+
+// ── GET /users/:address/bots/football-bot/discovery ─────────────────────────
+
+router.get("/:address/bots/football-bot/discovery", async (req, res, next) => {
+  try {
+    const { address } = req.params;
+    const user = getUser(address);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    try {
+      const payload = await getFootballDiscoveryCached();
+      return res.json({
+        ok: true,
+        bot: "football-bot",
+        cacheTtlMs: FOOTBALL_DISCOVERY_TTL_MS,
+        cacheUpdatedAtMs: payload.cacheUpdatedAtMs,
+        stale: payload.stale,
+        today: payload.today,
+        tomorrow: payload.tomorrow,
+      });
+    } catch (err) {
+      return res.status(502).json({
+        ok: false,
+        bot: "football-bot",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ── GET /users/:address/bots/football-bot/watchlist-state ───────────────────
+
+router.get(
+  "/:address/bots/football-bot/watchlist-state",
+  async (req, res, next) => {
+    try {
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const botBaseUrl = getUserBotBaseUrl(user, "football-bot");
+      if (!botBaseUrl) {
+        return res.status(500).json({
+          ok: false,
+          bot: "football-bot",
+          error: "Football bot definition not found",
+        });
+      }
+      const targetUrl = `${botBaseUrl}/watchlist-state`;
+      try {
+        const botRes = await fetch(targetUrl, {
+          signal: AbortSignal.timeout(4_000),
+        });
+        if (!botRes.ok) {
+          return res.status(502).json({
+            ok: false,
+            bot: "football-bot",
+            error: `Football bot watchlist-state returned ${botRes.status}`,
+          });
+        }
+        return res.json(await botRes.json());
+      } catch (err) {
+        return res.status(502).json({
+          ok: false,
+          bot: "football-bot",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── GET /users/:address/bots/football-bot/watchlist-state/:key ──────────────
+
+router.get(
+  "/:address/bots/football-bot/watchlist-state/:key",
+  async (req, res, next) => {
+    try {
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const botBaseUrl = getUserBotBaseUrl(user, "football-bot");
+      if (!botBaseUrl) {
+        return res.status(500).json({
+          ok: false,
+          bot: "football-bot",
+          error: "Football bot definition not found",
+        });
+      }
+      const targetUrl = `${botBaseUrl}/watchlist-state/${req.params["key"]}`;
+      try {
+        const botRes = await fetch(targetUrl, {
+          signal: AbortSignal.timeout(4_000),
+        });
+        if (!botRes.ok) {
+          return res.status(502).json({
+            ok: false,
+            bot: "football-bot",
+            error: `Football bot watchlist-state returned ${botRes.status}`,
+          });
+        }
+        return res.json(await botRes.json());
+      } catch (err) {
+        return res.status(502).json({
+          ok: false,
+          bot: "football-bot",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
 
 // ── GET /users/:address/bots/hockey-bot/watchlist-state ─────────────────────
 
