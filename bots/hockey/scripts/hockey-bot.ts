@@ -410,17 +410,38 @@ async function onGoalDetected(
     `[trade] → Market BUY ${label} (${fmt(config.maxPositionUsd, 2)} USDC, FOK)`,
   );
 
-  let fill: Awaited<ReturnType<typeof placeMarketOrder>>;
-  try {
-    fill = await placeMarketOrder(tokenId, "BUY", config.maxPositionUsd);
-  } catch (err) {
-    console.error("[trade] BUY market order failed:", (err as Error).message);
-    return;
+  // After a goal event market makers pull their asks to reprice — the book can be
+  // empty for 2-10 seconds. Retry the FOK up to 4 times with a short wait so we
+  // catch the market once liquidity returns.
+  const MAX_BUY_ATTEMPTS = 4;
+  const BUY_RETRY_DELAY_MS = 3_000;
+
+  let fill: Awaited<ReturnType<typeof placeMarketOrder>> | null = null;
+  for (let attempt = 1; attempt <= MAX_BUY_ATTEMPTS; attempt++) {
+    try {
+      const f = await placeMarketOrder(tokenId, "BUY", config.maxPositionUsd);
+      if (f.filledShares > 0) {
+        fill = f;
+        break;
+      }
+      console.warn(
+        `[trade] ⚠️  BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS}: zero fill (orderbook empty / FOK cancelled)` +
+          (attempt < MAX_BUY_ATTEMPTS ? ` — retrying in ${BUY_RETRY_DELAY_MS / 1000}s...` : ""),
+      );
+    } catch (err) {
+      console.error(
+        `[trade] BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS} failed:`,
+        (err as Error).message,
+      );
+    }
+    if (attempt < MAX_BUY_ATTEMPTS) {
+      await new Promise((res) => setTimeout(res, BUY_RETRY_DELAY_MS));
+    }
   }
 
-  if (!(fill.filledShares > 0)) {
+  if (!fill || !(fill.filledShares > 0)) {
     console.warn(
-      `[trade] ⚠️  Market BUY got zero fill (filledShares=${fill.filledShares}) — orderbook empty or parse error, no position opened`,
+      `[trade] ⚠️  All ${MAX_BUY_ATTEMPTS} BUY attempts returned zero fill — no position opened`,
     );
     return;
   }
