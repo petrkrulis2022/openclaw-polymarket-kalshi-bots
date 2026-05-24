@@ -382,6 +382,62 @@ export async function getBestBid(tokenId: string): Promise<number> {
 
 // ── Order placement ───────────────────────────────────────────────────────────
 
+/**
+ * Polymarket CLOB sometimes returns status="delayed" on market-moving events
+ * (brief orderbook pause for anti-manipulation). Poll until the order settles.
+ */
+async function waitForDelayedOrder(
+  orderId: string,
+  side: "BUY" | "SELL",
+  timeoutMs = 30_000,
+): Promise<{ filledShares: number; filledUsdc: number } | null> {
+  const c = await getSigningClient();
+  const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
+  while (Date.now() < deadline) {
+    await new Promise((res) => setTimeout(res, 2_000));
+    attempt++;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const order = (await (c as any).getOrder(orderId)) as Record<
+        string,
+        unknown
+      >;
+      const matched = parseFloat(String(order["size_matched"] ?? "0")) || 0;
+      const status = String(order["status"] ?? "").toLowerCase();
+      console.log(
+        `[placeMarketOrder] delayed poll #${attempt}: status=${status} size_matched=${matched}`,
+      );
+      if (matched > 0) {
+        const price = parseFloat(String(order["price"] ?? "0")) || 0;
+        const filledShares = matched;
+        const filledUsdc = matched * price;
+        return { filledShares, filledUsdc };
+      }
+      if (
+        status === "cancelled" ||
+        status === "canceled" ||
+        status === "expired" ||
+        status === "unmatched"
+      ) {
+        console.warn(
+          `[placeMarketOrder] delayed order ${orderId} ended with status=${status}`,
+        );
+        return null;
+      }
+    } catch (err) {
+      console.warn(
+        `[placeMarketOrder] delayed poll error:`,
+        (err as Error).message,
+      );
+    }
+  }
+  console.warn(
+    `[placeMarketOrder] delayed order ${orderId} timed out after ${timeoutMs}ms`,
+  );
+  return null;
+}
+
 export async function placeMarketOrder(
   tokenId: string,
   side: "BUY" | "SELL",
@@ -422,6 +478,28 @@ export async function placeMarketOrder(
   // For SELL: making=shares given, taking=USDC received.
   const makingAmt = (parseFloat(String(r["makingAmount"] || "0")) || 0) / 1e6;
   const takingAmt = (parseFloat(String(r["takingAmount"] || "0")) || 0) / 1e6;
+
+  // If the CLOB delayed the order (brief pause on market-moving events),
+  // poll until it settles instead of treating it as a zero fill.
+  const rawStatus = String(r["status"] ?? "");
+  if (
+    rawStatus === "delayed" &&
+    orderId !== "unknown" &&
+    makingAmt === 0 &&
+    takingAmt === 0
+  ) {
+    console.log(
+      `[placeMarketOrder] order ${orderId} is delayed — polling for fill...`,
+    );
+    const filled = await waitForDelayedOrder(orderId, side);
+    if (filled) {
+      console.log(
+        `[placeMarketOrder] delayed order filled: shares=${filled.filledShares} usdc=${filled.filledUsdc}`,
+      );
+      return { orderId, ...filled };
+    }
+    return { orderId, filledShares: 0, filledUsdc: 0 };
+  }
 
   const filledUsdc = side === "BUY" ? makingAmt : takingAmt;
   const filledShares = side === "BUY" ? takingAmt : makingAmt;
