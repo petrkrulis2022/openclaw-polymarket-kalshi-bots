@@ -27,7 +27,10 @@ export interface MatchState {
 
 type MatchNode = Record<string, unknown>;
 
-function readField(obj: Record<string, unknown> | undefined, ...keys: string[]): unknown {
+function readField(
+  obj: Record<string, unknown> | undefined,
+  ...keys: string[]
+): unknown {
   if (!obj) return undefined;
   for (const key of keys) {
     if (key in obj) return obj[key];
@@ -56,7 +59,14 @@ function readTeamName(team: Record<string, unknown> | undefined): string {
 }
 
 function readTeamScore(team: Record<string, unknown> | undefined): number {
-  const raw = readField(team, "@goals", "@score", "goals", "score", "totalscore");
+  const raw = readField(
+    team,
+    "@goals",
+    "@score",
+    "goals",
+    "score",
+    "totalscore",
+  );
   return parseInt(String(raw ?? ""), 10);
 }
 
@@ -363,7 +373,11 @@ export async function pollLiveMatch(
     const scoreAway = readTeamScore(visitor);
 
     return {
-      staticId: readNodeId(m) || readNodeFixId(m) || staticId || config.goalserve.matchStaticId,
+      staticId:
+        readNodeId(m) ||
+        readNodeFixId(m) ||
+        staticId ||
+        config.goalserve.matchStaticId,
       status: readNodeStatus(m),
       minute: readNodeTimer(m),
       scoreHome,
@@ -395,6 +409,9 @@ export function isLiveStatus(status: string): boolean {
   if (
     s === "ht" ||
     s === "half-time" ||
+    s === "break time" ||
+    s === "intermission" ||
+    s === "period break" ||
     s === "1st period" ||
     s === "2nd period" ||
     s === "3rd period" ||
@@ -415,7 +432,10 @@ export function isLiveStatus(status: string): boolean {
     s === "live"
   )
     return true;
-  if (s.includes("period") && !s.includes("intermission")) return true;
+  // Goalserve uses variants like "End of 1st Period" and "Break Time" between periods.
+  // Treat these as live game states so we do not mark game over during intermission.
+  if (s.includes("period")) return true;
+  if (s.includes("intermission") || s.includes("break")) return true;
   // Numeric minute: "1" .. "90" or "45+2" etc
   return /^\d/.test(status);
 }
