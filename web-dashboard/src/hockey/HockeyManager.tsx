@@ -108,6 +108,36 @@ function rebucketByKickoffWindow(matches: HockeyFeedMatch[]): {
   return { today, tomorrow };
 }
 
+const IIHF_TEAMS = new Set([
+  "austria",
+  "canada",
+  "czech republic",
+  "denmark",
+  "finland",
+  "france",
+  "germany",
+  "great britain",
+  "hungary",
+  "italy",
+  "kazakhstan",
+  "latvia",
+  "norway",
+  "slovakia",
+  "slovenia",
+  "sweden",
+  "switzerland",
+  "usa",
+]);
+
+function isIihfMatch(match: HockeyFeedMatch): boolean {
+  const context = `${match.leagueName} ${match.country}`.toLowerCase();
+  if (/iihf|world championship/.test(context)) return true;
+
+  const home = match.homeTeam.trim().toLowerCase();
+  const away = match.awayTeam.trim().toLowerCase();
+  return IIHF_TEAMS.has(home) && IIHF_TEAMS.has(away);
+}
+
 function readField(
   obj: Record<string, unknown> | undefined,
   ...keys: string[]
@@ -160,14 +190,14 @@ function normalizeFeed(
       const staticId = id || fixId;
       const homeTeam = String(readField(local, "name", "@name") ?? "Home");
       const awayTeam = String(readField(visitor, "name", "@name") ?? "Away");
-      const status = String(readField(rawMatch, "status", "@status") ?? "Not Started");
+      const status = String(
+        readField(rawMatch, "status", "@status") ?? "Not Started",
+      );
       const timer = String(readField(rawMatch, "timer", "@timer") ?? "");
       const date = String(
-        readField(
-          rawMatch,
-          "date",
-          "@formatted_date",
-        ) ?? readField(matchesContainer, "@formatted_date") ?? "",
+        readField(rawMatch, "date", "@formatted_date") ??
+          readField(matchesContainer, "@formatted_date") ??
+          "",
       );
       const time = String(readField(rawMatch, "time", "@time") ?? "");
       const scoreHome = parseScore(
@@ -298,9 +328,7 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
         const tomorrow = normalizeFeed(payload.tomorrow, "tomorrow");
         const all = [...today, ...tomorrow];
 
-        const iihfAll = all.filter((m) =>
-          /iihf|world championship/i.test(m.leagueName),
-        );
+        const iihfAll = all.filter(isIihfMatch);
         const source = iihfAll.length > 0 ? iihfAll : all;
         const rebucketed = rebucketByKickoffWindow(source);
 
