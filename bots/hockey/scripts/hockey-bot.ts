@@ -688,7 +688,13 @@ async function waitForKickoff(): Promise<void> {
         `[pre]   ${state.teamHome} vs ${state.teamAway} | status=${state.status}`,
       );
 
-      if (isLiveStatus(state.status)) {
+      const hasVisibleScore =
+        !isNaN(state.scoreHome) &&
+        !isNaN(state.scoreAway) &&
+        (state.scoreHome > 0 || state.scoreAway > 0);
+      const hasRunningClock = /^\d+$/.test(state.minute || "");
+
+      if (isLiveStatus(state.status) || hasVisibleScore || hasRunningClock) {
         // Initialize score from first live reading
         if (!isNaN(state.scoreHome) && !isNaN(state.scoreAway)) {
           lastScoreHome = state.scoreHome;
