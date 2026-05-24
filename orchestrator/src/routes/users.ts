@@ -154,6 +154,10 @@ async function fetchGoalserveFootball(
   return res.json();
 }
 
+function emptyDiscoveryFeed(): { scores: { category: [] } } {
+  return { scores: { category: [] } };
+}
+
 async function getHockeyDiscoveryCached(): Promise<{
   cacheUpdatedAtMs: number;
   stale: boolean;
@@ -174,10 +178,31 @@ async function getHockeyDiscoveryCached(): Promise<{
   }
 
   try {
-    const [today, tomorrow] = await Promise.all([
+    const [todayRes, tomorrowRes] = await Promise.allSettled([
       fetchGoalserveHockey("home"),
       fetchGoalserveHockey("d1"),
     ]);
+
+    const today =
+      todayRes.status === "fulfilled" ? todayRes.value : emptyDiscoveryFeed();
+    const tomorrow =
+      tomorrowRes.status === "fulfilled"
+        ? tomorrowRes.value
+        : emptyDiscoveryFeed();
+
+    if (
+      todayRes.status === "rejected" &&
+      tomorrowRes.status === "rejected" &&
+      hockeyDiscoveryCache
+    ) {
+      return {
+        cacheUpdatedAtMs: hockeyDiscoveryCache.updatedAtMs,
+        stale: true,
+        today: hockeyDiscoveryCache.today,
+        tomorrow: hockeyDiscoveryCache.tomorrow,
+      };
+    }
+
     hockeyDiscoveryCache = {
       updatedAtMs: now,
       today,
@@ -222,10 +247,31 @@ async function getFootballDiscoveryCached(): Promise<{
   }
 
   try {
-    const [today, tomorrow] = await Promise.all([
+    const [todayRes, tomorrowRes] = await Promise.allSettled([
       fetchGoalserveFootball("home"),
       fetchGoalserveFootball("d1"),
     ]);
+
+    const today =
+      todayRes.status === "fulfilled" ? todayRes.value : emptyDiscoveryFeed();
+    const tomorrow =
+      tomorrowRes.status === "fulfilled"
+        ? tomorrowRes.value
+        : emptyDiscoveryFeed();
+
+    if (
+      todayRes.status === "rejected" &&
+      tomorrowRes.status === "rejected" &&
+      footballDiscoveryCache
+    ) {
+      return {
+        cacheUpdatedAtMs: footballDiscoveryCache.updatedAtMs,
+        stale: true,
+        today: footballDiscoveryCache.today,
+        tomorrow: footballDiscoveryCache.tomorrow,
+      };
+    }
+
     footballDiscoveryCache = {
       updatedAtMs: now,
       today,
@@ -780,17 +826,21 @@ router.get(
           signal: AbortSignal.timeout(4_000),
         });
         if (!botRes.ok) {
-          return res.status(502).json({
+          return res.json({
             ok: false,
             bot: "football-bot",
+            offline: true,
+            watchlist: [],
             error: `Football bot watchlist-state returned ${botRes.status}`,
           });
         }
         return res.json(await botRes.json());
       } catch (err) {
-        return res.status(502).json({
+        return res.json({
           ok: false,
           bot: "football-bot",
+          offline: true,
+          watchlist: [],
           error: err instanceof Error ? err.message : String(err),
         });
       }
@@ -824,17 +874,19 @@ router.get(
           signal: AbortSignal.timeout(4_000),
         });
         if (!botRes.ok) {
-          return res.status(502).json({
+          return res.json({
             ok: false,
             bot: "football-bot",
+            offline: true,
             error: `Football bot watchlist-state returned ${botRes.status}`,
           });
         }
         return res.json(await botRes.json());
       } catch (err) {
-        return res.status(502).json({
+        return res.json({
           ok: false,
           bot: "football-bot",
+          offline: true,
           error: err instanceof Error ? err.message : String(err),
         });
       }
@@ -868,17 +920,21 @@ router.get(
           signal: AbortSignal.timeout(4_000),
         });
         if (!botRes.ok) {
-          return res.status(502).json({
+          return res.json({
             ok: false,
             bot: "hockey-bot",
+            offline: true,
+            watchlist: [],
             error: `Hockey bot watchlist-state returned ${botRes.status}`,
           });
         }
         return res.json(await botRes.json());
       } catch (err) {
-        return res.status(502).json({
+        return res.json({
           ok: false,
           bot: "hockey-bot",
+          offline: true,
+          watchlist: [],
           error: err instanceof Error ? err.message : String(err),
         });
       }
@@ -912,17 +968,19 @@ router.get(
           signal: AbortSignal.timeout(4_000),
         });
         if (!botRes.ok) {
-          return res.status(502).json({
+          return res.json({
             ok: false,
             bot: "hockey-bot",
+            offline: true,
             error: `Hockey bot watchlist-state returned ${botRes.status}`,
           });
         }
         return res.json(await botRes.json());
       } catch (err) {
-        return res.status(502).json({
+        return res.json({
           ok: false,
           bot: "hockey-bot",
+          offline: true,
           error: err instanceof Error ? err.message : String(err),
         });
       }
