@@ -59,6 +59,17 @@ function parseScore(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function readField(
+  obj: Record<string, unknown> | undefined,
+  ...keys: string[]
+): unknown {
+  if (!obj) return undefined;
+  for (const key of keys) {
+    if (key in obj) return obj[key];
+  }
+  return undefined;
+}
+
 function normalizeFeed(
   payload: unknown,
   bucket: "today" | "tomorrow",
@@ -75,32 +86,50 @@ function normalizeFeed(
   const matches: HockeyFeedMatch[] = [];
 
   for (const cat of categories) {
-    const country = String(cat["country"] ?? "");
-    const leagueName = String((cat["name"] ?? country) || "Hockey");
+    const country = String(readField(cat, "country", "@file_group") ?? "");
+    const leagueName = String(
+      (readField(cat, "name", "@name") ?? country) || "Hockey",
+    );
+    const matchesContainer =
+      (cat["matches"] as Record<string, unknown> | undefined) ?? {};
     const rawMatches = asArray(
-      cat["match"] as
+      ((matchesContainer["match"] ?? cat["match"]) as
         | Record<string, unknown>
         | Record<string, unknown>[]
-        | undefined,
+        | undefined) ?? [],
     );
 
     for (const rawMatch of rawMatches) {
       const local =
         (rawMatch["localteam"] as Record<string, unknown> | undefined) ?? {};
       const visitor =
-        (rawMatch["awayteam"] as Record<string, unknown> | undefined) ?? {};
-      const id = String(rawMatch["id"] ?? "");
-      const fixId = String(rawMatch["fix_id"] ?? id);
+        (rawMatch["awayteam"] as Record<string, unknown> | undefined) ??
+        (rawMatch["visitorteam"] as Record<string, unknown> | undefined) ??
+        {};
+      const id = String(readField(rawMatch, "id", "@id") ?? "");
+      const fixId = String(readField(rawMatch, "fix_id", "@fix_id") ?? id);
       const staticId = id || fixId;
-      const homeTeam = String(local["name"] ?? "Home");
-      const awayTeam = String(visitor["name"] ?? "Away");
-      const status = String(rawMatch["status"] ?? "Not Started");
-      const timer = String(rawMatch["timer"] ?? "");
-      const date = String(rawMatch["date"] ?? "");
-      const time = String(rawMatch["time"] ?? "");
-      const scoreHome = parseScore(local["totalscore"]);
-      const scoreAway = parseScore(visitor["totalscore"]);
+      const homeTeam = String(readField(local, "name", "@name") ?? "Home");
+      const awayTeam = String(readField(visitor, "name", "@name") ?? "Away");
+      const status = String(readField(rawMatch, "status", "@status") ?? "Not Started");
+      const timer = String(readField(rawMatch, "timer", "@timer") ?? "");
+      const date = String(
+        readField(
+          rawMatch,
+          "date",
+          "@formatted_date",
+        ) ?? readField(matchesContainer, "@formatted_date") ?? "",
+      );
+      const time = String(readField(rawMatch, "time", "@time") ?? "");
+      const scoreHome = parseScore(
+        readField(local, "totalscore", "@goals", "goals", "@score", "score"),
+      );
+      const scoreAway = parseScore(
+        readField(visitor, "totalscore", "@goals", "goals", "@score", "score"),
+      );
       const key = staticId || fixId || `${homeTeam}-${awayTeam}-${date}`;
+
+      if (!homeTeam || !awayTeam) continue;
 
       matches.push({
         key,
@@ -144,8 +173,12 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
   const [polymarketInputByKey, setPolymarketInputByKey] = useState<
     Record<string, string>
   >({});
-  const [savingSlugByKey, setSavingSlugByKey] = useState<Record<string, boolean>>({});
-  const [savedSlugByKey, setSavedSlugByKey] = useState<Record<string, boolean>>({});
+  const [savingSlugByKey, setSavingSlugByKey] = useState<
+    Record<string, boolean>
+  >({});
+  const [savedSlugByKey, setSavedSlugByKey] = useState<Record<string, boolean>>(
+    {},
+  );
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedKeys));
