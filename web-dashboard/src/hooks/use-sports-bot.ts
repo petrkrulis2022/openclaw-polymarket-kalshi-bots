@@ -67,6 +67,15 @@ export function useSportsBot(
         fetch(`${base}/trades`),
         fetch(`${base}/metrics`),
       ]);
+
+      if (!tradesRes.ok && !metricsRes.ok) {
+        throw new Error("Bot offline");
+      }
+
+      if (!tradesRes.ok) {
+        throw new Error("Bot offline");
+      }
+
       const t = tradesRes.ok ? await tradesRes.json() : {};
       const m = metricsRes.ok ? await metricsRes.json() : null;
       setData({
@@ -86,6 +95,15 @@ export function useSportsBot(
       });
       setError(null);
     } catch (e) {
+      setData({
+        trades: [],
+        openPosition: null,
+        totalPnl: 0,
+        gameOver: false,
+        matchSlug: "",
+        market: null,
+        metrics: null,
+      });
       setError(e instanceof Error ? e.message : "Bot offline");
     } finally {
       setLoading(false);

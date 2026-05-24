@@ -3108,6 +3108,7 @@ function SportsBotView({
     metamaskAddress,
   );
   const { trades, openPosition, totalPnl, gameOver, matchSlug, metrics } = data;
+  const botOffline = Boolean(error);
 
   return (
     <div>
@@ -3194,16 +3195,22 @@ function SportsBotView({
             <div
               style={{
                 fontWeight: 700,
-                color: gameOver ? "#9e9e9e" : "#4caf50",
+                color: botOffline
+                  ? "#f44336"
+                  : gameOver
+                    ? "#9e9e9e"
+                    : "#4caf50",
               }}
             >
               {loading
                 ? "Loading…"
-                : gameOver
-                  ? "Full Time"
-                  : openPosition
-                    ? "In Trade"
-                    : "Watching"}
+                : botOffline
+                  ? "Stopped"
+                  : gameOver
+                    ? "Full Time"
+                    : openPosition
+                      ? "In Trade"
+                      : "Watching"}
             </div>
           </div>
           <div>
