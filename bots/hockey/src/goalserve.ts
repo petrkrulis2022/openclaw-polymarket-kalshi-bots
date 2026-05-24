@@ -8,6 +8,11 @@
 
 import { config } from "./config.js";
 
+const GOALSERVE_REQUEST_TIMEOUT_MS = parseInt(
+  process.env["GOALSERVE_REQUEST_TIMEOUT_MS"] ?? "6000",
+  10,
+);
+
 export interface MatchState {
   staticId: string;
   /** "19:00" pre-game | "HT" half-time | "FT" full-time | "45" live minute */
@@ -34,7 +39,12 @@ function normalizeTeamName(input: string): string {
 function buildTeamAliases(team: string): string[] {
   const normalized = normalizeTeamName(team);
   const aliases = new Set<string>([normalized]);
-  aliases.add(normalized.replace(/\brepublic\b/g, "").replace(/\s+/g, " ").trim());
+  aliases.add(
+    normalized
+      .replace(/\brepublic\b/g, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 
   if (normalized === "czech republic") aliases.add("czechia");
   if (normalized === "czechia") aliases.add("czech republic");
@@ -55,9 +65,30 @@ function teamNameMatches(feedName: string, requestedTeam: string): boolean {
 
 async function gsGet(path: string): Promise<unknown> {
   const url = `${config.goalserve.baseUrl}/${config.goalserve.apiKey}/${path}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`Goalserve ${res.status}: ${path}`);
-  return res.json();
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(GOALSERVE_REQUEST_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`Goalserve ${res.status}: ${path}`);
+      return await res.json();
+    } catch (err) {
+      const message = (err as Error).message;
+      const isRetryable =
+        message.includes("aborted due to timeout") ||
+        message.includes("Unterminated string in JSON") ||
+        message.includes("Unexpected end of JSON input");
+
+      if (attempt < 2 && isRetryable) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw new Error(`Goalserve request failed after retries: ${path}`);
 }
 
 /**
@@ -91,8 +122,10 @@ function findMatchNodeRecursive(
     const visitorName = String(visitor["@name"] ?? "");
 
     const isMatch =
-      (teamNameMatches(localName, teamA) && teamNameMatches(visitorName, teamB)) ||
-      (teamNameMatches(localName, teamB) && teamNameMatches(visitorName, teamA));
+      (teamNameMatches(localName, teamA) &&
+        teamNameMatches(visitorName, teamB)) ||
+      (teamNameMatches(localName, teamB) &&
+        teamNameMatches(visitorName, teamA));
 
     if (isMatch) {
       return obj;
