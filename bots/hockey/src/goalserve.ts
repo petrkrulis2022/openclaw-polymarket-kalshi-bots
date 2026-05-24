@@ -228,88 +228,99 @@ export async function pollLiveMatch(
   fallbackId?: string,
 ): Promise<MatchState | null> {
   try {
-    const data = await gsGet("hockey/home?json=1");
+    const parseScore = (value: unknown): number =>
+      parseInt(String(value ?? ""), 10);
 
-    let matchNode: MatchNode | null = null;
+    const nodeRank = (obj: MatchNode): number => {
+      const local = obj["localteam"] as Record<string, unknown> | undefined;
+      const visitor =
+        (obj["visitorteam"] as Record<string, unknown> | undefined) ??
+        (obj["awayteam"] as Record<string, unknown> | undefined);
+      const status = String(obj["@status"] ?? "").trim();
+      const timer = String(obj["@timer"] ?? "").trim();
 
-    if (staticId) {
-      const wantedIds = new Set(
-        [staticId, fallbackId]
-          .map((v) => String(v ?? "").trim())
-          .filter((v) => v.length > 0),
+      const scoreHome = parseScore(
+        local?.["@goals"] ?? local?.["@score"] ?? local?.["goals"] ?? "",
+      );
+      const scoreAway = parseScore(
+        visitor?.["@goals"] ?? visitor?.["@score"] ?? visitor?.["goals"] ?? "",
       );
 
-      const parseScore = (value: unknown): number =>
-        parseInt(String(value ?? ""), 10);
+      const hasScore = Number.isFinite(scoreHome) && Number.isFinite(scoreAway);
+      const hasRunningClock = /^\d+/.test(timer) || /^\d+/.test(status);
+      const looksPreKickoffClock = /^\d{1,2}:\d{2}$/.test(status);
 
-      const nodeRank = (obj: MatchNode): number => {
-        const local = obj["localteam"] as Record<string, unknown> | undefined;
-        const visitor =
-          (obj["visitorteam"] as Record<string, unknown> | undefined) ??
-          (obj["awayteam"] as Record<string, unknown> | undefined);
-        const status = String(obj["@status"] ?? "").trim();
-        const timer = String(obj["@timer"] ?? "").trim();
+      let rank = 0;
+      if (hasScore) rank += 4;
+      if (hasRunningClock) rank += 2;
+      if (!looksPreKickoffClock) rank += 1;
+      return rank;
+    };
 
-        const scoreHome = parseScore(
-          local?.["@goals"] ?? local?.["@score"] ?? local?.["goals"] ?? "",
-        );
-        const scoreAway = parseScore(
-          visitor?.["@goals"] ?? visitor?.["@score"] ?? visitor?.["goals"] ?? "",
-        );
+    const wantedIds = new Set(
+      [staticId, fallbackId]
+        .map((v) => String(v ?? "").trim())
+        .filter((v) => v.length > 0),
+    );
 
-        const hasScore = Number.isFinite(scoreHome) && Number.isFinite(scoreAway);
-        const hasRunningClock = /^\d+/.test(timer) || /^\d+/.test(status);
-        const looksPreKickoffClock = /^\d{1,2}:\d{2}$/.test(status);
-
-        let rank = 0;
-        if (hasScore) rank += 4;
-        if (hasRunningClock) rank += 2;
-        if (!looksPreKickoffClock) rank += 1;
-        return rank;
-      };
-
-      const findById = (node: unknown): MatchNode | null => {
-        if (typeof node !== "object" || node === null) return null;
-        if (Array.isArray(node)) {
-          let best: MatchNode | null = null;
-          for (const item of node) {
-            const found = findById(item);
-            if (!found) continue;
-            if (!best || nodeRank(found) > nodeRank(best)) {
-              best = found;
-            }
-          }
-          return best;
-        }
-        const obj = node as MatchNode;
-        const id = String(obj["@static_id"] ?? obj["@id"] ?? "");
-        if (
-          wantedIds.has(id) &&
-          obj["localteam"] &&
-          (obj["visitorteam"] || obj["awayteam"])
-        ) {
-          return obj;
-        }
+    const findById = (node: unknown): MatchNode | null => {
+      if (typeof node !== "object" || node === null) return null;
+      if (Array.isArray(node)) {
         let best: MatchNode | null = null;
-        for (const v of Object.values(obj)) {
-          const found = findById(v);
+        for (const item of node) {
+          const found = findById(item);
           if (!found) continue;
           if (!best || nodeRank(found) > nodeRank(best)) {
             best = found;
           }
         }
         return best;
-      };
+      }
+      const obj = node as MatchNode;
+      const id = String(obj["@static_id"] ?? obj["@id"] ?? "");
+      if (
+        wantedIds.has(id) &&
+        obj["localteam"] &&
+        (obj["visitorteam"] || obj["awayteam"])
+      ) {
+        return obj;
+      }
+      let best: MatchNode | null = null;
+      for (const v of Object.values(obj)) {
+        const found = findById(v);
+        if (!found) continue;
+        if (!best || nodeRank(found) > nodeRank(best)) {
+          best = found;
+        }
+      }
+      return best;
+    };
 
-      matchNode = findById(data);
-    }
+    const resolvedHome = (homeTeam && homeTeam.trim()) || config.matchTeamHome;
+    const resolvedAway = (awayTeam && awayTeam.trim()) || config.matchTeamAway;
+    const feedPaths = ["hockey/home?json=1", "hockey/d1?json=1"] as const;
 
-    if (!matchNode) {
-      const resolvedHome =
-        (homeTeam && homeTeam.trim()) || config.matchTeamHome;
-      const resolvedAway =
-        (awayTeam && awayTeam.trim()) || config.matchTeamAway;
-      matchNode = findMatchNodeRecursive(data, resolvedHome, resolvedAway);
+    let matchNode: MatchNode | null = null;
+    let bestRank = -1;
+
+    for (const path of feedPaths) {
+      let feedData: unknown;
+      try {
+        feedData = await gsGet(path);
+      } catch {
+        continue;
+      }
+
+      const byId = wantedIds.size > 0 ? findById(feedData) : null;
+      const byTeams = findMatchNodeRecursive(feedData, resolvedHome, resolvedAway);
+      const candidate = byId ?? byTeams;
+      if (!candidate) continue;
+
+      const rank = nodeRank(candidate);
+      if (rank > bestRank) {
+        matchNode = candidate;
+        bestRank = rank;
+      }
     }
 
     if (!matchNode || typeof matchNode !== "object") return null;
