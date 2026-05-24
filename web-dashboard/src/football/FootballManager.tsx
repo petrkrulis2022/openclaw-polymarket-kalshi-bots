@@ -77,6 +77,7 @@ function parseKickoffTimestamp(match: HockeyFeedMatch): number {
 function isAllowedLeague(leagueName: string, country: string): boolean {
   const text = `${country} ${leagueName}`.toLowerCase();
   return (
+    /england:\s*premier league/.test(text) ||
     /chance liga/.test(text) ||
     /fortuna liga/.test(text) ||
     /1\.\s*l(i|í)ga/.test(text)
