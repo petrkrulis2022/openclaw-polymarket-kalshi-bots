@@ -132,9 +132,15 @@ function pnlStr(pnl: number): string {
 }
 
 function seedWatchlistStateFromWatchedGames(): void {
-  watchlistLiveState.clear();
+  // Remove keys no longer in the watched list
+  const currentKeys = new Set(watchedGames.map((g) => g.key));
+  for (const key of watchlistLiveState.keys()) {
+    if (!currentKeys.has(key)) watchlistLiveState.delete(key);
+  }
   for (const game of watchedGames) {
     const key = game.key;
+    // Never overwrite live data already written by updateWatchlistStateFromLive
+    if (watchlistLiveState.has(key)) continue;
     watchlistLiveState.set(key, {
       key,
       staticId: game.staticId,
