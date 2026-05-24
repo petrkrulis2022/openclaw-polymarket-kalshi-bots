@@ -74,32 +74,50 @@ function normalizeFeed(
   const matches: HockeyFeedMatch[] = [];
 
   for (const cat of categories) {
-    const country = String(cat["country"] ?? "");
-    const leagueName = String((cat["name"] ?? country) || "Football");
+    const country = String(cat["@file_group"] ?? cat["country"] ?? "");
+    const leagueName = String(
+      (cat["@name"] ?? cat["name"] ?? country) || "Football",
+    );
+
+    const matchesContainer =
+      (cat["matches"] as Record<string, unknown> | undefined) ?? {};
     const rawMatches = asArray(
-      cat["match"] as
+      ((matchesContainer["match"] ?? cat["match"]) as
         | Record<string, unknown>
         | Record<string, unknown>[]
-        | undefined,
+        | undefined) ?? [],
     );
 
     for (const rawMatch of rawMatches) {
       const local =
         (rawMatch["localteam"] as Record<string, unknown> | undefined) ?? {};
       const visitor =
-        (rawMatch["awayteam"] as Record<string, unknown> | undefined) ?? {};
-      const id = String(rawMatch["id"] ?? "");
-      const fixId = String(rawMatch["fix_id"] ?? id);
+        ((rawMatch["visitorteam"] as Record<string, unknown> | undefined) ??
+          (rawMatch["awayteam"] as Record<string, unknown> | undefined) ??
+          {});
+      const id = String(rawMatch["@id"] ?? rawMatch["id"] ?? "");
+      const fixId = String(rawMatch["@fix_id"] ?? rawMatch["fix_id"] ?? id);
       const staticId = id || fixId;
-      const homeTeam = String(local["name"] ?? "Home");
-      const awayTeam = String(visitor["name"] ?? "Away");
-      const status = String(rawMatch["status"] ?? "Not Started");
-      const timer = String(rawMatch["timer"] ?? "");
-      const date = String(rawMatch["date"] ?? "");
-      const time = String(rawMatch["time"] ?? "");
-      const scoreHome = parseScore(local["totalscore"]);
-      const scoreAway = parseScore(visitor["totalscore"]);
+      const homeTeam = String(local["@name"] ?? local["name"] ?? "Home");
+      const awayTeam = String(
+        visitor["@name"] ?? visitor["name"] ?? "Away",
+      );
+      const status = String(rawMatch["@status"] ?? rawMatch["status"] ?? "Not Started");
+      const timer = String(rawMatch["@timer"] ?? rawMatch["timer"] ?? "");
+      const date = String(
+        rawMatch["@formatted_date"] ??
+          rawMatch["date"] ??
+          matchesContainer["@formatted_date"] ??
+          "",
+      );
+      const time = String(rawMatch["@time"] ?? rawMatch["time"] ?? "");
+      const scoreHome = parseScore(local["@goals"] ?? local["totalscore"]);
+      const scoreAway = parseScore(
+        visitor["@goals"] ?? visitor["totalscore"],
+      );
       const key = staticId || fixId || `${homeTeam}-${awayTeam}-${date}`;
+
+      if (!homeTeam || !awayTeam) continue;
 
       matches.push({
         key,
