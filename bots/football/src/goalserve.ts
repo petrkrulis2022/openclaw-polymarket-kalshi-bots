@@ -238,14 +238,48 @@ export async function pollLiveMatch(
           .map((v) => String(v ?? "").trim())
           .filter((v) => v.length > 0),
       );
+
+      const parseScore = (value: unknown): number =>
+        parseInt(String(value ?? ""), 10);
+
+      const nodeRank = (obj: MatchNode): number => {
+        const local = obj["localteam"] as Record<string, unknown> | undefined;
+        const visitor =
+          (obj["visitorteam"] as Record<string, unknown> | undefined) ??
+          (obj["awayteam"] as Record<string, unknown> | undefined);
+        const status = String(obj["@status"] ?? "").trim();
+        const timer = String(obj["@timer"] ?? "").trim();
+
+        const scoreHome = parseScore(
+          local?.["@goals"] ?? local?.["@score"] ?? local?.["goals"] ?? "",
+        );
+        const scoreAway = parseScore(
+          visitor?.["@goals"] ?? visitor?.["@score"] ?? visitor?.["goals"] ?? "",
+        );
+
+        const hasScore = Number.isFinite(scoreHome) && Number.isFinite(scoreAway);
+        const hasRunningClock = /^\d+/.test(timer) || /^\d+/.test(status);
+        const looksPreKickoffClock = /^\d{1,2}:\d{2}$/.test(status);
+
+        let rank = 0;
+        if (hasScore) rank += 4;
+        if (hasRunningClock) rank += 2;
+        if (!looksPreKickoffClock) rank += 1;
+        return rank;
+      };
+
       const findById = (node: unknown): MatchNode | null => {
         if (typeof node !== "object" || node === null) return null;
         if (Array.isArray(node)) {
+          let best: MatchNode | null = null;
           for (const item of node) {
             const found = findById(item);
-            if (found) return found;
+            if (!found) continue;
+            if (!best || nodeRank(found) > nodeRank(best)) {
+              best = found;
+            }
           }
-          return null;
+          return best;
         }
         const obj = node as MatchNode;
         const id = String(obj["@static_id"] ?? obj["@id"] ?? "");
@@ -256,11 +290,15 @@ export async function pollLiveMatch(
         ) {
           return obj;
         }
+        let best: MatchNode | null = null;
         for (const v of Object.values(obj)) {
           const found = findById(v);
-          if (found) return found;
+          if (!found) continue;
+          if (!best || nodeRank(found) > nodeRank(best)) {
+            best = found;
+          }
         }
-        return null;
+        return best;
       };
 
       matchNode = findById(data);
