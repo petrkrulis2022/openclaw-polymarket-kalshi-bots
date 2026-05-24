@@ -59,6 +59,55 @@ function parseScore(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function parseKickoffTimestamp(match: HockeyFeedMatch): number {
+  const date = String(match.date ?? "").trim();
+  const time = String(match.time ?? "").trim();
+  const dateMatch = date.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  const timeMatch = time.match(/^(\d{1,2}):(\d{2})$/);
+  if (!dateMatch) return Number.POSITIVE_INFINITY;
+
+  const day = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const year = Number(dateMatch[3]);
+  const hours = timeMatch ? Number(timeMatch[1]) : 0;
+  const minutes = timeMatch ? Number(timeMatch[2]) : 0;
+
+  // Goalserve times are UTC-like in these feeds; this keeps ordering consistent.
+  return Date.UTC(year, month - 1, day, hours, minutes);
+}
+
+function rebucketByKickoffWindow(matches: HockeyFeedMatch[]): {
+  today: HockeyFeedMatch[];
+  tomorrow: HockeyFeedMatch[];
+} {
+  const now = Date.now();
+  const next24h = now + 24 * 60 * 60 * 1000;
+  const sorted = [...matches].sort(
+    (a, b) => parseKickoffTimestamp(a) - parseKickoffTimestamp(b),
+  );
+
+  const today = sorted.filter((m) => {
+    const ts = parseKickoffTimestamp(m);
+    return Number.isFinite(ts) && ts <= next24h;
+  });
+
+  const tomorrow = sorted.filter((m) => {
+    const ts = parseKickoffTimestamp(m);
+    return Number.isFinite(ts) && ts > next24h;
+  });
+
+  if (today.length === 0 && tomorrow.length === 0) {
+    return { today: sorted, tomorrow: [] };
+  }
+
+  if (today.length === 0 && tomorrow.length > 0) {
+    // Fallback: keep first upcoming block visible as "Today" instead of empty UI.
+    return { today: tomorrow, tomorrow: [] };
+  }
+
+  return { today, tomorrow };
+}
+
 function readField(
   obj: Record<string, unknown> | undefined,
   ...keys: string[]
@@ -247,16 +296,16 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
 
         const today = normalizeFeed(payload.today, "today");
         const tomorrow = normalizeFeed(payload.tomorrow, "tomorrow");
+        const all = [...today, ...tomorrow];
 
-        const iihfToday = today.filter((m) =>
+        const iihfAll = all.filter((m) =>
           /iihf|world championship/i.test(m.leagueName),
         );
-        const iihfTomorrow = tomorrow.filter((m) =>
-          /iihf|world championship/i.test(m.leagueName),
-        );
+        const source = iihfAll.length > 0 ? iihfAll : all;
+        const rebucketed = rebucketByKickoffWindow(source);
 
-        setTodayMatches(iihfToday.length > 0 ? iihfToday : today);
-        setTomorrowMatches(iihfTomorrow.length > 0 ? iihfTomorrow : tomorrow);
+        setTodayMatches(rebucketed.today);
+        setTomorrowMatches(rebucketed.tomorrow);
       } catch (err) {
         if (!stopped) {
           setError(

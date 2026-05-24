@@ -95,6 +95,33 @@ export function useCopyTrader(metamaskAddress?: string) {
       : "/api/bot/3";
 
     try {
+      if (metamaskAddress) {
+        const statusRes = await fetch(
+          `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/bots/status`,
+        );
+        if (statusRes.ok) {
+          const statusList = (await statusRes.json()) as Array<{
+            name?: string;
+            status?: string;
+            enabled?: boolean;
+          }>;
+          const copyStatus = statusList.find((s) => s.name === "copy-trader");
+          if (!copyStatus || copyStatus.status !== "online") {
+            setState((s) => ({
+              ...s,
+              traders: [],
+              pending: [],
+              positions: [],
+              totalRealizedPnl: 0,
+              traderSnapshots: {},
+              online: false,
+              loading: false,
+            }));
+            return;
+          }
+        }
+      }
+
       const [tradersRes, pendingRes, positionsRes] = await Promise.all([
         fetch(`${base}/traders`),
         fetch(`${base}/pending`),
@@ -155,10 +182,10 @@ export function useCopyTrader(metamaskAddress?: string) {
   const addTrader = useCallback(
     async (trader: Omit<TrackedTrader, "addedAt">): Promise<boolean> => {
       try {
-          const base = metamaskAddress
-            ? `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/bots/copy-trader/proxy`
-            : "/api/bot/3";
-          const res = await fetch(`${base}/traders`, {
+        const base = metamaskAddress
+          ? `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/bots/copy-trader/proxy`
+          : "/api/bot/3";
+        const res = await fetch(`${base}/traders`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(trader),
