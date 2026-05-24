@@ -113,6 +113,7 @@ let lastScoreHome = NaN;
 let lastScoreAway = NaN;
 let gameIsOver = false;
 let openPosition: OpenPosition | null = null;
+let consecutiveNonLivePolls = 0;
 
 const trades: ClosedTrade[] = [];
 let totalPnl = 0;
@@ -616,15 +617,25 @@ async function goalserveLoop(): Promise<void> {
       break;
     }
 
-    // Safety: if status is not live (not a running-minute, not HT) it's some
-    // end-of-game state we haven't seen before — treat it as game over.
+    // Goalserve can briefly regress from live -> Not Started between snapshots.
+    // Require a few consecutive non-live polls before declaring game over.
     if (!isLiveStatus(state.status)) {
+      consecutiveNonLivePolls += 1;
+      if (consecutiveNonLivePolls < 5) {
+        console.log(
+          `[gs] ⚠️  Non-live status "${state.status}" after live snapshot; waiting (${consecutiveNonLivePolls}/5)`,
+        );
+        await sleep(config.livePollMs);
+        continue;
+      }
       console.log(
-        `\n[gs] ⚠️  Unrecognised non-live status "${state.status}" — treating as game over`,
+        `\n[gs] ⚠️  Non-live status "${state.status}" persisted for ${consecutiveNonLivePolls} polls — treating as game over`,
       );
       gameIsOver = true;
       break;
     }
+
+    consecutiveNonLivePolls = 0;
 
     // Score-change detection: compare with last known valid scores
     if (!isNaN(state.scoreHome) && !isNaN(state.scoreAway)) {
@@ -706,6 +717,7 @@ async function waitForKickoff(): Promise<void> {
           lastScoreHome = state.scoreHome;
           lastScoreAway = state.scoreAway;
         }
+        consecutiveNonLivePolls = 0;
         console.log("\n[bot]  ✅ Kickoff detected — entering live mode");
         return;
       }
