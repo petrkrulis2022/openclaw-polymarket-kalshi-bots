@@ -58,6 +58,32 @@ function parseScore(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function parseKickoffTimestamp(match: HockeyFeedMatch): number {
+  const date = String(match.date ?? "").trim();
+  const time = String(match.time ?? "").trim();
+  const dateMatch = date.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  const timeMatch = time.match(/^(\d{1,2}):(\d{2})$/);
+  if (!dateMatch) return Number.POSITIVE_INFINITY;
+
+  const day = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const year = Number(dateMatch[3]);
+  const hours = timeMatch ? Number(timeMatch[1]) : 0;
+  const minutes = timeMatch ? Number(timeMatch[2]) : 0;
+
+  return Date.UTC(year, month - 1, day, hours, minutes);
+}
+
+function isAllowedLeague(leagueName: string, country: string): boolean {
+  const text = `${country} ${leagueName}`.toLowerCase();
+  return (
+    /england:\s*premier league/.test(text) ||
+    /czech/.test(text) ||
+    /fortuna liga/.test(text) ||
+    /1\.\s*l(i|í)ga/.test(text)
+  );
+}
+
 function normalizeFeed(
   payload: unknown,
   bucket: "today" | "tomorrow",
@@ -92,17 +118,17 @@ function normalizeFeed(
       const local =
         (rawMatch["localteam"] as Record<string, unknown> | undefined) ?? {};
       const visitor =
-        ((rawMatch["visitorteam"] as Record<string, unknown> | undefined) ??
-          (rawMatch["awayteam"] as Record<string, unknown> | undefined) ??
-          {});
+        (rawMatch["visitorteam"] as Record<string, unknown> | undefined) ??
+        (rawMatch["awayteam"] as Record<string, unknown> | undefined) ??
+        {};
       const id = String(rawMatch["@id"] ?? rawMatch["id"] ?? "");
       const fixId = String(rawMatch["@fix_id"] ?? rawMatch["fix_id"] ?? id);
       const staticId = id || fixId;
       const homeTeam = String(local["@name"] ?? local["name"] ?? "Home");
-      const awayTeam = String(
-        visitor["@name"] ?? visitor["name"] ?? "Away",
+      const awayTeam = String(visitor["@name"] ?? visitor["name"] ?? "Away");
+      const status = String(
+        rawMatch["@status"] ?? rawMatch["status"] ?? "Not Started",
       );
-      const status = String(rawMatch["@status"] ?? rawMatch["status"] ?? "Not Started");
       const timer = String(rawMatch["@timer"] ?? rawMatch["timer"] ?? "");
       const date = String(
         rawMatch["@formatted_date"] ??
@@ -112,12 +138,11 @@ function normalizeFeed(
       );
       const time = String(rawMatch["@time"] ?? rawMatch["time"] ?? "");
       const scoreHome = parseScore(local["@goals"] ?? local["totalscore"]);
-      const scoreAway = parseScore(
-        visitor["@goals"] ?? visitor["totalscore"],
-      );
+      const scoreAway = parseScore(visitor["@goals"] ?? visitor["totalscore"]);
       const key = staticId || fixId || `${homeTeam}-${awayTeam}-${date}`;
 
       if (!homeTeam || !awayTeam) continue;
+      if (!isAllowedLeague(leagueName, country)) continue;
 
       matches.push({
         key,
@@ -141,6 +166,17 @@ function normalizeFeed(
   }
 
   return matches;
+}
+
+function sortMatchesByKickoff(matches: HockeyFeedMatch[]): HockeyFeedMatch[] {
+  return [...matches].sort((left, right) => {
+    const leftTs = parseKickoffTimestamp(left);
+    const rightTs = parseKickoffTimestamp(right);
+    if (leftTs !== rightTs) return leftTs - rightTs;
+    return `${left.homeTeam} vs ${left.awayTeam}`.localeCompare(
+      `${right.homeTeam} vs ${right.awayTeam}`,
+    );
+  });
 }
 
 export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
@@ -236,8 +272,8 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
         const today = normalizeFeed(payload.today, "today");
         const tomorrow = normalizeFeed(payload.tomorrow, "tomorrow");
 
-        setTodayMatches(today);
-        setTomorrowMatches(tomorrow);
+        setTodayMatches(sortMatchesByKickoff(today));
+        setTomorrowMatches(sortMatchesByKickoff(tomorrow));
       } catch (err) {
         if (!stopped) {
           setError(
