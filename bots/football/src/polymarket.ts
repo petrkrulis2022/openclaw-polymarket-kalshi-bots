@@ -63,7 +63,35 @@ function buildTeamAliases(team: string): string[] {
     aliases.add("us");
   }
 
+  // Club naming/transliteration variants common in football feeds.
+  if (normalized.includes("prague")) {
+    aliases.add(normalized.replace(/\bprague\b/g, "praha").trim());
+  }
+  if (normalized.includes("praha")) {
+    aliases.add(normalized.replace(/\bpraha\b/g, "prague").trim());
+  }
+  if (normalized.includes("viktoria")) {
+    aliases.add(normalized.replace(/\bviktoria\b/g, "victoria").trim());
+  }
+  if (normalized.includes("victoria")) {
+    aliases.add(normalized.replace(/\bvictoria\b/g, "viktoria").trim());
+  }
+
+  // Add a prefix-stripped alias (e.g. "sk slavia praha" -> "slavia praha").
+  aliases.add(
+    normalized
+      .replace(/\b(sk|fk|fc|ac|sc|afc|cf)\b/g, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
+
   return Array.from(aliases).filter(Boolean);
+}
+
+function textMatchesTeam(text: string, requestedTeam: string): boolean {
+  const normalizedText = normalizeTeamName(text);
+  const aliases = buildTeamAliases(requestedTeam);
+  return aliases.some((alias) => alias && normalizedText.includes(alias));
 }
 
 function titleMatchesTeams(
@@ -132,6 +160,7 @@ export async function findEventSlugByTeams(
 export async function fetchHomeTeamMarket(
   slug: string,
   homeTeamName?: string,
+  awayTeamName?: string,
 ): Promise<HomeTeamMarket> {
   const url = `${config.polymarket.gammaApi}/events?slug=${slug}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
@@ -148,27 +177,59 @@ export async function fetchHomeTeamMarket(
   // containing the home team name (case-insensitive).
   const selectedHomeTeam =
     (homeTeamName && homeTeamName.trim()) || config.matchTeamHome;
-  const homeTeam = selectedHomeTeam.toLowerCase();
+  const selectedAwayTeam =
+    (awayTeamName && awayTeamName.trim()) || config.matchTeamAway;
   let homeTeamMarket: Record<string, unknown> | null = null;
 
   for (const m of markets) {
     const mType = String(m["sportsMarketType"] ?? "").toLowerCase();
-    const groupTitle = String(m["groupItemTitle"] ?? "").toLowerCase();
-    const question = String(m["question"] ?? "").toLowerCase();
+    const groupTitle = String(m["groupItemTitle"] ?? "");
+    const question = String(m["question"] ?? "");
+    const questionLower = question.toLowerCase();
 
     const isMoneyline =
       mType.includes("moneyline") ||
       (!mType &&
-        !question.includes("halftime") &&
-        !question.includes("corner") &&
-        !question.includes("score"));
+        !questionLower.includes("halftime") &&
+        !questionLower.includes("corner") &&
+        !questionLower.includes("score"));
 
     const isHomeTeam =
-      groupTitle.includes(homeTeam) || question.includes(homeTeam);
+      textMatchesTeam(groupTitle, selectedHomeTeam) ||
+      textMatchesTeam(question, selectedHomeTeam);
 
     if (isMoneyline && isHomeTeam) {
       homeTeamMarket = m;
       break;
+    }
+  }
+
+  if (!homeTeamMarket) {
+    const fallbackCandidates = markets.filter((m) => {
+      const mType = String(m["sportsMarketType"] ?? "").toLowerCase();
+      const question = String(m["question"] ?? "");
+      const questionLower = question.toLowerCase();
+      const isMoneyline =
+        mType.includes("moneyline") ||
+        (!mType &&
+          !questionLower.includes("halftime") &&
+          !questionLower.includes("corner") &&
+          !questionLower.includes("score"));
+      const isDraw = questionLower.includes("draw");
+      return isMoneyline && !isDraw;
+    });
+
+    // Deterministic fallback for standard 3-way football events:
+    // pick the non-draw candidate that does not match away-team aliases.
+    if (fallbackCandidates.length >= 2 && selectedAwayTeam) {
+      const awayFiltered = fallbackCandidates.filter((m) => {
+        const q = String(m["question"] ?? "");
+        const g = String(m["groupItemTitle"] ?? "");
+        return !textMatchesTeam(`${q} ${g}`, selectedAwayTeam);
+      });
+      if (awayFiltered.length >= 1) {
+        homeTeamMarket = awayFiltered[0] ?? null;
+      }
     }
   }
 

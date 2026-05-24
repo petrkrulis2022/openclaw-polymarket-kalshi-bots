@@ -131,6 +131,109 @@ function getUserBotBaseUrl(user: User, botName: string): string | null {
   return `http://127.0.0.1:${port}`;
 }
 
+type BotReadiness = {
+  botName: string;
+  ready: boolean;
+  stage: "ready" | "initializing" | "offline";
+  unreachable: boolean;
+  missing: string[];
+  details?: unknown;
+  error?: string;
+};
+
+async function probeBotReadiness(
+  user: User,
+  botName: string,
+): Promise<BotReadiness> {
+  const botBaseUrl = getUserBotBaseUrl(user, botName);
+  if (!botBaseUrl) {
+    return {
+      botName,
+      ready: false,
+      stage: "offline",
+      unreachable: true,
+      missing: [],
+      error: "Unknown bot",
+    };
+  }
+
+  try {
+    const readyRes = await fetch(`${botBaseUrl}/ready`, {
+      signal: AbortSignal.timeout(2_500),
+    });
+
+    if (readyRes.ok) {
+      const payload = (await readyRes.json()) as {
+        ready?: boolean;
+        stage?: string;
+        missing?: string[];
+        details?: unknown;
+        lastSetupError?: string;
+      };
+      const stage = payload.ready ? "ready" : "initializing";
+      return {
+        botName,
+        ready: Boolean(payload.ready),
+        stage,
+        unreachable: false,
+        missing: Array.isArray(payload.missing) ? payload.missing : [],
+        details: payload.details,
+        error: payload.lastSetupError,
+      };
+    }
+  } catch {
+    // Fall through to health probe.
+  }
+
+  try {
+    const healthRes = await fetch(`${botBaseUrl}/health`, {
+      signal: AbortSignal.timeout(2_500),
+    });
+    if (!healthRes.ok) {
+      return {
+        botName,
+        ready: false,
+        stage: "offline",
+        unreachable: true,
+        missing: [],
+        error: `Health returned ${healthRes.status}`,
+      };
+    }
+    const payload = (await healthRes.json()) as {
+      ok?: boolean;
+      ready?: boolean;
+      marketReady?: boolean;
+      signingClientReady?: boolean;
+      staticIdReady?: boolean;
+      lastSetupError?: string;
+    };
+
+    const missing: string[] = [];
+    if (payload.marketReady === false) missing.push("market");
+    if (payload.signingClientReady === false) missing.push("signing");
+    if (payload.staticIdReady === false) missing.push("goalserveStaticId");
+
+    return {
+      botName,
+      ready: Boolean(payload.ready),
+      stage: payload.ready ? "ready" : "initializing",
+      unreachable: false,
+      missing,
+      details: payload,
+      error: payload.lastSetupError,
+    };
+  } catch {
+    return {
+      botName,
+      ready: false,
+      stage: "offline",
+      unreachable: true,
+      missing: [],
+      error: "Bot process unreachable",
+    };
+  }
+}
+
 async function fetchGoalserveHockey(pathname: "home" | "d1"): Promise<unknown> {
   const res = await fetch(`${GOALSERVE_HOCKEY_FEED_BASE}/${pathname}?json=1`, {
     signal: AbortSignal.timeout(6_000),
@@ -664,11 +767,16 @@ router.post(
 
       setBotsRunning(address, true);
 
+      const readiness = await Promise.all(
+        enabledBots.map((b) => probeBotReadiness(user, b.name)),
+      );
+
       return res.json({
         ok: true,
         slot,
         basePort,
         enabledBots: enabledBots.map((b) => b.name),
+        readiness,
       });
     } catch (err) {
       return next(err);
@@ -692,9 +800,20 @@ router.get("/:address/bots/:botName/watched-games", (req, res) => {
   return res.json({ botName, games });
 });
 
+// ── GET /users/:address/bots/:botName/readiness ────────────────────────────
+
+router.get("/:address/bots/:botName/readiness", async (req, res) => {
+  const { address, botName } = req.params;
+  const user = getUser(address);
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  const readiness = await probeBotReadiness(user, botName);
+  return res.json({ ok: true, readiness });
+});
+
 // ── PUT /users/:address/bots/:botName/watched-games ─────────────────────────
 
-router.put("/:address/bots/:botName/watched-games", (req, res) => {
+router.put("/:address/bots/:botName/watched-games", async (req, res) => {
   const { address, botName } = req.params;
   const user = getUser(address);
   if (!user) return res.status(404).json({ error: "User not found" });
@@ -737,7 +856,9 @@ router.put("/:address/bots/:botName/watched-games", (req, res) => {
     .filter((row): row is WatchedGame => row !== null);
 
   setWatchedGames(address, botName, normalized);
-  return res.json({ ok: true, botName, games: normalized });
+
+  const readiness = await probeBotReadiness(user, botName);
+  return res.json({ ok: true, botName, games: normalized, readiness });
 });
 
 // ── GET /users/:address/bots/hockey-bot/discovery ───────────────────────────
@@ -1287,7 +1408,7 @@ router.all(
       const method = req.method.toUpperCase();
       const hasBody = !["GET", "HEAD"].includes(method);
 
-      let upstream: Response;
+      let upstream: globalThis.Response;
       try {
         upstream = await fetch(targetUrl, {
           method,

@@ -27,6 +27,14 @@ type WatchedGameDto = {
   createdAt: number;
 };
 
+type BotReadinessDto = {
+  ready?: boolean;
+  stage?: string;
+  unreachable?: boolean;
+  missing?: string[];
+  error?: string;
+};
+
 function extractMatchSlug(input: string): string | undefined {
   const raw = input.trim();
   if (!raw) return undefined;
@@ -203,6 +211,7 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
   const [savedSlugByKey, setSavedSlugByKey] = useState<Record<string, boolean>>(
     {},
   );
+  const [assignmentStatus, setAssignmentStatus] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedKeys));
@@ -331,7 +340,7 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
       });
 
     try {
-      await fetch(
+      const res = await fetch(
         `/api/orchestrator/users/${metamaskAddress}/bots/${BOT_NAME}/watched-games`,
         {
           method: "PUT",
@@ -339,8 +348,28 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
           body: JSON.stringify({ games }),
         },
       );
+      if (!res.ok) {
+        setAssignmentStatus(`Save failed (${res.status})`);
+        return false;
+      }
+
+      const payload = (await res.json()) as { readiness?: BotReadinessDto };
+      const readiness = payload.readiness;
+      if (readiness) {
+        if (readiness.ready) {
+          setAssignmentStatus("Bot ready: market/signing/static-id resolved");
+        } else if (readiness.unreachable) {
+          setAssignmentStatus("Bot offline: start bot to activate game");
+        } else {
+          const missing = (readiness.missing ?? []).join(", ") || "setup";
+          setAssignmentStatus(`Bot initializing: waiting for ${missing}`);
+        }
+      } else {
+        setAssignmentStatus("Game assignment saved");
+      }
       return true;
     } catch {
+      setAssignmentStatus("Save failed: orchestrator unavailable");
       return false;
     }
   };
@@ -401,6 +430,9 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
           <div className="hky-sidebar-subtitle">
             {botName} · Goalserve football feed
           </div>
+          {assignmentStatus ? (
+            <div className="hky-muted">{assignmentStatus}</div>
+          ) : null}
 
           {loading && <div className="hky-muted">Loading games...</div>}
           {error && <div className="hky-error">{error}</div>}
