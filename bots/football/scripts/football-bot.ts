@@ -432,9 +432,15 @@ async function onGoalDetected(
   console.log(
     `[trade] ✅ Bought ${fill.filledShares} ${label} @ avg ${fmt(avgPrice)} = ${fmt(fill.filledUsdc, 2)} USDC`,
   );
+
+  const hybridStopBid = Math.max(
+    avgPrice * config.stopLossRatio,
+    avgPrice - config.maxLossCents,
+  );
   console.log(
-    `[trade]    Sell targets: profit bid≥${fmt(avgPrice + config.minProfitCents)} | ` +
-      `stop-loss bid≤${fmt(avgPrice * config.stopLossRatio)} | ` +
+    `[trade]    Sell plan: hold ${config.holdBeforeSellSeconds}s then monitor | ` +
+      `profit bid≥${fmt(avgPrice + config.minProfitCents)} | ` +
+      `stop-loss bid≤${fmt(hybridStopBid)} | ` +
       `timeout ${config.sellTimeoutMinutes}min`,
   );
 }
@@ -445,16 +451,28 @@ async function checkAndSell(forceSell = false): Promise<void> {
   const bestBid = await getBestBid(openPosition.tokenId);
   const elapsed = Date.now() - openPosition.boughtAtMs;
   const timeoutMs = config.sellTimeoutMinutes * 60_000;
+  const holdMs = config.holdBeforeSellSeconds * 1_000;
+
+  if (!forceSell && elapsed < holdMs) {
+    console.log(
+      `[sell]  ${openPosition.label} | hold phase ${Math.round(elapsed / 1000)}s/${config.holdBeforeSellSeconds}s | bid=${fmt(bestBid)} entry=${fmt(openPosition.entryAsk)}`,
+    );
+    return;
+  }
 
   const hitProfit = bestBid >= openPosition.entryAsk + config.minProfitCents;
-  const hitStopLoss =
-    bestBid > 0 && bestBid <= openPosition.entryAsk * config.stopLossRatio;
+  const stopLossBid = Math.max(
+    openPosition.entryAsk * config.stopLossRatio,
+    openPosition.entryAsk - config.maxLossCents,
+  );
+  const hitStopLoss = bestBid > 0 && bestBid <= stopLossBid;
   const hitTimeout = elapsed >= timeoutMs;
 
   if (!forceSell && !hitProfit && !hitStopLoss && !hitTimeout) {
     console.log(
       `[sell]  ${openPosition.label} | bid=${fmt(bestBid)} entry=${fmt(openPosition.entryAsk)} | ` +
         `need bid≥${fmt(openPosition.entryAsk + config.minProfitCents)} | ` +
+        `stop bid≤${fmt(stopLossBid)} | ` +
         `elapsed=${Math.round(elapsed / 1000)}s`,
     );
     return;

@@ -46,7 +46,12 @@ export const config = {
   matchTeamAway: (process.env["MATCH_TEAM_AWAY"] ?? "").trim(),
   maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "10"),
   minProfitCents: parseFloat(process.env["MIN_PROFIT_CENTS"] ?? "0.04"),
-  stopLossRatio: parseFloat(process.env["STOP_LOSS_RATIO"] ?? "0.5"),
+  stopLossRatio: parseFloat(process.env["STOP_LOSS_RATIO"] ?? "0.9"),
+  holdBeforeSellSeconds: parseInt(
+    process.env["HOLD_BEFORE_SELL_SECONDS"] ?? "30",
+    10,
+  ),
+  maxLossCents: parseFloat(process.env["MAX_LOSS_CENTS"] ?? "0.03"),
   sellTimeoutMinutes: parseInt(process.env["SELL_TIMEOUT_MINUTES"] ?? "15", 10),
   preGamePollMs:
     parseInt(process.env["PRE_GAME_POLL_SECONDS"] ?? "1", 10) * 1_000,
