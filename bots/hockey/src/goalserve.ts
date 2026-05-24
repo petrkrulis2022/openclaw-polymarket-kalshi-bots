@@ -27,6 +27,39 @@ export interface MatchState {
 
 type MatchNode = Record<string, unknown>;
 
+function readField(obj: Record<string, unknown> | undefined, ...keys: string[]): unknown {
+  if (!obj) return undefined;
+  for (const key of keys) {
+    if (key in obj) return obj[key];
+  }
+  return undefined;
+}
+
+function readNodeId(node: MatchNode): string {
+  return String(readField(node, "@static_id", "@id", "static_id", "id") ?? "");
+}
+
+function readNodeFixId(node: MatchNode): string {
+  return String(readField(node, "@fix_id", "fix_id") ?? "");
+}
+
+function readNodeStatus(node: MatchNode): string {
+  return String(readField(node, "@status", "status") ?? "");
+}
+
+function readNodeTimer(node: MatchNode): string {
+  return String(readField(node, "@timer", "timer") ?? "");
+}
+
+function readTeamName(team: Record<string, unknown> | undefined): string {
+  return String(readField(team, "@name", "name") ?? "");
+}
+
+function readTeamScore(team: Record<string, unknown> | undefined): number {
+  const raw = readField(team, "@goals", "@score", "goals", "score", "totalscore");
+  return parseInt(String(raw ?? ""), 10);
+}
+
 function normalizeTeamName(input: string): string {
   return input
     .toLowerCase()
@@ -115,11 +148,13 @@ function findMatchNodeRecursive(
 
   // Check if this IS a match node (has both localteam and visitorteam)
   const local = obj["localteam"] as Record<string, unknown> | undefined;
-  const visitor = obj["visitorteam"] as Record<string, unknown> | undefined;
+  const visitor =
+    (obj["visitorteam"] as Record<string, unknown> | undefined) ??
+    (obj["awayteam"] as Record<string, unknown> | undefined);
 
   if (local && visitor) {
-    const localName = String(local["@name"] ?? "");
-    const visitorName = String(visitor["@name"] ?? "");
+    const localName = readTeamName(local);
+    const visitorName = readTeamName(visitor);
 
     const isMatch =
       (teamNameMatches(localName, teamA) &&
@@ -152,9 +187,7 @@ export async function findMatchStaticId(): Promise<string> {
   try {
     const data = await gsGet("hockey/home?json=1");
     const matchNode = findMatchNodeRecursive(data, home, away);
-    const staticId =
-      (matchNode?.["@static_id"] as string | undefined) ??
-      (matchNode?.["@id"] as string | undefined);
+    const staticId = matchNode ? readNodeId(matchNode) : "";
     if (staticId) {
       console.log(
         `[goalserve] Found ${home} vs ${away}: static_id=${staticId}`,
@@ -190,9 +223,7 @@ export async function findMatchStaticIdForTeams(
   try {
     const data = await gsGet("hockey/home?json=1");
     const matchNode = findMatchNodeRecursive(data, home, away);
-    const staticId =
-      (matchNode?.["@static_id"] as string | undefined) ??
-      (matchNode?.["@id"] as string | undefined);
+    const staticId = matchNode ? readNodeId(matchNode) : "";
     if (staticId) {
       console.log(
         `[goalserve] Found ${home} vs ${away}: static_id=${staticId}`,
@@ -228,23 +259,16 @@ export async function pollLiveMatch(
   fallbackId?: string,
 ): Promise<MatchState | null> {
   try {
-    const parseScore = (value: unknown): number =>
-      parseInt(String(value ?? ""), 10);
-
     const nodeRank = (obj: MatchNode): number => {
       const local = obj["localteam"] as Record<string, unknown> | undefined;
       const visitor =
         (obj["visitorteam"] as Record<string, unknown> | undefined) ??
         (obj["awayteam"] as Record<string, unknown> | undefined);
-      const status = String(obj["@status"] ?? "").trim();
-      const timer = String(obj["@timer"] ?? "").trim();
+      const status = readNodeStatus(obj).trim();
+      const timer = readNodeTimer(obj).trim();
 
-      const scoreHome = parseScore(
-        local?.["@goals"] ?? local?.["@score"] ?? local?.["goals"] ?? "",
-      );
-      const scoreAway = parseScore(
-        visitor?.["@goals"] ?? visitor?.["@score"] ?? visitor?.["goals"] ?? "",
-      );
+      const scoreHome = readTeamScore(local);
+      const scoreAway = readTeamScore(visitor);
 
       const hasScore = Number.isFinite(scoreHome) && Number.isFinite(scoreAway);
       const hasRunningClock = /^\d+/.test(timer) || /^\d+/.test(status);
@@ -277,9 +301,10 @@ export async function pollLiveMatch(
         return best;
       }
       const obj = node as MatchNode;
-      const id = String(obj["@static_id"] ?? obj["@id"] ?? "");
+      const id = readNodeId(obj);
+      const fix = readNodeFixId(obj);
       if (
-        wantedIds.has(id) &&
+        (wantedIds.has(id) || wantedIds.has(fix)) &&
         obj["localteam"] &&
         (obj["visitorteam"] || obj["awayteam"])
       ) {
@@ -312,7 +337,11 @@ export async function pollLiveMatch(
       }
 
       const byId = wantedIds.size > 0 ? findById(feedData) : null;
-      const byTeams = findMatchNodeRecursive(feedData, resolvedHome, resolvedAway);
+      const byTeams = findMatchNodeRecursive(
+        feedData,
+        resolvedHome,
+        resolvedAway,
+      );
       const candidate = byId ?? byTeams;
       if (!candidate) continue;
 
@@ -330,21 +359,17 @@ export async function pollLiveMatch(
     const visitor =
       (m["visitorteam"] as Record<string, unknown> | undefined) ??
       (m["awayteam"] as Record<string, unknown> | undefined);
-    const scoreHomeRaw =
-      local?.["@goals"] ?? local?.["@score"] ?? local?.["goals"] ?? "?";
-    const scoreAwayRaw =
-      visitor?.["@goals"] ?? visitor?.["@score"] ?? visitor?.["goals"] ?? "?";
+    const scoreHome = readTeamScore(local);
+    const scoreAway = readTeamScore(visitor);
 
     return {
-      staticId:
-        String(m["@static_id"] ?? m["@id"] ?? staticId) ||
-        config.goalserve.matchStaticId,
-      status: String(m["@status"] ?? ""),
-      minute: String(m["@timer"] ?? ""),
-      scoreHome: parseInt(String(scoreHomeRaw), 10),
-      scoreAway: parseInt(String(scoreAwayRaw), 10),
-      teamHome: String(local?.["@name"] ?? "Home"),
-      teamAway: String(visitor?.["@name"] ?? "Away"),
+      staticId: readNodeId(m) || readNodeFixId(m) || staticId || config.goalserve.matchStaticId,
+      status: readNodeStatus(m),
+      minute: readNodeTimer(m),
+      scoreHome,
+      scoreAway,
+      teamHome: readTeamName(local) || "Home",
+      teamAway: readTeamName(visitor) || "Away",
     };
   } catch (err) {
     console.error("[goalserve] pollLiveMatch error:", (err as Error).message);
