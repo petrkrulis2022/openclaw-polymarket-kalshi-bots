@@ -104,6 +104,10 @@ let watchedGames: WatchedGame[] = [];
 let selectedWatchedGameKey: string | null = null;
 const watchlistLiveState = new Map<string, WatchlistStateRow>();
 let lastGoalservePollAt: string | null = null;
+let marketReady = false;
+let signingClientReady = false;
+let staticIdReady = false;
+let lastSetupError: string | null = null;
 
 let lastScoreHome = NaN;
 let lastScoreAway = NaN;
@@ -234,7 +238,11 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
     const nextBindingKey = `${activeMatchSlug}|${activeTeamHome.toLowerCase()}`;
     if (activeMatchSlug && nextBindingKey !== activeMarketBindingKey) {
       try {
-        market = await fetchHomeTeamMarket(activeMatchSlug, activeTeamHome);
+        market = await fetchHomeTeamMarket(
+          activeMatchSlug,
+          activeTeamHome,
+          activeTeamAway,
+        );
         activeMarketBindingKey = nextBindingKey;
         console.log(
           `[watch] Using watched game market slug=${activeMatchSlug} (${activeTeamHome} vs ${activeTeamAway})`,
@@ -250,6 +258,7 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
     if (watchedStaticId) {
       const prevEffectiveStaticId = staticId;
       staticId = watchedStaticId;
+      staticIdReady = Boolean(staticId);
       fixId = selected.fixId;
       if (
         prevEffectiveStaticId !== staticId ||
@@ -288,8 +297,11 @@ async function ensureStaticIdReady(): Promise<void> {
         activeTeamHome,
         activeTeamAway,
       );
+      staticIdReady = Boolean(staticId);
+      lastSetupError = null;
       return;
     } catch (err) {
+      lastSetupError = (err as Error).message;
       console.warn(
         `[setup] Static-id resolution failed for ${activeTeamHome} vs ${activeTeamAway}: ${(err as Error).message}`,
       );
@@ -310,6 +322,8 @@ function startWatchedGamesWatcher(): void {
 async function ensureMarketReady(): Promise<void> {
   while (true) {
     if (!activeMatchSlug) {
+      marketReady = false;
+      lastSetupError = "No match slug configured yet";
       console.warn(
         "[setup] No match slug configured yet; waiting for watched game selection...",
       );
@@ -318,13 +332,21 @@ async function ensureMarketReady(): Promise<void> {
         console.log(
           `[setup] Fetching ${activeTeamHome} YES/NO tokens from Gamma (slug=${activeMatchSlug})...`,
         );
-        market = await fetchHomeTeamMarket(activeMatchSlug, activeTeamHome);
+        market = await fetchHomeTeamMarket(
+          activeMatchSlug,
+          activeTeamHome,
+          activeTeamAway,
+        );
         activeMarketBindingKey = `${activeMatchSlug}|${activeTeamHome.toLowerCase()}`;
+        marketReady = true;
+        lastSetupError = null;
         console.log(
           `[setup] Market: \"${market.question}\" | conditionId=${market.conditionId.slice(0, 12)}...`,
         );
         return;
       } catch (err) {
+        marketReady = false;
+        lastSetupError = (err as Error).message;
         console.warn(
           `[setup] Market resolution failed for slug=${activeMatchSlug}: ${(err as Error).message}`,
         );
@@ -341,8 +363,12 @@ async function ensureSigningClientReady(): Promise<void> {
     try {
       const { getSigningClient } = await import("../src/polymarket.js");
       await getSigningClient();
+      signingClientReady = true;
+      lastSetupError = null;
       return;
     } catch (err) {
+      signingClientReady = false;
+      lastSetupError = (err as Error).message;
       console.warn(
         `[setup] Signing client init failed: ${(err as Error).message}`,
       );
@@ -695,6 +721,41 @@ httpApp.get("/health", (_req, res) => {
     matchSlug: activeMatchSlug,
     watchedGamesCount: watchedGames.length,
     selectedWatchedGameKey,
+    marketReady,
+    signingClientReady,
+    staticIdReady,
+    ready: marketReady && signingClientReady && staticIdReady,
+    lastSetupError,
+  });
+});
+
+httpApp.get("/ready", (_req, res) => {
+  const hasSelection = watchedGames.length > 0;
+  const missing: string[] = [];
+  if (!hasSelection) missing.push("watchlist");
+  if (!activeMatchSlug) missing.push("matchSlug");
+  if (!marketReady) missing.push("market");
+  if (!signingClientReady) missing.push("signing");
+  if (!staticIdReady) missing.push("goalserveStaticId");
+
+  const ready = missing.length === 0;
+  res.json({
+    ok: true,
+    botId: config.botId,
+    name: "hockey-bot",
+    ready,
+    stage: ready ? "ready" : "initializing",
+    missing,
+    details: {
+      hasSelection,
+      matchSlug: activeMatchSlug,
+      marketReady,
+      signingClientReady,
+      staticIdReady,
+      selectedWatchedGameKey,
+      watchedGamesCount: watchedGames.length,
+    },
+    lastSetupError,
   });
 });
 
@@ -714,6 +775,11 @@ httpApp.get("/diagnostics", (_req, res) => {
     fixId,
     watchedGamesCount: watchedGames.length,
     selectedWatchedGameKey,
+    marketReady,
+    signingClientReady,
+    staticIdReady,
+    ready: marketReady && signingClientReady && staticIdReady,
+    lastSetupError,
     lastGoalservePollAt,
     openPositions: openPosition ? 1 : 0,
     totalPnl,
@@ -825,6 +891,7 @@ async function main(): Promise<void> {
 
   if (!staticId) {
     staticId = await findMatchStaticId();
+    staticIdReady = Boolean(staticId);
   }
 
   // Step 6: Wait for kickoff
