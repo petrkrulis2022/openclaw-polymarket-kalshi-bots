@@ -884,51 +884,77 @@ async function main(): Promise<void> {
   console.log(`budget=${config.maxPositionUsd} USDC`);
   console.log("═".repeat(60) + "\n");
 
-  // Step 1: Load watched games (if user-scoped bot env is configured)
+  // Step 1: Load watched games once, then keep polling in background
   await loadWatchedGamesFromOrchestrator();
   startWatchedGamesWatcher();
 
-  console.log("═".repeat(60));
-  console.log(
-    `FOOTBALL BOT — ${activeTeamHome} vs ${activeTeamAway} | Live Score Arbitrage`,
-  );
-  console.log(
-    `match=${activeMatchSlug || "(awaiting watched game slug)"} | budget=${config.maxPositionUsd} USDC`,
-  );
-  console.log("═".repeat(60) + "\n");
-
-  // Step 2: Resolve market and keep retrying until available.
-  await ensureMarketReady();
-
-  // Step 3: Log initial CLOB prices
-  await logPrices();
-
-  // Step 4: Warm up signing client (derive API key) before game starts
+  // Step 4: Warm up signing client once — survives across games
   console.log("\n[setup] Initialising CLOB signing client...");
   await ensureSigningClientReady();
 
-  // Step 5: Find Goalserve match ID unless watched list already supplied one
-  if (!staticId) {
-    console.log("\n[setup] Finding Goalserve match ID...");
-    await ensureStaticIdReady();
+  // Game loop — runs continuously; no process.exit between games
+  while (true) {
+    // Reset per-game state
+    gameIsOver = false;
+    lastScoreHome = NaN;
+    lastScoreAway = NaN;
+    openPosition = null;
+    fixId = undefined;
+    staticId = "";
+    staticIdReady = false;
+    marketReady = false;
+    activeMarketBindingKey = "";
+    lastGoalservePollAt = null;
+    lastSetupError = null;
+
+    console.log("═".repeat(60));
+    console.log(
+      `FOOTBALL BOT — ${activeTeamHome} vs ${activeTeamAway} | Live Score Arbitrage`,
+    );
+    console.log(
+      `match=${activeMatchSlug || "(awaiting watched game slug)"} | budget=${config.maxPositionUsd} USDC`,
+    );
+    console.log("═".repeat(60) + "\n");
+
+    // Step 2: Resolve market — loops until a watched game with slug is selected
+    await ensureMarketReady();
+
+    // Step 3: Log initial CLOB prices
+    await logPrices();
+
+    // Step 5: Find Goalserve match ID unless watched list already supplied one
+    if (!staticId) {
+      console.log("\n[setup] Finding Goalserve match ID...");
+      await ensureStaticIdReady();
+    }
+
+    if (!staticId) {
+      staticId = await findMatchStaticId();
+      staticIdReady = Boolean(staticId);
+    }
+
+    // Step 6: Wait for kickoff
+    await waitForKickoff();
+
+    if (gameIsOver) {
+      // Game was already FT when we connected — print report and loop
+      printReport();
+      console.log("[bot]  Game already over — waiting for next game...\n");
+      await sleep(30_000);
+      continue;
+    }
+
+    // Step 7: Run live loops concurrently
+    console.log(
+      `[bot]  Live polling: Goalserve every ${config.livePollMs / 1000}s | CLOB sell check every ${config.sellPollMs / 1000}s\n`,
+    );
+    await Promise.all([goalserveLoop(), sellMonitorLoop()]);
+
+    // Step 8: Print report then loop back for next game
+    printReport();
+    console.log("[bot]  Game over — resetting for next watched game...\n");
+    await sleep(15_000);
   }
-
-  if (!staticId) {
-    staticId = await findMatchStaticId();
-    staticIdReady = Boolean(staticId);
-  }
-
-  // Step 6: Wait for kickoff
-  await waitForKickoff();
-
-  // Step 7: Run live loops concurrently
-  console.log(
-    `[bot]  Live polling: Goalserve every ${config.livePollMs / 1000}s | CLOB sell check every ${config.sellPollMs / 1000}s\n`,
-  );
-  await Promise.all([goalserveLoop(), sellMonitorLoop()]);
-
-  // Step 8: Print final report
-  printReport();
 }
 
 main().catch((err) => {
