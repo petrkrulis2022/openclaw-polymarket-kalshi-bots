@@ -31,6 +31,16 @@ export interface OrderBook {
   asks: Array<{ price: number; size: number }>;
 }
 
+export interface EventLifecycle {
+  slug: string;
+  active: boolean;
+  closed: boolean;
+  resolved: boolean;
+  acceptingOrders: boolean;
+  endDate: string | null;
+  rawStatus: string;
+}
+
 function normalizeTeamName(input: string): string {
   return input
     .toLowerCase()
@@ -153,6 +163,81 @@ export async function findEventSlugByTeams(
   }
 
   return null;
+}
+
+function asBool(v: unknown): boolean | undefined {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "true" || s === "1" || s === "yes") return true;
+    if (s === "false" || s === "0" || s === "no") return false;
+  }
+  return undefined;
+}
+
+/**
+ * Fetch market lifecycle flags from Gamma.
+ * Used for kickoff/game-over decisions (independent from Goalserve status strings).
+ */
+export async function fetchEventLifecycle(slug: string): Promise<EventLifecycle> {
+  const url = `${config.polymarket.gammaApi}/events?slug=${slug}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) throw new Error(`Gamma API ${res.status} for slug=${slug}`);
+
+  const events = (await res.json()) as Array<Record<string, unknown>>;
+  if (!events.length) throw new Error(`No Gamma event found for slug=${slug}`);
+
+  const event = events[0] as Record<string, unknown>;
+  const markets = (event["markets"] as Array<Record<string, unknown>>) ?? [];
+
+  const active = asBool(event["active"]) ?? false;
+  const closed = asBool(event["closed"]) ?? false;
+
+  const resolvedFromEvent =
+    asBool(event["resolved"]) ??
+    asBool(event["isResolved"]) ??
+    asBool(event["archived"]) ??
+    false;
+  const resolvedFromMarkets =
+    markets.length > 0 &&
+    markets.every((m) => {
+      const marketResolved =
+        asBool(m["resolved"]) ?? asBool(m["isResolved"]) ?? false;
+      const marketClosed = asBool(m["closed"]) ?? false;
+      return marketResolved || marketClosed;
+    });
+  const resolved = resolvedFromEvent || resolvedFromMarkets;
+
+  const acceptingOrders =
+    asBool(event["acceptingOrders"]) ??
+    asBool(event["accepting_orders"]) ??
+    asBool(event["enableOrderBook"]) ??
+    asBool(event["orderBookEnabled"]) ??
+    !closed;
+
+  const endDateRaw =
+    event["endDate"] ??
+    event["end_date"] ??
+    event["endTime"] ??
+    event["end_time"] ??
+    null;
+
+  const rawStatus = String(
+    event["status"] ??
+      event["gameStatus"] ??
+      (resolved ? "resolved" : closed ? "closed" : active ? "active" : "inactive"),
+  );
+
+  return {
+    slug,
+    active,
+    closed,
+    resolved,
+    acceptingOrders,
+    endDate: endDateRaw ? String(endDateRaw) : null,
+    rawStatus,
+  };
 }
 
 // ── Gamma — fetch home team YES/NO token IDs ─────────────────────────────────
@@ -420,8 +505,7 @@ async function waitForDelayedOrder(
         // size_matched = shares; price = USDC per share
         const price = parseFloat(String(order["price"] ?? "0")) || 0;
         const filledShares = matched;
-        const filledUsdc =
-          side === "BUY" ? matched * price : matched * price;
+        const filledUsdc = side === "BUY" ? matched * price : matched * price;
         return { filledShares, filledUsdc };
       }
       if (

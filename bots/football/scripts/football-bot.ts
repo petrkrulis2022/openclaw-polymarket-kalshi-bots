@@ -23,16 +23,16 @@ import {
   findMatchStaticId,
   findMatchStaticIdForTeams,
   pollLiveMatch,
-  isLiveStatus,
-  isFullTime,
   type MatchState,
 } from "../src/goalserve.js";
 import {
+  fetchEventLifecycle,
   fetchHomeTeamMarket,
   findEventSlugByTeams,
   getOrderBook,
   getBestBid,
   placeMarketOrder,
+  type EventLifecycle,
   type HomeTeamMarket,
 } from "../src/polymarket.js";
 
@@ -87,6 +87,14 @@ interface WatchlistStateRow {
   updatedAt: string;
 }
 
+interface MarketLifecycleSnapshot {
+  gamma: EventLifecycle;
+  yesBookHasLiquidity: boolean;
+  noBookHasLiquidity: boolean;
+  tradable: boolean;
+  checkedAt: string;
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let market: HomeTeamMarket;
@@ -113,7 +121,8 @@ let lastScoreHome = NaN;
 let lastScoreAway = NaN;
 let gameIsOver = false;
 let openPosition: OpenPosition | null = null;
-let consecutiveNonLivePolls = 0;
+let consecutiveEndedLifecyclePolls = 0;
+let lastMarketLifecycle: MarketLifecycleSnapshot | null = null;
 
 const trades: ClosedTrade[] = [];
 let totalPnl = 0;
@@ -130,6 +139,50 @@ function fmt(n: number, decimals = 4): string {
 
 function pnlStr(pnl: number): string {
   return `${pnl >= 0 ? "+" : ""}${fmt(pnl, 4)} USDC`;
+}
+
+function bookHasLiquidity(book: {
+  bids: Array<{ price: number; size: number }>;
+  asks: Array<{ price: number; size: number }>;
+}): boolean {
+  return (
+    book.bids.some((l) => l.price > 0 && l.size > 0) ||
+    book.asks.some((l) => l.price > 0 && l.size > 0)
+  );
+}
+
+function lifecycleLooksEnded(snapshot: MarketLifecycleSnapshot): boolean {
+  return (
+    snapshot.gamma.resolved ||
+    snapshot.gamma.closed ||
+    (!snapshot.gamma.active && !snapshot.gamma.acceptingOrders)
+  );
+}
+
+async function readMarketLifecycleSnapshot(): Promise<MarketLifecycleSnapshot | null> {
+  if (!activeMatchSlug || !marketReady) return null;
+  try {
+    const [gamma, yesBook, noBook] = await Promise.all([
+      fetchEventLifecycle(activeMatchSlug),
+      getOrderBook(market.yesTokenId),
+      getOrderBook(market.noTokenId),
+    ]);
+
+    const yesBookHasLiquidity = bookHasLiquidity(yesBook);
+    const noBookHasLiquidity = bookHasLiquidity(noBook);
+    const snapshot: MarketLifecycleSnapshot = {
+      gamma,
+      yesBookHasLiquidity,
+      noBookHasLiquidity,
+      tradable: yesBookHasLiquidity || noBookHasLiquidity,
+      checkedAt: new Date().toISOString(),
+    };
+    lastMarketLifecycle = snapshot;
+    return snapshot;
+  } catch (err) {
+    console.warn(`[pm] lifecycle probe failed: ${(err as Error).message}`);
+    return null;
+  }
 }
 
 function seedWatchlistStateFromWatchedGames(): void {
@@ -384,6 +437,23 @@ async function onGoalDetected(
   scorer: "home" | "away",
   state: MatchState,
 ): Promise<void> {
+  const lifecycle = await readMarketLifecycleSnapshot();
+  if (!lifecycle) {
+    console.warn("[trade] ⚠️  Lifecycle probe unavailable — skipping goal trigger");
+    return;
+  }
+  if (
+    lifecycleLooksEnded(lifecycle) ||
+    !lifecycle.gamma.acceptingOrders ||
+    !lifecycle.tradable
+  ) {
+    console.warn(
+      `[trade] ⚠️  Goal seen (${state.scoreHome}-${state.scoreAway}) but market not tradable ` +
+        `(status=${lifecycle.gamma.rawStatus} active=${lifecycle.gamma.active} closed=${lifecycle.gamma.closed} resolved=${lifecycle.gamma.resolved} tradable=${lifecycle.tradable}) — skipping`,
+    );
+    return;
+  }
+
   if (openPosition) {
     console.log(
       `[trade] ⚠️  Score update by ${scorer === "home" ? state.teamHome : state.teamAway} ` +
@@ -581,6 +651,26 @@ function printReport(): void {
  */
 async function goalserveLoop(): Promise<void> {
   while (!gameIsOver) {
+    const lifecycle = await readMarketLifecycleSnapshot();
+    if (lifecycle) {
+      if (lifecycleLooksEnded(lifecycle)) {
+        consecutiveEndedLifecyclePolls += 1;
+        if (consecutiveEndedLifecyclePolls < 3) {
+          console.log(
+            `[pm] ⚠️  Ended lifecycle state seen (${lifecycle.gamma.rawStatus}) — confirming (${consecutiveEndedLifecyclePolls}/3)`,
+          );
+          await sleep(config.livePollMs);
+          continue;
+        }
+        console.log(
+          `[pm] ⏱️  Market lifecycle indicates game over (status=${lifecycle.gamma.rawStatus}, closed=${lifecycle.gamma.closed}, resolved=${lifecycle.gamma.resolved})`,
+        );
+        gameIsOver = true;
+        break;
+      }
+      consecutiveEndedLifecyclePolls = 0;
+    }
+
     const state = await pollLiveMatch(
       staticId,
       activeTeamHome,
@@ -603,33 +693,6 @@ async function goalserveLoop(): Promise<void> {
     console.log(
       `[gs]    ${state.minute || state.status}' | ${state.teamHome} ${scoreStr} ${state.teamAway} | status=${state.status}`,
     );
-
-    // Check for full time
-    if (isFullTime(state.status)) {
-      console.log("\n[gs] ⏱️  FULL TIME detected");
-      gameIsOver = true;
-      break;
-    }
-
-    // Goalserve can briefly regress from live -> Not Started between snapshots.
-    // Require a few consecutive non-live polls before declaring game over.
-    if (!isLiveStatus(state.status)) {
-      consecutiveNonLivePolls += 1;
-      if (consecutiveNonLivePolls < 5) {
-        console.log(
-          `[gs] ⚠️  Non-live status "${state.status}" after live snapshot; waiting (${consecutiveNonLivePolls}/5)`,
-        );
-        await sleep(config.livePollMs);
-        continue;
-      }
-      console.log(
-        `\n[gs] ⚠️  Non-live status "${state.status}" persisted for ${consecutiveNonLivePolls} polls — treating as game over`,
-      );
-      gameIsOver = true;
-      break;
-    }
-
-    consecutiveNonLivePolls = 0;
 
     // Score-change detection: compare with last known valid scores
     if (!isNaN(state.scoreHome) && !isNaN(state.scoreAway)) {
@@ -683,48 +746,44 @@ async function waitForKickoff(): Promise<void> {
 
   console.log(`\n[bot]  Waiting for kickoff (match=${kickoffHint})`);
   console.log(
-    `[bot]  Polling Goalserve every ${config.preGamePollMs / 1000}s for game status...\n`,
+    `[bot]  Polling Polymarket lifecycle every ${config.preGamePollMs / 1000}s for kickoff...\n`,
   );
 
   while (true) {
-    const state = await pollLiveMatch(
-      staticId,
-      activeTeamHome,
-      activeTeamAway,
-      fixId,
-    );
-
-    if (state) {
+    const lifecycle = await readMarketLifecycleSnapshot();
+    if (lifecycle) {
       console.log(
-        `[pre]   ${state.teamHome} vs ${state.teamAway} | status=${state.status}`,
+        `[pre]   pm status=${lifecycle.gamma.rawStatus} active=${lifecycle.gamma.active} closed=${lifecycle.gamma.closed} resolved=${lifecycle.gamma.resolved} accepting=${lifecycle.gamma.acceptingOrders} tradable=${lifecycle.tradable}`,
       );
 
-      const hasVisibleScore =
-        !isNaN(state.scoreHome) &&
-        !isNaN(state.scoreAway) &&
-        (state.scoreHome > 0 || state.scoreAway > 0);
-      const hasRunningClock = /^\d+$/.test(state.minute || "");
-
-      if (isLiveStatus(state.status) || hasVisibleScore || hasRunningClock) {
-        // Initialize score from first live reading
-        if (!isNaN(state.scoreHome) && !isNaN(state.scoreAway)) {
-          lastScoreHome = state.scoreHome;
-          lastScoreAway = state.scoreAway;
-        }
-        consecutiveNonLivePolls = 0;
-        console.log("\n[bot]  ✅ Kickoff detected — entering live mode");
-        return;
-      }
-
-      if (isFullTime(state.status)) {
+      if (lifecycleLooksEnded(lifecycle)) {
         console.log(
-          `\n[bot]  Match already finished (status=${state.status}) — skipping live loop`,
+          `[bot]  Match market already ended on Polymarket (status=${lifecycle.gamma.rawStatus}) — skipping live loop`,
         );
         gameIsOver = true;
         return;
       }
 
-      // Log CLOB prices while waiting
+      if (
+        lifecycle.gamma.active &&
+        lifecycle.gamma.acceptingOrders &&
+        lifecycle.tradable
+      ) {
+        const state = await pollLiveMatch(
+          staticId,
+          activeTeamHome,
+          activeTeamAway,
+          fixId,
+        );
+        if (state && !isNaN(state.scoreHome) && !isNaN(state.scoreAway)) {
+          lastScoreHome = state.scoreHome;
+          lastScoreAway = state.scoreAway;
+        }
+        consecutiveEndedLifecyclePolls = 0;
+        console.log("\n[bot]  ✅ Polymarket lifecycle indicates live tradable market — entering live mode");
+        return;
+      }
+
       await logPrices();
     }
 
@@ -816,6 +875,7 @@ httpApp.get("/diagnostics", (_req, res) => {
     staticIdReady,
     ready: marketReady && signingClientReady && staticIdReady,
     lastSetupError,
+    lastMarketLifecycle,
     lastGoalservePollAt,
     openPositions: openPosition ? 1 : 0,
     totalPnl,
@@ -918,7 +978,8 @@ async function main(): Promise<void> {
     activeMarketBindingKey = "";
     lastGoalservePollAt = null;
     lastSetupError = null;
-    consecutiveNonLivePolls = 0;
+    consecutiveEndedLifecyclePolls = 0;
+    consecutiveEndedLifecyclePolls = 0;
 
     console.log("═".repeat(60));
     console.log(
