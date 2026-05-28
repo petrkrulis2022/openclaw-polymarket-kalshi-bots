@@ -164,8 +164,12 @@ function isIihfMatch(match: HockeyFeedMatch): boolean {
 
   const home = normalizeTeamLabel(match.homeTeam);
   const away = normalizeTeamLabel(match.awayTeam);
-  const homeLooksIihf = [...IIHF_TEAMS].some((team) => containsToken(home, team));
-  const awayLooksIihf = [...IIHF_TEAMS].some((team) => containsToken(away, team));
+  const homeLooksIihf = [...IIHF_TEAMS].some((team) =>
+    containsToken(home, team),
+  );
+  const awayLooksIihf = [...IIHF_TEAMS].some((team) =>
+    containsToken(away, team),
+  );
   return homeLooksIihf && awayLooksIihf;
 }
 
@@ -361,14 +365,16 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
 
         // WC endpoint is pre-filtered on backend; do not fall back to unrelated leagues.
         const wcOnly = all.filter(isIihfMatch);
-        const rebucketed = rebucketByKickoffWindow(wcOnly);
+        if (wcOnly.length === 0) {
+          setError(
+            "No World Championship matches returned by Goalserve right now",
+          );
+          return;
+        }
 
+        const rebucketed = rebucketByKickoffWindow(wcOnly);
         setTodayMatches(rebucketed.today);
         setTomorrowMatches(rebucketed.tomorrow);
-
-        if (wcOnly.length === 0) {
-          setError("No World Championship matches returned by Goalserve right now");
-        }
       } catch (err) {
         if (!stopped) {
           setError(

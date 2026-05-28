@@ -51,6 +51,12 @@ type HockeyDiscoveryCache = {
   tomorrow: unknown;
 };
 
+type WorldChampionshipDiscoveryCache = {
+  updatedAtMs: number;
+  today: unknown;
+  tomorrow: unknown;
+};
+
 type FootballDiscoveryCache = {
   updatedAtMs: number;
   today: unknown;
@@ -59,6 +65,8 @@ type FootballDiscoveryCache = {
 
 let hockeyDiscoveryCache: HockeyDiscoveryCache | null = null;
 let footballDiscoveryCache: FootballDiscoveryCache | null = null;
+let worldChampionshipDiscoveryCache: WorldChampionshipDiscoveryCache | null =
+  null;
 
 // Bot definitions: name → { folder, botId, portOffset, entrypoint }
 // portOffset 0-5 relative to user base port
@@ -266,7 +274,7 @@ function emptyDiscoveryFeed(): { scores: { category: [] } } {
 function mergeDiscoveryFeeds(feeds: unknown[]): unknown {
   const categoryMap = new Map<string, Record<string, unknown>>();
 
-  const toArray = <T,>(value: T | T[] | null | undefined): T[] => {
+  const toArray = <T>(value: T | T[] | null | undefined): T[] => {
     if (Array.isArray(value)) return value;
     return value == null ? [] : [value];
   };
@@ -276,7 +284,10 @@ function mergeDiscoveryFeeds(feeds: unknown[]): unknown {
     return value as Record<string, unknown>;
   };
 
-  const readString = (obj: Record<string, unknown>, ...keys: string[]): string => {
+  const readString = (
+    obj: Record<string, unknown>,
+    ...keys: string[]
+  ): string => {
     for (const key of keys) {
       const value = obj[key];
       if (value == null) continue;
@@ -286,14 +297,19 @@ function mergeDiscoveryFeeds(feeds: unknown[]): unknown {
   };
 
   const toCategoryKey = (category: Record<string, unknown>): string => {
-    const country = readString(category, "country", "@file_group").toLowerCase();
+    const country = readString(
+      category,
+      "country",
+      "@file_group",
+    ).toLowerCase();
     const name = readString(category, "name", "@name").toLowerCase();
     return `${country}::${name}`;
   };
 
   const toMatchKey = (match: Record<string, unknown>): string => {
     const local = asRecord(match["localteam"]);
-    const visitor = asRecord(match["awayteam"]) ?? asRecord(match["visitorteam"]);
+    const visitor =
+      asRecord(match["awayteam"]) ?? asRecord(match["visitorteam"]);
     const homeTeam = local ? readString(local, "name", "@name") : "";
     const awayTeam = visitor ? readString(visitor, "name", "@name") : "";
     const id = readString(match, "id", "@id");
@@ -324,7 +340,9 @@ function mergeDiscoveryFeeds(feeds: unknown[]): unknown {
           | Record<string, unknown>
           | Record<string, unknown>[]
           | undefined,
-      ).map((row) => asRecord(row)).filter((row): row is Record<string, unknown> => row !== null);
+      )
+        .map((row) => asRecord(row))
+        .filter((row): row is Record<string, unknown> => row !== null);
 
       const incomingMatchesContainer = asRecord(category["matches"]);
       const incomingMatches = toArray(
@@ -332,9 +350,13 @@ function mergeDiscoveryFeeds(feeds: unknown[]): unknown {
           | Record<string, unknown>
           | Record<string, unknown>[]
           | undefined,
-      ).map((row) => asRecord(row)).filter((row): row is Record<string, unknown> => row !== null);
+      )
+        .map((row) => asRecord(row))
+        .filter((row): row is Record<string, unknown> => row !== null);
 
-      const seenMatchKeys = new Set(existingMatches.map((row) => toMatchKey(row)));
+      const seenMatchKeys = new Set(
+        existingMatches.map((row) => toMatchKey(row)),
+      );
       const mergedMatches = [...existingMatches];
       for (const match of incomingMatches) {
         const matchKey = toMatchKey(match);
@@ -357,12 +379,15 @@ function filterWorldChampionshipDiscovery(feed: unknown): unknown {
     return value as Record<string, unknown>;
   };
 
-  const toArray = <T,>(value: T | T[] | null | undefined): T[] => {
+  const toArray = <T>(value: T | T[] | null | undefined): T[] => {
     if (Array.isArray(value)) return value;
     return value == null ? [] : [value];
   };
 
-  const readString = (obj: Record<string, unknown>, ...keys: string[]): string => {
+  const readString = (
+    obj: Record<string, unknown>,
+    ...keys: string[]
+  ): string => {
     for (const key of keys) {
       const value = obj[key];
       if (value == null) continue;
@@ -444,7 +469,8 @@ function filterWorldChampionshipDiscovery(feed: unknown): unknown {
       const match = asRecord(raw);
       if (!match) return false;
       const local = asRecord(match["localteam"]);
-      const away = asRecord(match["awayteam"]) ?? asRecord(match["visitorteam"]);
+      const away =
+        asRecord(match["awayteam"]) ?? asRecord(match["visitorteam"]);
       const homeTeam = local ? readString(local, "name", "@name") : "";
       const awayTeam = away ? readString(away, "name", "@name") : "";
       return looksLikeNationalTeam(homeTeam) && looksLikeNationalTeam(awayTeam);
@@ -460,6 +486,37 @@ function filterWorldChampionshipDiscovery(feed: unknown): unknown {
     .filter((row) => categoryMatchesWorldChampionship(row));
 
   return { scores: { category: worldCategories } };
+}
+
+function discoveryHasAnyMatches(feed: unknown): boolean {
+  const asRecord = (value: unknown): Record<string, unknown> | null => {
+    if (!value || typeof value !== "object") return null;
+    return value as Record<string, unknown>;
+  };
+
+  const toArray = <T,>(value: T | T[] | null | undefined): T[] => {
+    if (Array.isArray(value)) return value;
+    return value == null ? [] : [value];
+  };
+
+  const root = asRecord(feed) ?? {};
+  const scores = asRecord(root["scores"]) ?? {};
+  const categories = toArray(scores["category"])
+    .map((row) => asRecord(row))
+    .filter((row): row is Record<string, unknown> => row !== null);
+
+  for (const category of categories) {
+    const matchesContainer = asRecord(category["matches"]);
+    const matches = toArray(
+      (matchesContainer?.["match"] ?? category["match"]) as
+        | Record<string, unknown>
+        | Record<string, unknown>[]
+        | undefined,
+    );
+    if (matches.length > 0) return true;
+  }
+
+  return false;
 }
 
 async function getHockeyDiscoveryCached(): Promise<{
@@ -484,11 +541,11 @@ async function getHockeyDiscoveryCached(): Promise<{
   try {
     const [todayRes, tomorrowRes, dayAfterRes, twoDaysAfterRes] =
       await Promise.allSettled([
-      fetchGoalserveHockey("home"),
-      fetchGoalserveHockey("d1"),
-      fetchGoalserveHockey("d2"),
-      fetchGoalserveHockey("d3"),
-    ]);
+        fetchGoalserveHockey("home"),
+        fetchGoalserveHockey("d1"),
+        fetchGoalserveHockey("d2"),
+        fetchGoalserveHockey("d3"),
+      ]);
 
     const today =
       todayRes.status === "fulfilled" ? todayRes.value : emptyDiscoveryFeed();
@@ -1119,6 +1176,31 @@ router.get(
         const payload = await getHockeyDiscoveryCached();
         const today = filterWorldChampionshipDiscovery(payload.today);
         const tomorrow = filterWorldChampionshipDiscovery(payload.tomorrow);
+        const hasMatches =
+          discoveryHasAnyMatches(today) || discoveryHasAnyMatches(tomorrow);
+
+        if (hasMatches) {
+          worldChampionshipDiscoveryCache = {
+            updatedAtMs: Date.now(),
+            today,
+            tomorrow,
+          };
+        }
+
+        if (!hasMatches && worldChampionshipDiscoveryCache) {
+          return res.json({
+            ok: true,
+            bot: "hockey-bot",
+            competition: "world-championship",
+            cacheTtlMs: HOCKEY_DISCOVERY_TTL_MS,
+            cacheUpdatedAtMs: worldChampionshipDiscoveryCache.updatedAtMs,
+            stale: true,
+            fallbackUsed: true,
+            today: worldChampionshipDiscoveryCache.today,
+            tomorrow: worldChampionshipDiscoveryCache.tomorrow,
+          });
+        }
+
         return res.json({
           ok: true,
           bot: "hockey-bot",
@@ -1126,6 +1208,7 @@ router.get(
           cacheTtlMs: HOCKEY_DISCOVERY_TTL_MS,
           cacheUpdatedAtMs: payload.cacheUpdatedAtMs,
           stale: payload.stale,
+          fallbackUsed: false,
           today,
           tomorrow,
         });
