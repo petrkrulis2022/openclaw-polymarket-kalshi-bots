@@ -198,8 +198,26 @@ async function fetchUserCollateralUsdce(address: string): Promise<number> {
     const body = await balRes.text();
     throw new Error(`Treasury balance failed (${balRes.status}): ${body}`);
   }
-  const payload = (await balRes.json()) as { usdce?: string };
-  const collateral = Number(payload.usdce ?? "0");
+  const payload = (await balRes.json()) as {
+    usdce?: string | number;
+    depositWalletUsdce?: string | number;
+    depositWalletPusd?: string | number;
+  };
+
+  const parseAmount = (v: string | number | undefined): number => {
+    const n = Number(v ?? 0);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return n;
+  };
+
+  const botWalletUsdce = parseAmount(payload.usdce);
+  const depositWalletUsdce = parseAmount(payload.depositWalletUsdce);
+  const depositWalletPusd = parseAmount(payload.depositWalletPusd);
+
+  // For sports sizing, prefer deployed Polymarket collateral (deposit wallet).
+  // Keep bot-wallet USDC.e as fallback when nothing is deployed yet.
+  const deployedCollateral = depositWalletUsdce + depositWalletPusd;
+  const collateral = deployedCollateral > 0 ? deployedCollateral : botWalletUsdce;
   if (!Number.isFinite(collateral) || collateral < 0) return 0;
   return Number(collateral.toFixed(6));
 }
