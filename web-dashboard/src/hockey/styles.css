@@ -312,7 +312,8 @@
 
 .hky-manual-row {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  width: 100%;
   margin: 8px 0 10px;
 }
 
@@ -329,6 +330,10 @@
 .hky-manual-btn:disabled {
   opacity: 0.65;
   cursor: default;
+}
+
+.hky-manual-btn-right {
+  margin-left: auto;
 }
 
 .hky-manual-status {

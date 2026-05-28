@@ -165,7 +165,10 @@ export function LiveManager({
           body: JSON.stringify({ key, side }),
         },
       );
-      const payload = (await res.json()) as { message?: string; reason?: string };
+      const payload = (await res.json()) as {
+        message?: string;
+        reason?: string;
+      };
       if (!res.ok) {
         setManualStatusByKey((prev) => ({
           ...prev,
@@ -248,7 +251,7 @@ export function LiveManager({
                     Team A Scored
                   </button>
                   <button
-                    className="hky-manual-btn"
+                    className="hky-manual-btn hky-manual-btn-right"
                     onClick={() => {
                       void triggerManual(m.key, "away");
                     }}
@@ -260,7 +263,9 @@ export function LiveManager({
               ) : null}
 
               {manualStatusByKey[m.key] ? (
-                <div className="hky-manual-status">{manualStatusByKey[m.key]}</div>
+                <div className="hky-manual-status">
+                  {manualStatusByKey[m.key]}
+                </div>
               ) : null}
 
               {m.periodScores.length > 0 && (
