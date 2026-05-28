@@ -585,6 +585,7 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
 
         <main className="hky-main">
           <LiveManager
+            botName="hockey-bot"
             selectedKeys={selectedKeys}
             baseByKey={byKey}
             metamaskAddress={metamaskAddress}

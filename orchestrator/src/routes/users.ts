@@ -1190,6 +1190,47 @@ router.get("/:address/bots/:botName/readiness", async (req, res) => {
   return res.json({ ok: true, readiness });
 });
 
+// ── POST /users/:address/bots/:botName/manual-trigger ──────────────────────
+// Manual scout trigger: side=home|away for selected watched game key.
+
+router.post("/:address/bots/:botName/manual-trigger", async (req, res) => {
+  const { address, botName } = req.params;
+  const user = getUser(address);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  if (!SPORTS_AMOUNT_BOTS.has(botName)) {
+    return res.status(400).json({
+      error: "Manual trigger is only supported for hockey-bot and football-bot",
+    });
+  }
+
+  const side = String((req.body as { side?: unknown })?.side ?? "").trim();
+  const key = String((req.body as { key?: unknown })?.key ?? "").trim();
+  if (side !== "home" && side !== "away") {
+    return res.status(400).json({ error: "side must be 'home' or 'away'" });
+  }
+
+  const botBaseUrl = getUserBotBaseUrl(user, botName);
+  if (!botBaseUrl) {
+    return res.status(400).json({ error: "Unsupported bot" });
+  }
+
+  try {
+    const upstream = await fetch(`${botBaseUrl}/manual-trigger`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ side, key }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    const bodyText = await upstream.text();
+    res.status(upstream.status);
+    return res.type("application/json").send(bodyText);
+  } catch (err) {
+    return res.status(502).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
 // ── GET /users/:address/bots/:botName/trade-amount ─────────────────────────
 
 router.get("/:address/bots/:botName/trade-amount", async (req, res) => {

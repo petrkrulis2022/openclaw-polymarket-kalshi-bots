@@ -20,6 +20,7 @@ export type HockeyFeedMatch = {
 };
 
 type Props = {
+  botName: "hockey-bot" | "football-bot";
   selectedKeys: string[];
   baseByKey: Record<string, HockeyFeedMatch>;
   metamaskAddress?: string;
@@ -41,6 +42,7 @@ function isLiveStatus(status: string): boolean {
 }
 
 export function LiveManager({
+  botName,
   selectedKeys,
   baseByKey,
   metamaskAddress,
@@ -50,6 +52,13 @@ export function LiveManager({
     {},
   );
   const [pollTick, setPollTick] = useState(0);
+  const [selectedWatchedGameKey, setSelectedWatchedGameKey] = useState<
+    string | null
+  >(null);
+  const [manualPendingKey, setManualPendingKey] = useState<string | null>(null);
+  const [manualStatusByKey, setManualStatusByKey] = useState<
+    Record<string, string>
+  >({});
 
   useEffect(() => {
     let stopped = false;
@@ -58,11 +67,12 @@ export function LiveManager({
       if (!metamaskAddress) return;
       try {
         const res = await fetch(
-          `/api/orchestrator/users/${metamaskAddress}/bots/hockey-bot/watchlist-state`,
+          `/api/orchestrator/users/${metamaskAddress}/bots/${botName}/watchlist-state`,
         );
         if (!res.ok) return;
         const payload = (await res.json()) as {
           games?: Array<Partial<HockeyFeedMatch> & { key: string }>;
+          selectedWatchedGameKey?: string | null;
           lastGoalservePollAt?: string | null;
         };
         if (stopped) return;
@@ -71,6 +81,7 @@ export function LiveManager({
         // watchlist defaults override fresher discovery-feed values.
         if (!payload.lastGoalservePollAt) {
           setLiveByKey({});
+          setSelectedWatchedGameKey(payload.selectedWatchedGameKey ?? null);
           setPollTick((t) => t + 1);
           return;
         }
@@ -78,7 +89,9 @@ export function LiveManager({
         const next: Record<string, HockeyFeedMatch> = {};
         for (const match of payload.games ?? []) {
           const base = baseByKey[match.key] as HockeyFeedMatch | undefined;
-          const liveStatus = String(match.status ?? base?.status ?? "Not Started");
+          const liveStatus = String(
+            match.status ?? base?.status ?? "Not Started",
+          );
           const baseStatus = String(base?.status ?? "");
           const preferBaseScore =
             !isLiveStatus(liveStatus) && isLiveStatus(baseStatus);
@@ -117,6 +130,7 @@ export function LiveManager({
           };
         }
         setLiveByKey(next);
+        setSelectedWatchedGameKey(payload.selectedWatchedGameKey ?? null);
         setPollTick((t) => t + 1);
       } catch {
         // keep last known snapshot
@@ -129,7 +143,50 @@ export function LiveManager({
       stopped = true;
       clearInterval(id);
     };
-  }, [metamaskAddress, baseByKey]);
+  }, [metamaskAddress, baseByKey, botName]);
+
+  const triggerManual = async (
+    key: string,
+    side: "home" | "away",
+  ): Promise<void> => {
+    if (!metamaskAddress || manualPendingKey) return;
+    setManualPendingKey(key);
+    setManualStatusByKey((prev) => ({
+      ...prev,
+      [key]: side === "home" ? "Triggering Team A..." : "Triggering Team B...",
+    }));
+
+    try {
+      const res = await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/bots/${botName}/manual-trigger`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key, side }),
+        },
+      );
+      const payload = (await res.json()) as { message?: string; reason?: string };
+      if (!res.ok) {
+        setManualStatusByKey((prev) => ({
+          ...prev,
+          [key]: payload.message ?? payload.reason ?? "Manual trigger failed",
+        }));
+        return;
+      }
+
+      setManualStatusByKey((prev) => ({
+        ...prev,
+        [key]: payload.message ?? "Executed",
+      }));
+    } catch {
+      setManualStatusByKey((prev) => ({
+        ...prev,
+        [key]: "Manual trigger failed: orchestrator unavailable",
+      }));
+    } finally {
+      setManualPendingKey(null);
+    }
+  };
 
   const cards = useMemo(() => {
     return selectedKeys
@@ -158,6 +215,7 @@ export function LiveManager({
       <div className="hky-cards-grid">
         {cards.map((m) => {
           const live = isLiveStatus(m.status);
+          const canManualTrigger = selectedWatchedGameKey === m.key;
           return (
             <div key={m.key} className="hky-card">
               <div className="hky-card-top">
@@ -177,6 +235,33 @@ export function LiveManager({
                 </div>
                 <div>{m.awayTeam}</div>
               </div>
+
+              {canManualTrigger ? (
+                <div className="hky-manual-row">
+                  <button
+                    className="hky-manual-btn"
+                    onClick={() => {
+                      void triggerManual(m.key, "home");
+                    }}
+                    disabled={manualPendingKey === m.key}
+                  >
+                    Team A Scored
+                  </button>
+                  <button
+                    className="hky-manual-btn"
+                    onClick={() => {
+                      void triggerManual(m.key, "away");
+                    }}
+                    disabled={manualPendingKey === m.key}
+                  >
+                    Team B Scored
+                  </button>
+                </div>
+              ) : null}
+
+              {manualStatusByKey[m.key] ? (
+                <div className="hky-manual-status">{manualStatusByKey[m.key]}</div>
+              ) : null}
 
               {m.periodScores.length > 0 && (
                 <div className="hky-periods">

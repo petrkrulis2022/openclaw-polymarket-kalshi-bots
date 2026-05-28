@@ -462,30 +462,32 @@ async function ensureSigningClientReady(): Promise<void> {
 async function onGoalDetected(
   scorer: "home" | "away",
   state: MatchState,
-): Promise<void> {
+): Promise<
+  | { ok: true; reason: "executed"; message: string }
+  | { ok: false; reason: "ignored_open_position" | "rejected_market_state" | "error"; message: string }
+> {
   const lifecycle = await readMarketLifecycleSnapshot();
   if (!lifecycle) {
-    console.warn("[trade] ⚠️  Lifecycle probe unavailable — skipping goal trigger");
-    return;
+    const message = "Lifecycle probe unavailable — skipping manual trigger";
+    console.warn(`[trade] ⚠️  ${message}`);
+    return { ok: false, reason: "rejected_market_state", message };
   }
   if (
     lifecycleLooksEnded(lifecycle) ||
     !lifecycle.gamma.acceptingOrders ||
     !lifecycle.tradable
   ) {
-    console.warn(
-      `[trade] ⚠️  Goal seen (${state.scoreHome}-${state.scoreAway}) but market not tradable ` +
-        `(status=${lifecycle.gamma.rawStatus} active=${lifecycle.gamma.active} closed=${lifecycle.gamma.closed} resolved=${lifecycle.gamma.resolved} tradable=${lifecycle.tradable}) — skipping`,
-    );
-    return;
+    const message =
+      `Market not tradable (status=${lifecycle.gamma.rawStatus} active=${lifecycle.gamma.active} ` +
+      `closed=${lifecycle.gamma.closed} resolved=${lifecycle.gamma.resolved} tradable=${lifecycle.tradable})`;
+    console.warn(`[trade] ⚠️  ${message}`);
+    return { ok: false, reason: "rejected_market_state", message };
   }
 
   if (openPosition) {
-    console.log(
-      `[trade] ⚠️  Score update by ${scorer === "home" ? state.teamHome : state.teamAway} ` +
-        `but already in position (${openPosition.label}) — skipping`,
-    );
-    return;
+    const message = `Position already open (${openPosition.label})`;
+    console.log(`[trade] ⚠️  ${message} — skipping`);
+    return { ok: false, reason: "ignored_open_position", message };
   }
 
   const isHomeGoal = scorer === "home";
@@ -516,14 +518,17 @@ async function onGoalDetected(
   let spendAmountUsd = Number(
     Math.max(
       0,
-      Math.min(config.maxPositionUsd, availableCollateralUsd - BUY_BALANCE_BUFFER_USD),
+      Math.min(
+        config.maxPositionUsd,
+        availableCollateralUsd - BUY_BALANCE_BUFFER_USD,
+      ),
     ).toFixed(6),
   );
   if (spendAmountUsd <= 0) {
-    console.warn(
-      `[trade] ⚠️  Skipping BUY: available collateral ${fmt(availableCollateralUsd, 6)} USDC is too low after buffer`,
-    );
-    return;
+    const message =
+      `Available collateral ${fmt(availableCollateralUsd, 6)} USDC is too low after buffer`;
+    console.warn(`[trade] ⚠️  Skipping BUY: ${message}`);
+    return { ok: false, reason: "rejected_market_state", message };
   }
   console.log(
     `[trade] BUY spend precheck: available=${fmt(availableCollateralUsd, 6)} buffer=${fmt(BUY_BALANCE_BUFFER_USD, 4)} spend=${fmt(spendAmountUsd, 6)}`,
@@ -584,10 +589,10 @@ async function onGoalDetected(
           break;
         }
       } else {
-      console.error(
-        `[trade] BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS} failed:`,
-        message,
-      );
+        console.error(
+          `[trade] BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS} failed:`,
+          message,
+        );
       }
     }
     if (attempt < MAX_BUY_ATTEMPTS) {
@@ -596,10 +601,10 @@ async function onGoalDetected(
   }
 
   if (!fill || !(fill.filledShares > 0)) {
-    console.warn(
-      `[trade] ⚠️  All ${MAX_BUY_ATTEMPTS} BUY attempts returned zero fill — no position opened`,
-    );
-    return;
+    const message =
+      `All ${MAX_BUY_ATTEMPTS} BUY attempts returned zero fill — no position opened`;
+    console.warn(`[trade] ⚠️  ${message}`);
+    return { ok: false, reason: "error", message };
   }
 
   const avgPrice = fill.filledUsdc / fill.filledShares;
@@ -627,6 +632,37 @@ async function onGoalDetected(
       `stop-loss bid≤${fmt(hybridStopBid)} | ` +
       `timeout ${config.sellTimeoutMinutes}min`,
   );
+
+  return {
+    ok: true,
+    reason: "executed",
+    message: `Bought ${fill.filledShares} shares of ${label} at avg ${fmt(avgPrice)}`,
+  };
+}
+
+function getOrCreateWatchlistRow(key: string): WatchlistStateRow {
+  const existing = watchlistLiveState.get(key);
+  if (existing) return existing;
+
+  const selected = watchedGames.find((g) => g.key === key) ?? watchedGames[0];
+  const row: WatchlistStateRow = {
+    key,
+    staticId: selected?.staticId,
+    fixId: selected?.fixId,
+    homeTeam: selected?.homeTeam ?? activeTeamHome,
+    awayTeam: selected?.awayTeam ?? activeTeamAway,
+    leagueName: selected?.leagueName,
+    country: selected?.country,
+    status: "Manual Trigger",
+    timer: "manual",
+    scoreHome: 0,
+    scoreAway: 0,
+    periodScores: [],
+    events: [],
+    updatedAt: new Date().toISOString(),
+  };
+  watchlistLiveState.set(key, row);
+  return row;
 }
 
 async function checkAndSell(forceSell = false): Promise<void> {
@@ -807,16 +843,8 @@ async function goalserveLoop(): Promise<void> {
       `[gs]    ${state.minute || state.status}' | ${state.teamHome} ${scoreStr} ${state.teamAway} | status=${state.status}`,
     );
 
-    // Score-change detection: compare with last known valid scores
+    // Keep live scoreboard context for UI, but never trigger trades from Goalserve.
     if (!isNaN(state.scoreHome) && !isNaN(state.scoreAway)) {
-      if (!isNaN(lastScoreHome) && !isNaN(lastScoreAway)) {
-        if (state.scoreHome > lastScoreHome) {
-          await onGoalDetected("home", state);
-        }
-        if (state.scoreAway > lastScoreAway) {
-          await onGoalDetected("away", state);
-        }
-      }
       lastScoreHome = state.scoreHome;
       lastScoreAway = state.scoreAway;
     }
@@ -893,7 +921,9 @@ async function waitForKickoff(): Promise<void> {
           lastScoreAway = state.scoreAway;
         }
         consecutiveEndedLifecyclePolls = 0;
-        console.log("\n[bot]  ✅ Polymarket lifecycle indicates live tradable market — entering live mode");
+        console.log(
+          "\n[bot]  ✅ Polymarket lifecycle indicates live tradable market — entering live mode",
+        );
         return;
       }
 
@@ -1054,6 +1084,74 @@ httpApp.get("/watchlist-state/:key", (req, res) => {
     selectedWatchedGameKey,
     lastGoalservePollAt,
     game: row,
+  });
+});
+
+httpApp.post("/manual-trigger", async (req, res) => {
+  const sideRaw = String((req.body as { side?: unknown })?.side ?? "").trim();
+  const keyRaw = String((req.body as { key?: unknown })?.key ?? "").trim();
+  if (sideRaw !== "home" && sideRaw !== "away") {
+    return res.status(400).json({
+      ok: false,
+      reason: "invalid_request",
+      error: "side must be 'home' or 'away'",
+    });
+  }
+
+  const key = keyRaw || selectedWatchedGameKey || watchedGames[0]?.key;
+  if (!key) {
+    return res.status(400).json({
+      ok: false,
+      reason: "invalid_request",
+      error: "No watched game selected",
+    });
+  }
+
+  const row = getOrCreateWatchlistRow(key);
+  const nextScoreHome = sideRaw === "home" ? row.scoreHome + 1 : row.scoreHome;
+  const nextScoreAway = sideRaw === "away" ? row.scoreAway + 1 : row.scoreAway;
+  const manualState: MatchState = {
+    staticId: row.staticId ?? staticId,
+    status: "Manual Trigger",
+    minute: "manual",
+    scoreHome: nextScoreHome,
+    scoreAway: nextScoreAway,
+    teamHome: row.homeTeam,
+    teamAway: row.awayTeam,
+  };
+
+  const triggerResult = await onGoalDetected(sideRaw, manualState);
+
+  if (triggerResult.ok) {
+    watchlistLiveState.set(key, {
+      ...row,
+      status: "Manual Trigger",
+      timer: "manual",
+      scoreHome: nextScoreHome,
+      scoreAway: nextScoreAway,
+      updatedAt: new Date().toISOString(),
+    });
+    lastScoreHome = nextScoreHome;
+    lastScoreAway = nextScoreAway;
+    return res.json({
+      ok: true,
+      reason: triggerResult.reason,
+      side: sideRaw,
+      key,
+      scoreHome: nextScoreHome,
+      scoreAway: nextScoreAway,
+      message: triggerResult.message,
+    });
+  }
+
+  return res.status(409).json({
+    ok: false,
+    reason: triggerResult.reason,
+    side: sideRaw,
+    key,
+    scoreHome: row.scoreHome,
+    scoreAway: row.scoreAway,
+    message: triggerResult.message,
   });
 });
 

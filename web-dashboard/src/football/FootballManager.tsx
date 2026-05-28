@@ -580,6 +580,7 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
 
         <main className="hky-main">
           <LiveManager
+            botName="football-bot"
             selectedKeys={selectedKeys}
             baseByKey={byKey}
             metamaskAddress={metamaskAddress}
