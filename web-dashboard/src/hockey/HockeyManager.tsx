@@ -343,7 +343,7 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
 
       try {
         const res = await fetch(
-          `/api/orchestrator/users/${metamaskAddress}/bots/hockey-bot/discovery`,
+          `/api/orchestrator/users/${metamaskAddress}/bots/hockey-bot/discovery/world-championship`,
         );
         if (!res.ok) {
           throw new Error(`Discovery feed failed (${res.status})`);
@@ -359,12 +359,16 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
         const tomorrow = normalizeFeed(payload.tomorrow, "tomorrow");
         const all = [...today, ...tomorrow];
 
-        const iihfAll = all.filter(isIihfMatch);
-        const source = iihfAll.length > 0 ? iihfAll : all;
-        const rebucketed = rebucketByKickoffWindow(source);
+        // WC endpoint is pre-filtered on backend; do not fall back to unrelated leagues.
+        const wcOnly = all.filter(isIihfMatch);
+        const rebucketed = rebucketByKickoffWindow(wcOnly);
 
         setTodayMatches(rebucketed.today);
         setTomorrowMatches(rebucketed.tomorrow);
+
+        if (wcOnly.length === 0) {
+          setError("No World Championship matches returned by Goalserve right now");
+        }
       } catch (err) {
         if (!stopped) {
           setError(

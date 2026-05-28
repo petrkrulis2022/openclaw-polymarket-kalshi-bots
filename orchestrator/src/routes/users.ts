@@ -351,6 +351,117 @@ function mergeDiscoveryFeeds(feeds: unknown[]): unknown {
   return { scores: { category: [...categoryMap.values()] } };
 }
 
+function filterWorldChampionshipDiscovery(feed: unknown): unknown {
+  const asRecord = (value: unknown): Record<string, unknown> | null => {
+    if (!value || typeof value !== "object") return null;
+    return value as Record<string, unknown>;
+  };
+
+  const toArray = <T,>(value: T | T[] | null | undefined): T[] => {
+    if (Array.isArray(value)) return value;
+    return value == null ? [] : [value];
+  };
+
+  const readString = (obj: Record<string, unknown>, ...keys: string[]): string => {
+    for (const key of keys) {
+      const value = obj[key];
+      if (value == null) continue;
+      return String(value).trim();
+    }
+    return "";
+  };
+
+  const normalize = (input: string): string =>
+    input
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const looksLikeNationalTeam = (teamName: string): boolean => {
+    const normalized = normalize(teamName);
+    if (!normalized) return false;
+    const tokens = [
+      "austria",
+      "canada",
+      "czechia",
+      "czech republic",
+      "czech",
+      "cesko",
+      "denmark",
+      "finland",
+      "france",
+      "germany",
+      "great britain",
+      "hungary",
+      "italy",
+      "kazakhstan",
+      "latvia",
+      "norway",
+      "slovakia",
+      "slovenia",
+      "sweden",
+      "switzerland",
+      "usa",
+      "united states",
+      "us",
+    ];
+
+    return tokens.some((token) => {
+      return (
+        normalized === token ||
+        normalized.startsWith(`${token} `) ||
+        normalized.endsWith(` ${token}`) ||
+        normalized.includes(` ${token} `)
+      );
+    });
+  };
+
+  const categoryMatchesWorldChampionship = (
+    category: Record<string, unknown>,
+  ): boolean => {
+    const categoryContext = normalize(
+      `${readString(category, "country", "@file_group")} ${readString(category, "name", "@name")}`,
+    );
+    if (
+      /iihf|world championship|world championships|championship|international/.test(
+        categoryContext,
+      )
+    ) {
+      return true;
+    }
+
+    const matchesContainer = asRecord(category["matches"]);
+    const rawMatches = toArray(
+      (matchesContainer?.["match"] ?? category["match"]) as
+        | Record<string, unknown>
+        | Record<string, unknown>[]
+        | undefined,
+    );
+
+    return rawMatches.some((raw) => {
+      const match = asRecord(raw);
+      if (!match) return false;
+      const local = asRecord(match["localteam"]);
+      const away = asRecord(match["awayteam"]) ?? asRecord(match["visitorteam"]);
+      const homeTeam = local ? readString(local, "name", "@name") : "";
+      const awayTeam = away ? readString(away, "name", "@name") : "";
+      return looksLikeNationalTeam(homeTeam) && looksLikeNationalTeam(awayTeam);
+    });
+  };
+
+  const root = asRecord(feed) ?? {};
+  const scores = asRecord(root["scores"]) ?? {};
+  const categories = toArray(scores["category"]);
+  const worldCategories = categories
+    .map((row) => asRecord(row))
+    .filter((row): row is Record<string, unknown> => row !== null)
+    .filter((row) => categoryMatchesWorldChampionship(row));
+
+  return { scores: { category: worldCategories } };
+}
+
 async function getHockeyDiscoveryCached(): Promise<{
   cacheUpdatedAtMs: number;
   stale: boolean;
@@ -993,6 +1104,44 @@ router.get("/:address/bots/hockey-bot/discovery", async (req, res, next) => {
     return next(err);
   }
 });
+
+// ── GET /users/:address/bots/hockey-bot/discovery/world-championship ───────
+
+router.get(
+  "/:address/bots/hockey-bot/discovery/world-championship",
+  async (req, res, next) => {
+    try {
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      try {
+        const payload = await getHockeyDiscoveryCached();
+        const today = filterWorldChampionshipDiscovery(payload.today);
+        const tomorrow = filterWorldChampionshipDiscovery(payload.tomorrow);
+        return res.json({
+          ok: true,
+          bot: "hockey-bot",
+          competition: "world-championship",
+          cacheTtlMs: HOCKEY_DISCOVERY_TTL_MS,
+          cacheUpdatedAtMs: payload.cacheUpdatedAtMs,
+          stale: payload.stale,
+          today,
+          tomorrow,
+        });
+      } catch (err) {
+        return res.status(502).json({
+          ok: false,
+          bot: "hockey-bot",
+          competition: "world-championship",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
 
 // ── GET /users/:address/bots/football-bot/discovery ─────────────────────────
 
