@@ -235,7 +235,7 @@ async function probeBotReadiness(
 }
 
 async function fetchGoalserveHockey(
-  pathname: "home" | "d1" | "d2",
+  pathname: "home" | "d1" | "d2" | "d3",
 ): Promise<unknown> {
   const res = await fetch(`${GOALSERVE_HOCKEY_FEED_BASE}/${pathname}?json=1`, {
     signal: AbortSignal.timeout(6_000),
@@ -264,18 +264,91 @@ function emptyDiscoveryFeed(): { scores: { category: [] } } {
 }
 
 function mergeDiscoveryFeeds(feeds: unknown[]): unknown {
-  const categories: unknown[] = [];
+  const categoryMap = new Map<string, Record<string, unknown>>();
+
+  const toArray = <T,>(value: T | T[] | null | undefined): T[] => {
+    if (Array.isArray(value)) return value;
+    return value == null ? [] : [value];
+  };
+
+  const asRecord = (value: unknown): Record<string, unknown> | null => {
+    if (!value || typeof value !== "object") return null;
+    return value as Record<string, unknown>;
+  };
+
+  const readString = (obj: Record<string, unknown>, ...keys: string[]): string => {
+    for (const key of keys) {
+      const value = obj[key];
+      if (value == null) continue;
+      return String(value).trim();
+    }
+    return "";
+  };
+
+  const toCategoryKey = (category: Record<string, unknown>): string => {
+    const country = readString(category, "country", "@file_group").toLowerCase();
+    const name = readString(category, "name", "@name").toLowerCase();
+    return `${country}::${name}`;
+  };
+
+  const toMatchKey = (match: Record<string, unknown>): string => {
+    const local = asRecord(match["localteam"]);
+    const visitor = asRecord(match["awayteam"]) ?? asRecord(match["visitorteam"]);
+    const homeTeam = local ? readString(local, "name", "@name") : "";
+    const awayTeam = visitor ? readString(visitor, "name", "@name") : "";
+    const id = readString(match, "id", "@id");
+    const fixId = readString(match, "fix_id", "@fix_id");
+    const date = readString(match, "date", "@formatted_date");
+    const time = readString(match, "time", "@time");
+    return `${id}|${fixId}|${homeTeam}|${awayTeam}|${date}|${time}`.toLowerCase();
+  };
+
   for (const feed of feeds) {
     const root = (feed ?? {}) as Record<string, unknown>;
     const scores = (root["scores"] ?? {}) as Record<string, unknown>;
-    const category = scores["category"];
-    if (Array.isArray(category)) {
-      categories.push(...category);
-    } else if (category != null) {
-      categories.push(category);
+    const categories = toArray(scores["category"]);
+
+    for (const categoryRaw of categories) {
+      const category = asRecord(categoryRaw);
+      if (!category) continue;
+
+      const categoryKey = toCategoryKey(category);
+      const existingCategory = categoryMap.get(categoryKey);
+      const baseCategory = existingCategory
+        ? existingCategory
+        : { ...category };
+
+      const existingMatchesContainer = asRecord(baseCategory["matches"]);
+      const existingMatches = toArray(
+        (existingMatchesContainer?.["match"] ?? baseCategory["match"]) as
+          | Record<string, unknown>
+          | Record<string, unknown>[]
+          | undefined,
+      ).map((row) => asRecord(row)).filter((row): row is Record<string, unknown> => row !== null);
+
+      const incomingMatchesContainer = asRecord(category["matches"]);
+      const incomingMatches = toArray(
+        (incomingMatchesContainer?.["match"] ?? category["match"]) as
+          | Record<string, unknown>
+          | Record<string, unknown>[]
+          | undefined,
+      ).map((row) => asRecord(row)).filter((row): row is Record<string, unknown> => row !== null);
+
+      const seenMatchKeys = new Set(existingMatches.map((row) => toMatchKey(row)));
+      const mergedMatches = [...existingMatches];
+      for (const match of incomingMatches) {
+        const matchKey = toMatchKey(match);
+        if (seenMatchKeys.has(matchKey)) continue;
+        seenMatchKeys.add(matchKey);
+        mergedMatches.push(match);
+      }
+
+      baseCategory["matches"] = { match: mergedMatches };
+      categoryMap.set(categoryKey, baseCategory);
     }
   }
-  return { scores: { category: categories } };
+
+  return { scores: { category: [...categoryMap.values()] } };
 }
 
 async function getHockeyDiscoveryCached(): Promise<{
@@ -298,17 +371,23 @@ async function getHockeyDiscoveryCached(): Promise<{
   }
 
   try {
-    const [todayRes, tomorrowRes, dayAfterRes] = await Promise.allSettled([
+    const [todayRes, tomorrowRes, dayAfterRes, twoDaysAfterRes] =
+      await Promise.allSettled([
       fetchGoalserveHockey("home"),
       fetchGoalserveHockey("d1"),
       fetchGoalserveHockey("d2"),
+      fetchGoalserveHockey("d3"),
     ]);
 
     const today =
       todayRes.status === "fulfilled" ? todayRes.value : emptyDiscoveryFeed();
     const tomorrowFeeds: unknown[] = [];
-    if (tomorrowRes.status === "fulfilled") tomorrowFeeds.push(tomorrowRes.value);
-    if (dayAfterRes.status === "fulfilled") tomorrowFeeds.push(dayAfterRes.value);
+    if (tomorrowRes.status === "fulfilled")
+      tomorrowFeeds.push(tomorrowRes.value);
+    if (dayAfterRes.status === "fulfilled")
+      tomorrowFeeds.push(dayAfterRes.value);
+    if (twoDaysAfterRes.status === "fulfilled")
+      tomorrowFeeds.push(twoDaysAfterRes.value);
     const tomorrow =
       tomorrowFeeds.length > 0
         ? mergeDiscoveryFeeds(tomorrowFeeds)
@@ -318,6 +397,7 @@ async function getHockeyDiscoveryCached(): Promise<{
       todayRes.status === "rejected" &&
       tomorrowRes.status === "rejected" &&
       dayAfterRes.status === "rejected" &&
+      twoDaysAfterRes.status === "rejected" &&
       hockeyDiscoveryCache
     ) {
       return {

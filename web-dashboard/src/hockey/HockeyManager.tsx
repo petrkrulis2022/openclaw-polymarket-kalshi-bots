@@ -117,6 +117,15 @@ function normalizeTeamLabel(input: string): string {
     .trim();
 }
 
+function containsToken(text: string, token: string): boolean {
+  return (
+    text === token ||
+    text.startsWith(`${token} `) ||
+    text.endsWith(` ${token}`) ||
+    text.includes(` ${token} `)
+  );
+}
+
 const IIHF_TEAMS = new Set([
   "austria",
   "canada",
@@ -145,11 +154,19 @@ const IIHF_TEAMS = new Set([
 
 function isIihfMatch(match: HockeyFeedMatch): boolean {
   const context = normalizeTeamLabel(`${match.leagueName} ${match.country}`);
-  if (/iihf|world championship/.test(context)) return true;
+  if (
+    /iihf|world championship|world championships|championship|international/.test(
+      context,
+    )
+  ) {
+    return true;
+  }
 
   const home = normalizeTeamLabel(match.homeTeam);
   const away = normalizeTeamLabel(match.awayTeam);
-  return IIHF_TEAMS.has(home) && IIHF_TEAMS.has(away);
+  const homeLooksIihf = [...IIHF_TEAMS].some((team) => containsToken(home, team));
+  const awayLooksIihf = [...IIHF_TEAMS].some((team) => containsToken(away, team));
+  return homeLooksIihf && awayLooksIihf;
 }
 
 function readField(
