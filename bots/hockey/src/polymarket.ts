@@ -22,6 +22,8 @@ export interface HomeTeamMarket {
   noTokenId: string;
   conditionId: string;
   question: string;
+  /** Price tick size from Gamma market metadata (for dynamic caps) */
+  orderPriceMinTickSize: number | null;
 }
 
 export interface OrderBook {
@@ -331,6 +333,17 @@ export async function fetchHomeTeamMarket(
     homeTeamMarket["conditionId"] ?? homeTeamMarket["condition_id"] ?? "",
   );
   const question = String(homeTeamMarket["question"] ?? "");
+  const tickSizeRaw =
+    homeTeamMarket["orderPriceMinTickSize"] ??
+    homeTeamMarket["order_price_min_tick_size"] ??
+    homeTeamMarket["tickSize"] ??
+    homeTeamMarket["tick_size"] ??
+    null;
+  const parsedTickSize = Number(tickSizeRaw);
+  const orderPriceMinTickSize =
+    Number.isFinite(parsedTickSize) && parsedTickSize > 0
+      ? parsedTickSize
+      : null;
 
   console.log(
     `[polymarket] ${selectedHomeTeam} market: "${question}" YES=${tokenIds[0].slice(0, 12)}... NO=${tokenIds[1].slice(0, 12)}...`,
@@ -341,6 +354,7 @@ export async function fetchHomeTeamMarket(
     noTokenId: tokenIds[1], // Home team doesn't win
     conditionId,
     question,
+    orderPriceMinTickSize,
   };
 }
 
@@ -427,7 +441,7 @@ export async function getSigningClient(): Promise<ClobClient> {
     host: config.polymarket.host,
     chain: Chain.POLYGON,
     signer: signer as any,
-    creds,
+    creds: creds as any,
     signatureType: config.polymarket.signatureType,
     funderAddress: config.polymarket.funderAddress || undefined,
   });
@@ -527,12 +541,18 @@ export async function placeMarketOrder(
   tokenId: string,
   side: "BUY" | "SELL",
   amount: number, // USDC to spend (BUY) or shares to sell (SELL)
+  opts?: { worstPrice?: number },
 ): Promise<{ orderId: string; filledShares: number; filledUsdc: number }> {
   const c = await getSigningClient();
 
   // For BUY: worst acceptable price = 0.99 (CLOB max; pay any ask up to 99¢)
   // For SELL: worst acceptable price = 0.01 (CLOB min; accept any bid down to 1¢)
-  const worstPrice = side === "BUY" ? 0.99 : 0.01;
+  const fallbackWorstPrice = side === "BUY" ? 0.99 : 0.01;
+  const override = opts?.worstPrice;
+  const worstPrice =
+    typeof override === "number" && Number.isFinite(override)
+      ? override
+      : fallbackWorstPrice;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await (c as any).createAndPostMarketOrder(

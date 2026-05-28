@@ -141,6 +141,17 @@ function pnlStr(pnl: number): string {
   return `${pnl >= 0 ? "+" : ""}${fmt(pnl, 4)} USDC`;
 }
 
+function getBuyWorstPriceCap(): number {
+  const fallbackTick = 0.001;
+  const tick =
+    market.orderPriceMinTickSize && market.orderPriceMinTickSize > 0
+      ? market.orderPriceMinTickSize
+      : fallbackTick;
+  const rawCap = 1 - tick;
+  // Clamp to a safe market range and keep deterministic formatting for logs/orders.
+  return Number(Math.min(0.999, Math.max(0.9, rawCap)).toFixed(6));
+}
+
 function bookHasLiquidity(book: {
   bids: Array<{ price: number; size: number }>;
   asks: Array<{ price: number; size: number }>;
@@ -479,6 +490,11 @@ async function onGoalDetected(
   console.log(
     `[trade] → Market BUY ${label} (${fmt(config.maxPositionUsd, 2)} USDC, FOK)`,
   );
+  const buyWorstPriceCap = getBuyWorstPriceCap();
+  const tickSize = market.orderPriceMinTickSize ?? 0.001;
+  console.log(
+    `[trade] BUY cap config: tick=${fmt(tickSize, 6)} worstPriceCap=${fmt(buyWorstPriceCap, 6)}`,
+  );
 
   // After a goal event market makers pull their asks to reprice — the book can be
   // empty for 2-10 seconds. Retry the FOK up to 4 times with a short wait so we
@@ -489,13 +505,34 @@ async function onGoalDetected(
   let fill: Awaited<ReturnType<typeof placeMarketOrder>> | null = null;
   for (let attempt = 1; attempt <= MAX_BUY_ATTEMPTS; attempt++) {
     try {
-      const f = await placeMarketOrder(tokenId, "BUY", config.maxPositionUsd);
+      const book = await getOrderBook(tokenId);
+      const bestAsk = book.asks[0]?.price ?? 0;
+      const bestAskSize = book.asks[0]?.size ?? 0;
+      const askSummary =
+        bestAsk > 0
+          ? `bestAsk=${fmt(bestAsk, 6)} size=${fmt(bestAskSize, 4)}`
+          : "bestAsk=none";
+
+      console.log(
+        `[trade] BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS}: ${askSummary} cap=${fmt(buyWorstPriceCap, 6)}`,
+      );
+
+      const f = await placeMarketOrder(tokenId, "BUY", config.maxPositionUsd, {
+        worstPrice: buyWorstPriceCap,
+      });
       if (f.filledShares > 0) {
         fill = f;
         break;
       }
+
+      const missReason =
+        bestAsk <= 0
+          ? "empty_ask_book"
+          : bestAsk > buyWorstPriceCap
+            ? "best_ask_above_cap"
+            : "fok_zero_fill";
       console.warn(
-        `[trade] ⚠️  BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS}: zero fill (orderbook empty / FOK cancelled)` +
+        `[trade] ⚠️  BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS}: zero fill (${missReason})` +
           (attempt < MAX_BUY_ATTEMPTS
             ? ` — retrying in ${BUY_RETRY_DELAY_MS / 1000}s...`
             : ""),
