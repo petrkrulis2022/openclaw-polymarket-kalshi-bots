@@ -3109,6 +3109,125 @@ function SportsBotView({
   );
   const { trades, openPosition, totalPnl, gameOver, matchSlug, metrics } = data;
   const botOffline = Boolean(error);
+  const sportsBotName = Number(bot.id) === 8 ? "football-bot" : "hockey-bot";
+  const [tradeAmountInput, setTradeAmountInput] = React.useState("");
+  const [tradeAmountSaving, setTradeAmountSaving] = React.useState(false);
+  const [tradeAmountStatus, setTradeAmountStatus] = React.useState<
+    string | null
+  >(null);
+  const [tradeAmountInfo, setTradeAmountInfo] = React.useState<{
+    amountUsd: number;
+    hockeyAmountUsd: number;
+    footballAmountUsd: number;
+    collateralUsdce: number | null;
+    remainingCollateralUsd: number | null;
+  } | null>(null);
+
+  React.useEffect(() => {
+    let stopped = false;
+
+    const loadTradeAmount = async () => {
+      if (!metamaskAddress) return;
+      try {
+        const res = await fetch(
+          `/api/orchestrator/users/${metamaskAddress}/bots/${sportsBotName}/trade-amount`,
+        );
+        if (!res.ok) return;
+        const payload = (await res.json()) as {
+          amountUsd: number;
+          hockeyAmountUsd: number;
+          footballAmountUsd: number;
+          collateralUsdce: number | null;
+          remainingCollateralUsd: number | null;
+          collateralError?: string | null;
+        };
+        if (stopped) return;
+        setTradeAmountInfo({
+          amountUsd: payload.amountUsd,
+          hockeyAmountUsd: payload.hockeyAmountUsd,
+          footballAmountUsd: payload.footballAmountUsd,
+          collateralUsdce: payload.collateralUsdce,
+          remainingCollateralUsd: payload.remainingCollateralUsd,
+        });
+        setTradeAmountInput(String(payload.amountUsd));
+        if (payload.collateralError) {
+          setTradeAmountStatus(`Collateral check warning: ${payload.collateralError}`);
+        }
+      } catch {
+        // keep existing UI state
+      }
+    };
+
+    void loadTradeAmount();
+    return () => {
+      stopped = true;
+    };
+  }, [metamaskAddress, sportsBotName]);
+
+  const saveTradeAmount = async () => {
+    if (!metamaskAddress) return;
+    const amountUsd = Number(tradeAmountInput);
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+      setTradeAmountStatus("Enter a valid positive USD amount");
+      return;
+    }
+
+    setTradeAmountSaving(true);
+    setTradeAmountStatus(null);
+    try {
+      const res = await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/bots/${sportsBotName}/trade-amount`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amountUsd }),
+        },
+      );
+      const payload = (await res.json()) as {
+        error?: string;
+        note?: string;
+        amountUsd?: number;
+        hockeyAmountUsd?: number;
+        footballAmountUsd?: number;
+        collateralUsdce?: number | null;
+        remainingCollateralUsd?: number | null;
+        maxAllowedForThisBotUsd?: number;
+      };
+
+      if (!res.ok) {
+        const maxAllowed = Number(payload.maxAllowedForThisBotUsd);
+        if (Number.isFinite(maxAllowed)) {
+          setTradeAmountStatus(
+            `${payload.error ?? "Amount too high"} Max allowed: ${maxAllowed.toFixed(6)} USDC`,
+          );
+        } else {
+          setTradeAmountStatus(payload.error ?? "Failed to save amount");
+        }
+        return;
+      }
+
+      setTradeAmountInfo({
+        amountUsd: Number(payload.amountUsd ?? amountUsd),
+        hockeyAmountUsd: Number(payload.hockeyAmountUsd ?? 0),
+        footballAmountUsd: Number(payload.footballAmountUsd ?? 0),
+        collateralUsdce:
+          payload.collateralUsdce == null ? null : Number(payload.collateralUsdce),
+        remainingCollateralUsd:
+          payload.remainingCollateralUsd == null
+            ? null
+            : Number(payload.remainingCollateralUsd),
+      });
+      setTradeAmountInput(String(payload.amountUsd ?? amountUsd));
+      setTradeAmountStatus(
+        payload.note ??
+          `Saved. Restart ${sportsBotName} if it is already running.`,
+      );
+    } catch {
+      setTradeAmountStatus("Failed to save amount: orchestrator unavailable");
+    } finally {
+      setTradeAmountSaving(false);
+    }
+  };
 
   return (
     <div>
@@ -3234,6 +3353,66 @@ function SportsBotView({
               {openPosition ? openPosition.label : "—"}
             </div>
           </div>
+        </div>
+      </div>
+
+      <div style={{ padding: "0 24px", marginBottom: 16 }}>
+        <div className="card">
+          <div className="section-label">Manual Trade Amount (USDC)</div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <input
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={tradeAmountInput}
+              onChange={(e) => setTradeAmountInput(e.target.value)}
+              style={{
+                width: 180,
+                background: "var(--bg)",
+                border: "1px solid var(--border)",
+                color: "var(--text)",
+                borderRadius: 8,
+                padding: "8px 10px",
+              }}
+            />
+            <button
+              className="btn-primary"
+              onClick={() => {
+                void saveTradeAmount();
+              }}
+              disabled={tradeAmountSaving}
+            >
+              {tradeAmountSaving ? "Saving…" : "Save Amount"}
+            </button>
+            <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+              Applies only to {sportsBotName}
+            </span>
+          </div>
+          {tradeAmountInfo && (
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: "var(--text-secondary)",
+              }}
+            >
+              Collateral: {tradeAmountInfo.collateralUsdce?.toFixed(6) ?? "?"} |
+              Hockey: {tradeAmountInfo.hockeyAmountUsd.toFixed(6)} | Football: {tradeAmountInfo.footballAmountUsd.toFixed(6)} |
+              Remaining: {tradeAmountInfo.remainingCollateralUsd?.toFixed(6) ?? "?"}
+            </div>
+          )}
+          {tradeAmountStatus && (
+            <div style={{ marginTop: 8, fontSize: 12, color: "#ffb86b" }}>
+              {tradeAmountStatus}
+            </div>
+          )}
         </div>
       </div>
 
