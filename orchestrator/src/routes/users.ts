@@ -44,6 +44,10 @@ const GOALSERVE_HOCKEY_FEED_BASE = `https://www.goalserve.com/getfeed/${GOALSERV
 const GOALSERVE_FOOTBALL_FEED_BASE = `https://www.goalserve.com/getfeed/${GOALSERVE_API_KEY}/soccernew`;
 const HOCKEY_DISCOVERY_TTL_MS = 10_000;
 const FOOTBALL_DISCOVERY_TTL_MS = 10_000;
+const WC_DISCOVERY_CACHE_FILE = path.join(
+  DATA_DIR,
+  "hockey-world-championship-cache.json",
+);
 
 type HockeyDiscoveryCache = {
   updatedAtMs: number;
@@ -67,6 +71,42 @@ let hockeyDiscoveryCache: HockeyDiscoveryCache | null = null;
 let footballDiscoveryCache: FootballDiscoveryCache | null = null;
 let worldChampionshipDiscoveryCache: WorldChampionshipDiscoveryCache | null =
   null;
+
+function loadWorldChampionshipCacheFromDisk():
+  | WorldChampionshipDiscoveryCache
+  | null {
+  try {
+    if (!fs.existsSync(WC_DISCOVERY_CACHE_FILE)) return null;
+    const raw = fs.readFileSync(WC_DISCOVERY_CACHE_FILE, "utf8");
+    const parsed = JSON.parse(raw) as {
+      updatedAtMs?: unknown;
+      today?: unknown;
+      tomorrow?: unknown;
+    };
+    const updatedAtMs = Number(parsed.updatedAtMs ?? 0);
+    if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
+    return {
+      updatedAtMs,
+      today: parsed.today,
+      tomorrow: parsed.tomorrow,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveWorldChampionshipCacheToDisk(
+  snapshot: WorldChampionshipDiscoveryCache,
+): void {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(WC_DISCOVERY_CACHE_FILE, JSON.stringify(snapshot), "utf8");
+  } catch {
+    // Non-fatal: in-memory fallback still works.
+  }
+}
+
+worldChampionshipDiscoveryCache = loadWorldChampionshipCacheFromDisk();
 
 // Bot definitions: name → { folder, botId, portOffset, entrypoint }
 // portOffset 0-5 relative to user base port
@@ -404,77 +444,13 @@ function filterWorldChampionshipDiscovery(feed: unknown): unknown {
       .replace(/\s+/g, " ")
       .trim();
 
-  const looksLikeNationalTeam = (teamName: string): boolean => {
-    const normalized = normalize(teamName);
-    if (!normalized) return false;
-    const tokens = [
-      "austria",
-      "canada",
-      "czechia",
-      "czech republic",
-      "czech",
-      "cesko",
-      "denmark",
-      "finland",
-      "france",
-      "germany",
-      "great britain",
-      "hungary",
-      "italy",
-      "kazakhstan",
-      "latvia",
-      "norway",
-      "slovakia",
-      "slovenia",
-      "sweden",
-      "switzerland",
-      "usa",
-      "united states",
-      "us",
-    ];
-
-    return tokens.some((token) => {
-      return (
-        normalized === token ||
-        normalized.startsWith(`${token} `) ||
-        normalized.endsWith(` ${token}`) ||
-        normalized.includes(` ${token} `)
-      );
-    });
-  };
-
   const categoryMatchesWorldChampionship = (
     category: Record<string, unknown>,
   ): boolean => {
     const categoryContext = normalize(
       `${readString(category, "country", "@file_group")} ${readString(category, "name", "@name")}`,
     );
-    if (
-      /iihf|world championship|world championships|championship|international/.test(
-        categoryContext,
-      )
-    ) {
-      return true;
-    }
-
-    const matchesContainer = asRecord(category["matches"]);
-    const rawMatches = toArray(
-      (matchesContainer?.["match"] ?? category["match"]) as
-        | Record<string, unknown>
-        | Record<string, unknown>[]
-        | undefined,
-    );
-
-    return rawMatches.some((raw) => {
-      const match = asRecord(raw);
-      if (!match) return false;
-      const local = asRecord(match["localteam"]);
-      const away =
-        asRecord(match["awayteam"]) ?? asRecord(match["visitorteam"]);
-      const homeTeam = local ? readString(local, "name", "@name") : "";
-      const awayTeam = away ? readString(away, "name", "@name") : "";
-      return looksLikeNationalTeam(homeTeam) && looksLikeNationalTeam(awayTeam);
-    });
+    return /iihf|world championship/.test(categoryContext);
   };
 
   const root = asRecord(feed) ?? {};
@@ -494,7 +470,7 @@ function discoveryHasAnyMatches(feed: unknown): boolean {
     return value as Record<string, unknown>;
   };
 
-  const toArray = <T,>(value: T | T[] | null | undefined): T[] => {
+  const toArray = <T>(value: T | T[] | null | undefined): T[] => {
     if (Array.isArray(value)) return value;
     return value == null ? [] : [value];
   };
@@ -1185,6 +1161,7 @@ router.get(
             today,
             tomorrow,
           };
+          saveWorldChampionshipCacheToDisk(worldChampionshipDiscoveryCache);
         }
 
         if (!hasMatches && worldChampionshipDiscoveryCache) {
@@ -1213,6 +1190,19 @@ router.get(
           tomorrow,
         });
       } catch (err) {
+        if (worldChampionshipDiscoveryCache) {
+          return res.json({
+            ok: true,
+            bot: "hockey-bot",
+            competition: "world-championship",
+            cacheTtlMs: HOCKEY_DISCOVERY_TTL_MS,
+            cacheUpdatedAtMs: worldChampionshipDiscoveryCache.updatedAtMs,
+            stale: true,
+            fallbackUsed: true,
+            today: worldChampionshipDiscoveryCache.today,
+            tomorrow: worldChampionshipDiscoveryCache.tomorrow,
+          });
+        }
         return res.status(502).json({
           ok: false,
           bot: "hockey-bot",

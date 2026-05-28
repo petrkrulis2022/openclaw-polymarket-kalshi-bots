@@ -108,71 +108,6 @@ function rebucketByKickoffWindow(matches: HockeyFeedMatch[]): {
   return { today, tomorrow };
 }
 
-function normalizeTeamLabel(input: string): string {
-  return input
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function containsToken(text: string, token: string): boolean {
-  return (
-    text === token ||
-    text.startsWith(`${token} `) ||
-    text.endsWith(` ${token}`) ||
-    text.includes(` ${token} `)
-  );
-}
-
-const IIHF_TEAMS = new Set([
-  "austria",
-  "canada",
-  "czechia",
-  "czech republic",
-  "czech",
-  "cesko",
-  "denmark",
-  "finland",
-  "france",
-  "germany",
-  "great britain",
-  "hungary",
-  "italy",
-  "kazakhstan",
-  "latvia",
-  "norway",
-  "slovakia",
-  "slovenia",
-  "sweden",
-  "switzerland",
-  "usa",
-  "united states",
-  "us",
-]);
-
-function isIihfMatch(match: HockeyFeedMatch): boolean {
-  const context = normalizeTeamLabel(`${match.leagueName} ${match.country}`);
-  if (
-    /iihf|world championship|world championships|championship|international/.test(
-      context,
-    )
-  ) {
-    return true;
-  }
-
-  const home = normalizeTeamLabel(match.homeTeam);
-  const away = normalizeTeamLabel(match.awayTeam);
-  const homeLooksIihf = [...IIHF_TEAMS].some((team) =>
-    containsToken(home, team),
-  );
-  const awayLooksIihf = [...IIHF_TEAMS].some((team) =>
-    containsToken(away, team),
-  );
-  return homeLooksIihf && awayLooksIihf;
-}
-
 function readField(
   obj: Record<string, unknown> | undefined,
   ...keys: string[]
@@ -363,8 +298,8 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
         const tomorrow = normalizeFeed(payload.tomorrow, "tomorrow");
         const all = [...today, ...tomorrow];
 
-        // WC endpoint is pre-filtered on backend; do not fall back to unrelated leagues.
-        const wcOnly = all.filter(isIihfMatch);
+        // Backend endpoint is strict World Championship only.
+        const wcOnly = all;
         if (wcOnly.length === 0) {
           setError(
             "No World Championship matches returned by Goalserve right now",
