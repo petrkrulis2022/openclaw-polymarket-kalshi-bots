@@ -72,9 +72,7 @@ let footballDiscoveryCache: FootballDiscoveryCache | null = null;
 let worldChampionshipDiscoveryCache: WorldChampionshipDiscoveryCache | null =
   null;
 
-function loadWorldChampionshipCacheFromDisk():
-  | WorldChampionshipDiscoveryCache
-  | null {
+function loadWorldChampionshipCacheFromDisk(): WorldChampionshipDiscoveryCache | null {
   try {
     if (!fs.existsSync(WC_DISCOVERY_CACHE_FILE)) return null;
     const raw = fs.readFileSync(WC_DISCOVERY_CACHE_FILE, "utf8");
@@ -285,13 +283,24 @@ async function probeBotReadiness(
 async function fetchGoalserveHockey(
   pathname: "home" | "d1" | "d2" | "d3",
 ): Promise<unknown> {
-  const res = await fetch(`${GOALSERVE_HOCKEY_FEED_BASE}/${pathname}?json=1`, {
-    signal: AbortSignal.timeout(6_000),
-  });
-  if (!res.ok) {
-    throw new Error(`Goalserve hockey ${pathname} failed (${res.status})`);
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const res = await fetch(
+        `${GOALSERVE_HOCKEY_FEED_BASE}/${pathname}?json=1`,
+        {
+          signal: AbortSignal.timeout(6_000),
+        },
+      );
+      if (!res.ok) {
+        throw new Error(`Goalserve hockey ${pathname} failed (${res.status})`);
+      }
+      return res.json();
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
   }
-  return res.json();
+  throw lastError ?? new Error(`Goalserve hockey ${pathname} failed`);
 }
 
 async function fetchGoalserveFootball(
@@ -493,6 +502,23 @@ function discoveryHasAnyMatches(feed: unknown): boolean {
   }
 
   return false;
+}
+
+function getSanitizedWorldChampionshipSnapshot(): WorldChampionshipDiscoveryCache | null {
+  if (!worldChampionshipDiscoveryCache) return null;
+
+  const today = filterWorldChampionshipDiscovery(worldChampionshipDiscoveryCache.today);
+  const tomorrow = filterWorldChampionshipDiscovery(
+    worldChampionshipDiscoveryCache.tomorrow,
+  );
+  const hasMatches = discoveryHasAnyMatches(today) || discoveryHasAnyMatches(tomorrow);
+  if (!hasMatches) return null;
+
+  return {
+    updatedAtMs: worldChampionshipDiscoveryCache.updatedAtMs,
+    today,
+    tomorrow,
+  };
 }
 
 async function getHockeyDiscoveryCached(): Promise<{
@@ -1164,17 +1190,18 @@ router.get(
           saveWorldChampionshipCacheToDisk(worldChampionshipDiscoveryCache);
         }
 
-        if (!hasMatches && worldChampionshipDiscoveryCache) {
+        const sanitizedCached = getSanitizedWorldChampionshipSnapshot();
+        if (!hasMatches && sanitizedCached) {
           return res.json({
             ok: true,
             bot: "hockey-bot",
             competition: "world-championship",
             cacheTtlMs: HOCKEY_DISCOVERY_TTL_MS,
-            cacheUpdatedAtMs: worldChampionshipDiscoveryCache.updatedAtMs,
+            cacheUpdatedAtMs: sanitizedCached.updatedAtMs,
             stale: true,
             fallbackUsed: true,
-            today: worldChampionshipDiscoveryCache.today,
-            tomorrow: worldChampionshipDiscoveryCache.tomorrow,
+            today: sanitizedCached.today,
+            tomorrow: sanitizedCached.tomorrow,
           });
         }
 
@@ -1190,17 +1217,18 @@ router.get(
           tomorrow,
         });
       } catch (err) {
-        if (worldChampionshipDiscoveryCache) {
+        const sanitizedCached = getSanitizedWorldChampionshipSnapshot();
+        if (sanitizedCached) {
           return res.json({
             ok: true,
             bot: "hockey-bot",
             competition: "world-championship",
             cacheTtlMs: HOCKEY_DISCOVERY_TTL_MS,
-            cacheUpdatedAtMs: worldChampionshipDiscoveryCache.updatedAtMs,
+            cacheUpdatedAtMs: sanitizedCached.updatedAtMs,
             stale: true,
             fallbackUsed: true,
-            today: worldChampionshipDiscoveryCache.today,
-            tomorrow: worldChampionshipDiscoveryCache.tomorrow,
+            today: sanitizedCached.today,
+            tomorrow: sanitizedCached.tomorrow,
           });
         }
         return res.status(502).json({
