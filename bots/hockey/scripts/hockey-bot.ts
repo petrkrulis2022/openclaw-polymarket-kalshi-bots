@@ -152,6 +152,14 @@ function getBuyWorstPriceCap(): number {
   return Number(Math.min(0.999, Math.max(0.9, rawCap)).toFixed(6));
 }
 
+function parseInsufficientBalanceUsdc(message: string): number | null {
+  const match = message.match(/balance:\s*(\d+),\s*order amount:\s*(\d+)/i);
+  if (!match) return null;
+  const balanceMicros = Number(match[1]);
+  if (!Number.isFinite(balanceMicros) || balanceMicros <= 0) return null;
+  return balanceMicros / 1e6;
+}
+
 function bookHasLiquidity(book: {
   bids: Array<{ price: number; size: number }>;
   asks: Array<{ price: number; size: number }>;
@@ -501,6 +509,9 @@ async function onGoalDetected(
   // catch the market once liquidity returns.
   const MAX_BUY_ATTEMPTS = 4;
   const BUY_RETRY_DELAY_MS = 3_000;
+  const BUY_BALANCE_BUFFER_USD = 0.05;
+
+  let spendAmountUsd = config.maxPositionUsd;
 
   let fill: Awaited<ReturnType<typeof placeMarketOrder>> | null = null;
   for (let attempt = 1; attempt <= MAX_BUY_ATTEMPTS; attempt++) {
@@ -514,10 +525,10 @@ async function onGoalDetected(
           : "bestAsk=none";
 
       console.log(
-        `[trade] BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS}: ${askSummary} cap=${fmt(buyWorstPriceCap, 6)}`,
+        `[trade] BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS}: ${askSummary} cap=${fmt(buyWorstPriceCap, 6)} spend=${fmt(spendAmountUsd, 6)}`,
       );
 
-      const f = await placeMarketOrder(tokenId, "BUY", config.maxPositionUsd, {
+      const f = await placeMarketOrder(tokenId, "BUY", spendAmountUsd, {
         worstPrice: buyWorstPriceCap,
       });
       if (f.filledShares > 0) {
@@ -538,10 +549,30 @@ async function onGoalDetected(
             : ""),
       );
     } catch (err) {
+      const message = (err as Error).message;
+      const availableBalanceUsd = parseInsufficientBalanceUsdc(message);
+      if (availableBalanceUsd !== null) {
+        const resizedSpend = Number(
+          Math.max(0, availableBalanceUsd - BUY_BALANCE_BUFFER_USD).toFixed(6),
+        );
+        if (resizedSpend > 0 && resizedSpend < spendAmountUsd) {
+          spendAmountUsd = resizedSpend;
+          console.warn(
+            `[trade] BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS} rejected for insufficient balance; resizing spend to ${fmt(spendAmountUsd, 6)} USDC` +
+              (attempt < MAX_BUY_ATTEMPTS ? " and retrying..." : ""),
+          );
+        } else {
+          console.error(
+            `[trade] BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS} failed: insufficient balance (${fmt(availableBalanceUsd, 6)} USDC available)`,
+          );
+          break;
+        }
+      } else {
       console.error(
         `[trade] BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS} failed:`,
-        (err as Error).message,
+        message,
       );
+      }
     }
     if (attempt < MAX_BUY_ATTEMPTS) {
       await new Promise((res) => setTimeout(res, BUY_RETRY_DELAY_MS));

@@ -576,14 +576,19 @@ export async function placeMarketOrder(
   );
 
   const r = result as Record<string, unknown>;
-  const errorMsg = String(r["errorMsg"] ?? "");
+  const errorMsg = String(r["errorMsg"] ?? "").trim();
+  const errorText = String(r["error"] ?? "").trim();
+  const statusCode = Number(r["status"] ?? 0);
+  const rejectionText = errorMsg || errorText;
   if (
-    errorMsg &&
-    errorMsg !== "" &&
-    errorMsg !== "null" &&
-    errorMsg !== "undefined"
+    rejectionText &&
+    rejectionText !== "null" &&
+    rejectionText !== "undefined"
   ) {
-    throw new Error(`Market order rejected: ${errorMsg}`);
+    throw new Error(`Market order rejected: ${rejectionText}`);
+  }
+  if (Number.isFinite(statusCode) && statusCode >= 400) {
+    throw new Error(`Market order rejected with status ${statusCode}`);
   }
 
   const orderId = String(r["orderID"] ?? "unknown");
