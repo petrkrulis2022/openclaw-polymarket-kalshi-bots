@@ -7,7 +7,7 @@
  * placeMarketOrder    — submit FOK market order via clob-client-v2 (immediate fill or cancel)
  */
 
-import { ClobClient, Chain, Side } from "@polymarket/clob-client-v2";
+import { AssetType, ClobClient, Chain, Side } from "@polymarket/clob-client-v2";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { polygon } from "viem/chains";
@@ -485,6 +485,32 @@ export async function getBestAsk(tokenId: string): Promise<number> {
 export async function getBestBid(tokenId: string): Promise<number> {
   const { bids } = await getOrderBook(tokenId);
   return bids.length ? bids[0].price : 0;
+}
+
+/** Returns currently spendable collateral balance in USDC (6-decimal normalized). */
+export async function getAvailableCollateralBalanceUsdc(): Promise<number> {
+  try {
+    const c = await getSigningClient();
+    // Refresh exchange-side collateral cache first.
+    await (c as any)
+      .updateBalanceAllowance({ asset_type: AssetType.COLLATERAL })
+      .catch(() => undefined);
+
+    const result = (await (c as any).getBalanceAllowance({
+      asset_type: AssetType.COLLATERAL,
+    })) as { balance?: string; allowance?: string };
+
+    const balance = parseFloat(result.balance ?? "0") / 1e6;
+    const allowance = parseFloat(result.allowance ?? "0") / 1e6;
+    const available = Math.max(0, Math.min(balance, allowance));
+    return Number.isFinite(available) ? available : 0;
+  } catch (err) {
+    console.warn(
+      "[clob] getAvailableCollateralBalanceUsdc error:",
+      (err as Error).message,
+    );
+    return 0;
+  }
 }
 
 // ── Order placement ───────────────────────────────────────────────────────────

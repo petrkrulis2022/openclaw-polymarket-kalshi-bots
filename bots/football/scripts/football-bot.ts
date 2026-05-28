@@ -29,6 +29,7 @@ import {
   fetchEventLifecycle,
   fetchHomeTeamMarket,
   findEventSlugByTeams,
+  getAvailableCollateralBalanceUsdc,
   getOrderBook,
   getBestBid,
   placeMarketOrder,
@@ -502,7 +503,22 @@ async function onGoalDetected(
   const BUY_RETRY_DELAY_MS = 3_000;
   const BUY_BALANCE_BUFFER_USD = 0.05;
 
-  let spendAmountUsd = config.maxPositionUsd;
+  const availableCollateralUsd = await getAvailableCollateralBalanceUsdc();
+  let spendAmountUsd = Number(
+    Math.max(
+      0,
+      Math.min(config.maxPositionUsd, availableCollateralUsd - BUY_BALANCE_BUFFER_USD),
+    ).toFixed(6),
+  );
+  if (spendAmountUsd <= 0) {
+    console.warn(
+      `[trade] ⚠️  Skipping BUY: available collateral ${fmt(availableCollateralUsd, 6)} USDC is too low after buffer`,
+    );
+    return;
+  }
+  console.log(
+    `[trade] BUY spend precheck: available=${fmt(availableCollateralUsd, 6)} buffer=${fmt(BUY_BALANCE_BUFFER_USD, 4)} spend=${fmt(spendAmountUsd, 6)}`,
+  );
 
   let fill: Awaited<ReturnType<typeof placeMarketOrder>> | null = null;
   for (let attempt = 1; attempt <= MAX_BUY_ATTEMPTS; attempt++) {
