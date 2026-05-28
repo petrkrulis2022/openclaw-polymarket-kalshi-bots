@@ -464,7 +464,11 @@ async function onGoalDetected(
   state: MatchState,
 ): Promise<
   | { ok: true; reason: "executed"; message: string }
-  | { ok: false; reason: "ignored_open_position" | "rejected_market_state" | "error"; message: string }
+  | {
+      ok: false;
+      reason: "ignored_open_position" | "rejected_market_state" | "error";
+      message: string;
+    }
 > {
   const lifecycle = await readMarketLifecycleSnapshot();
   if (!lifecycle) {
@@ -514,21 +518,29 @@ async function onGoalDetected(
   const BUY_RETRY_DELAY_MS = 3_000;
   const BUY_BALANCE_BUFFER_USD = 0.05;
 
+  // CLOB collateral probes can occasionally lag right after balance changes.
+  // Treat probe result as advisory and let exchange-side order validation decide.
   const availableCollateralUsd = await getAvailableCollateralBalanceUsdc();
-  let spendAmountUsd = Number(
-    Math.max(
-      0,
-      Math.min(
-        config.maxPositionUsd,
-        availableCollateralUsd - BUY_BALANCE_BUFFER_USD,
-      ),
-    ).toFixed(6),
-  );
+  let spendAmountUsd = Number(config.maxPositionUsd.toFixed(6));
+  if (availableCollateralUsd > BUY_BALANCE_BUFFER_USD) {
+    spendAmountUsd = Number(
+      Math.max(
+        0,
+        Math.min(
+          config.maxPositionUsd,
+          availableCollateralUsd - BUY_BALANCE_BUFFER_USD,
+        ),
+      ).toFixed(6),
+    );
+  } else {
+    console.warn(
+      `[trade] ⚠️  Collateral probe returned ${fmt(availableCollateralUsd, 6)} USDC; proceeding with configured spend ${fmt(spendAmountUsd, 6)} USDC and relying on exchange-side balance checks.`,
+    );
+  }
   if (spendAmountUsd <= 0) {
-    const message =
-      `Available collateral ${fmt(availableCollateralUsd, 6)} USDC is too low after buffer`;
+    const message = "Configured trade amount is non-positive";
     console.warn(`[trade] ⚠️  Skipping BUY: ${message}`);
-    return { ok: false, reason: "rejected_market_state", message };
+    return { ok: false, reason: "error", message };
   }
   console.log(
     `[trade] BUY spend precheck: available=${fmt(availableCollateralUsd, 6)} buffer=${fmt(BUY_BALANCE_BUFFER_USD, 4)} spend=${fmt(spendAmountUsd, 6)}`,
@@ -601,8 +613,7 @@ async function onGoalDetected(
   }
 
   if (!fill || !(fill.filledShares > 0)) {
-    const message =
-      `All ${MAX_BUY_ATTEMPTS} BUY attempts returned zero fill — no position opened`;
+    const message = `All ${MAX_BUY_ATTEMPTS} BUY attempts returned zero fill — no position opened`;
     console.warn(`[trade] ⚠️  ${message}`);
     return { ok: false, reason: "error", message };
   }
