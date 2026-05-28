@@ -28,6 +28,7 @@ const BOT_ROUTE_NAMES: Record<string, string> = {
   "4": "in-market-arb",
   "5": "resolution-lag",
   "6": "microstructure",
+  "8": "football-bot",
   "10": "hockey-bot",
 };
 
@@ -39,8 +40,11 @@ export function usePortfolio(metamaskAddress?: string) {
 
   const fetch_ = useCallback(async () => {
     try {
+      const summaryUrl = metamaskAddress
+        ? `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/portfolio-summary`
+        : "/api/orchestrator/portfolio/summary";
       const [res, statusRes] = await Promise.all([
-        fetch("/api/orchestrator/portfolio/summary"),
+        fetch(summaryUrl),
         metamaskAddress
           ? fetch(`/api/orchestrator/users/${metamaskAddress}/bots/status`)
           : Promise.resolve(null),

@@ -217,9 +217,53 @@ async function fetchUserCollateralUsdce(address: string): Promise<number> {
   // For sports sizing, prefer deployed Polymarket collateral (deposit wallet).
   // Keep bot-wallet USDC.e as fallback when nothing is deployed yet.
   const deployedCollateral = depositWalletUsdce + depositWalletPusd;
-  const collateral = deployedCollateral > 0 ? deployedCollateral : botWalletUsdce;
+  const collateral =
+    deployedCollateral > 0 ? deployedCollateral : botWalletUsdce;
   if (!Number.isFinite(collateral) || collateral < 0) return 0;
   return Number(collateral.toFixed(6));
+}
+
+async function fetchUserBotMetrics(
+  user: User,
+  botName: string,
+): Promise<{
+  equity: number;
+  pnl: number;
+  utilization: number | null;
+  openPositions: number;
+} | null> {
+  const botBaseUrl = getUserBotBaseUrl(user, botName);
+  if (!botBaseUrl) return null;
+
+  try {
+    const res = await fetch(`${botBaseUrl}/metrics`, {
+      signal: AbortSignal.timeout(2_500),
+    });
+    if (!res.ok) return null;
+
+    const payload = (await res.json()) as Record<string, unknown>;
+
+    const toNum = (v: unknown): number => {
+      const n = Number(v ?? 0);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const equity = toNum(payload["equity"] ?? payload["allocatedEquity"]);
+    const pnl = toNum(payload["pnl"] ?? payload["totalRealizedPnl"]);
+    const utilizationRaw = Number(payload["utilization"]);
+    const openPositions = toNum(
+      payload["openPositions"] ?? payload["activePositions"],
+    );
+
+    return {
+      equity,
+      pnl,
+      utilization: Number.isFinite(utilizationRaw) ? utilizationRaw : null,
+      openPositions,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function getUserBotBaseUrl(user: User, botName: string): string | null {
@@ -1996,6 +2040,78 @@ router.get(
       });
 
       return res.json(status);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── GET /users/:address/portfolio-summary ───────────────────────────────────
+// User-scoped portfolio summary (never mixes other users' bot metrics).
+
+router.get(
+  "/:address/portfolio-summary",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const slot = userSlot(user.bot_wallet_index);
+
+      let pm2List: Pm2Proc[] = [];
+      try {
+        pm2List = await getPm2Processes();
+      } catch {
+        pm2List = [];
+      }
+
+      const botRows = await Promise.all(
+        BOT_DEFS.map(async (bot) => {
+          const pmName = `${bot.name}-u${slot}`;
+          const proc = pm2List.find((p) => p.name === pmName);
+          const status = proc?.pm2_env?.status ?? "stopped";
+          const enabled = isBotEnabled(user, bot.name);
+
+          const metrics =
+            enabled && status === "online"
+              ? await fetchUserBotMetrics(user, bot.name)
+              : null;
+
+          return {
+            id: bot.botId,
+            name: bot.name,
+            strategy: "",
+            equity: Number((metrics?.equity ?? 0).toFixed(6)),
+            pnl: Number((metrics?.pnl ?? 0).toFixed(6)),
+            utilization:
+              metrics?.utilization == null
+                ? null
+                : Number(metrics.utilization.toFixed(4)),
+            openPositions: Math.max(0, Math.round(metrics?.openPositions ?? 0)),
+            allocationPct: 0,
+            status,
+            enabled,
+          };
+        }),
+      );
+
+      let totalEquity = botRows.reduce((s, b) => s + b.equity, 0);
+      let collateralError: string | null = null;
+      try {
+        totalEquity = await fetchUserCollateralUsdce(address);
+      } catch (err) {
+        collateralError = err instanceof Error ? err.message : String(err);
+      }
+
+      const totalPnl = botRows.reduce((s, b) => s + b.pnl, 0);
+
+      return res.json({
+        totalEquity: Number(totalEquity.toFixed(6)),
+        totalPnl: Number(totalPnl.toFixed(6)),
+        collateralError,
+        bots: botRows,
+      });
     } catch (err) {
       return next(err);
     }
