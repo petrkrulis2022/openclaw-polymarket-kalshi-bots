@@ -234,7 +234,9 @@ async function probeBotReadiness(
   }
 }
 
-async function fetchGoalserveHockey(pathname: "home" | "d1"): Promise<unknown> {
+async function fetchGoalserveHockey(
+  pathname: "home" | "d1" | "d2",
+): Promise<unknown> {
   const res = await fetch(`${GOALSERVE_HOCKEY_FEED_BASE}/${pathname}?json=1`, {
     signal: AbortSignal.timeout(6_000),
   });
@@ -261,6 +263,21 @@ function emptyDiscoveryFeed(): { scores: { category: [] } } {
   return { scores: { category: [] } };
 }
 
+function mergeDiscoveryFeeds(feeds: unknown[]): unknown {
+  const categories: unknown[] = [];
+  for (const feed of feeds) {
+    const root = (feed ?? {}) as Record<string, unknown>;
+    const scores = (root["scores"] ?? {}) as Record<string, unknown>;
+    const category = scores["category"];
+    if (Array.isArray(category)) {
+      categories.push(...category);
+    } else if (category != null) {
+      categories.push(category);
+    }
+  }
+  return { scores: { category: categories } };
+}
+
 async function getHockeyDiscoveryCached(): Promise<{
   cacheUpdatedAtMs: number;
   stale: boolean;
@@ -281,21 +298,26 @@ async function getHockeyDiscoveryCached(): Promise<{
   }
 
   try {
-    const [todayRes, tomorrowRes] = await Promise.allSettled([
+    const [todayRes, tomorrowRes, dayAfterRes] = await Promise.allSettled([
       fetchGoalserveHockey("home"),
       fetchGoalserveHockey("d1"),
+      fetchGoalserveHockey("d2"),
     ]);
 
     const today =
       todayRes.status === "fulfilled" ? todayRes.value : emptyDiscoveryFeed();
+    const tomorrowFeeds: unknown[] = [];
+    if (tomorrowRes.status === "fulfilled") tomorrowFeeds.push(tomorrowRes.value);
+    if (dayAfterRes.status === "fulfilled") tomorrowFeeds.push(dayAfterRes.value);
     const tomorrow =
-      tomorrowRes.status === "fulfilled"
-        ? tomorrowRes.value
+      tomorrowFeeds.length > 0
+        ? mergeDiscoveryFeeds(tomorrowFeeds)
         : emptyDiscoveryFeed();
 
     if (
       todayRes.status === "rejected" &&
       tomorrowRes.status === "rejected" &&
+      dayAfterRes.status === "rejected" &&
       hockeyDiscoveryCache
     ) {
       return {

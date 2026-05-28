@@ -108,10 +108,22 @@ function rebucketByKickoffWindow(matches: HockeyFeedMatch[]): {
   return { today, tomorrow };
 }
 
+function normalizeTeamLabel(input: string): string {
+  return input
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const IIHF_TEAMS = new Set([
   "austria",
   "canada",
+  "czechia",
   "czech republic",
+  "czech",
+  "cesko",
   "denmark",
   "finland",
   "france",
@@ -127,14 +139,16 @@ const IIHF_TEAMS = new Set([
   "sweden",
   "switzerland",
   "usa",
+  "united states",
+  "us",
 ]);
 
 function isIihfMatch(match: HockeyFeedMatch): boolean {
-  const context = `${match.leagueName} ${match.country}`.toLowerCase();
+  const context = normalizeTeamLabel(`${match.leagueName} ${match.country}`);
   if (/iihf|world championship/.test(context)) return true;
 
-  const home = match.homeTeam.trim().toLowerCase();
-  const away = match.awayTeam.trim().toLowerCase();
+  const home = normalizeTeamLabel(match.homeTeam);
+  const away = normalizeTeamLabel(match.awayTeam);
   return IIHF_TEAMS.has(home) && IIHF_TEAMS.has(away);
 }
 
