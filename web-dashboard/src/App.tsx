@@ -175,6 +175,21 @@ function BotCard({
           <button
             onClick={(e) => {
               e.stopPropagation();
+              onToggleEnabled(!bot.enabled);
+            }}
+            className={bot.enabled ? "btn-secondary" : "btn-primary"}
+            style={{ fontSize: 11, padding: "3px 8px" }}
+            title={
+              bot.enabled
+                ? "Stop this bot for your account"
+                : "Start this bot for your account"
+            }
+          >
+            {bot.enabled ? "Stop" : "Start"}
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
               onViewAnalysis();
             }}
             title="View trade analysis"
@@ -3151,7 +3166,9 @@ function SportsBotView({
         });
         setTradeAmountInput(String(payload.amountUsd));
         if (payload.collateralError) {
-          setTradeAmountStatus(`Collateral check warning: ${payload.collateralError}`);
+          setTradeAmountStatus(
+            `Collateral check warning: ${payload.collateralError}`,
+          );
         }
       } catch {
         // keep existing UI state
@@ -3211,7 +3228,9 @@ function SportsBotView({
         hockeyAmountUsd: Number(payload.hockeyAmountUsd ?? 0),
         footballAmountUsd: Number(payload.footballAmountUsd ?? 0),
         collateralUsdce:
-          payload.collateralUsdce == null ? null : Number(payload.collateralUsdce),
+          payload.collateralUsdce == null
+            ? null
+            : Number(payload.collateralUsdce),
         remainingCollateralUsd:
           payload.remainingCollateralUsd == null
             ? null
@@ -3404,8 +3423,9 @@ function SportsBotView({
               }}
             >
               Collateral: {tradeAmountInfo.collateralUsdce?.toFixed(6) ?? "?"} |
-              Hockey: {tradeAmountInfo.hockeyAmountUsd.toFixed(6)} | Football: {tradeAmountInfo.footballAmountUsd.toFixed(6)} |
-              Remaining: {tradeAmountInfo.remainingCollateralUsd?.toFixed(6) ?? "?"}
+              Hockey: {tradeAmountInfo.hockeyAmountUsd.toFixed(6)} | Football:{" "}
+              {tradeAmountInfo.footballAmountUsd.toFixed(6)} | Remaining:{" "}
+              {tradeAmountInfo.remainingCollateralUsd?.toFixed(6) ?? "?"}
             </div>
           )}
           {tradeAmountStatus && (
