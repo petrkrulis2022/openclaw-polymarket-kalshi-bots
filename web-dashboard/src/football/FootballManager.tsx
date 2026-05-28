@@ -35,6 +35,16 @@ type BotReadinessDto = {
   error?: string;
 };
 
+type TradeAmountDto = {
+  amountUsd: number;
+  hockeyAmountUsd: number;
+  footballAmountUsd: number;
+  totalAssignedUsd: number;
+  collateralUsdce: number | null;
+  remainingCollateralUsd: number | null;
+  collateralError?: string | null;
+};
+
 function extractMatchSlug(input: string): string | undefined {
   const raw = input.trim();
   if (!raw) return undefined;
@@ -212,6 +222,13 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
     {},
   );
   const [assignmentStatus, setAssignmentStatus] = useState<string | null>(null);
+  const [tradeAmountInput, setTradeAmountInput] = useState("");
+  const [tradeAmountInfo, setTradeAmountInfo] =
+    useState<TradeAmountDto | null>(null);
+  const [tradeAmountSaving, setTradeAmountSaving] = useState(false);
+  const [tradeAmountStatus, setTradeAmountStatus] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedKeys));
@@ -412,6 +429,81 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
     setSavedSlugByKey((prev) => ({ ...prev, [key]: ok }));
   };
 
+  const loadTradeAmount = async () => {
+    if (!metamaskAddress) return;
+    try {
+      const res = await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/bots/football-bot/trade-amount`,
+      );
+      if (!res.ok) return;
+      const payload = (await res.json()) as TradeAmountDto;
+      setTradeAmountInfo(payload);
+      setTradeAmountInput(String(payload.amountUsd ?? ""));
+      if (payload.collateralError) {
+        setTradeAmountStatus(
+          `Collateral check warning: ${payload.collateralError}`,
+        );
+      }
+    } catch {
+      // keep silent to avoid interrupting game workflow
+    }
+  };
+
+  const saveTradeAmount = async () => {
+    if (!metamaskAddress) return;
+    const amountUsd = Number(tradeAmountInput);
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+      setTradeAmountStatus("Enter a valid positive USD amount");
+      return;
+    }
+    setTradeAmountSaving(true);
+    setTradeAmountStatus(null);
+    try {
+      const res = await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/bots/football-bot/trade-amount`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amountUsd }),
+        },
+      );
+      const payload = (await res.json()) as
+        | (TradeAmountDto & { note?: string })
+        | { error?: string; maxAllowedForThisBotUsd?: number };
+      if (!res.ok) {
+        const maxAllowed = Number(
+          (payload as { maxAllowedForThisBotUsd?: number })
+            .maxAllowedForThisBotUsd,
+        );
+        if (Number.isFinite(maxAllowed)) {
+          setTradeAmountStatus(
+            `${(payload as { error?: string }).error ?? "Amount too high"} Max allowed now: ${maxAllowed.toFixed(6)} USDC`,
+          );
+        } else {
+          setTradeAmountStatus(
+            (payload as { error?: string }).error ?? "Failed to save amount",
+          );
+        }
+        return;
+      }
+      const okPayload = payload as TradeAmountDto & { note?: string };
+      setTradeAmountInfo(okPayload);
+      setTradeAmountInput(String(okPayload.amountUsd));
+      setTradeAmountStatus(
+        okPayload.note ??
+          "Saved trade amount. Restart football bot if already running.",
+      );
+    } catch {
+      setTradeAmountStatus("Failed to save amount: orchestrator unavailable");
+    } finally {
+      setTradeAmountSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadTradeAmount();
+  }, [metamaskAddress]);
+
   return (
     <div className="hky-shell">
       <div className="hky-header">
@@ -429,6 +521,37 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
           <div className="hky-sidebar-title">Add Game</div>
           <div className="hky-sidebar-subtitle">
             {botName} · Goalserve football feed
+          </div>
+          <div className="hky-polymarket-box" style={{ marginBottom: 10 }}>
+            <label className="hky-polymarket-label" htmlFor="ftb-trade-amount">
+              Football trade amount (USDC)
+            </label>
+            <input
+              id="ftb-trade-amount"
+              className="hky-polymarket-input"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={tradeAmountInput}
+              onChange={(e) => setTradeAmountInput(e.target.value)}
+            />
+            <div className="hky-polymarket-actions">
+              <button
+                className="hky-save-url-btn"
+                disabled={tradeAmountSaving}
+                onClick={() => {
+                  void saveTradeAmount();
+                }}
+              >
+                {tradeAmountSaving ? "Saving..." : "Save Amount"}
+              </button>
+            </div>
+            {tradeAmountInfo ? (
+              <div className="hky-polymarket-hint">
+                Collateral: {tradeAmountInfo.collateralUsdce?.toFixed(6) ?? "?"} | Hockey: {tradeAmountInfo.hockeyAmountUsd.toFixed(6)} | Football: {tradeAmountInfo.footballAmountUsd.toFixed(6)} | Remaining: {tradeAmountInfo.remainingCollateralUsd?.toFixed(6) ?? "?"}
+              </div>
+            ) : null}
+            {tradeAmountStatus ? <div className="hky-muted">{tradeAmountStatus}</div> : null}
           </div>
           {assignmentStatus ? (
             <div className="hky-muted">{assignmentStatus}</div>

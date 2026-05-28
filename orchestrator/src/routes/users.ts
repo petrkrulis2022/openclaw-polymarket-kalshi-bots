@@ -23,6 +23,9 @@ import {
   updateFunderAddress,
   getBotAllocations,
   setBotAllocation,
+  getSportsTradeAmounts,
+  getSportsTradeAmount,
+  setSportsTradeAmount,
   setBotsRunning,
   setAutonomousMode,
   getWatchedGames,
@@ -165,9 +168,40 @@ const WATCHLIST_BOTS = new Set([
   "football-bot",
   "hockey-bot",
 ]);
+const SPORTS_AMOUNT_BOTS = new Set(["hockey-bot", "football-bot"]);
+const DEFAULT_SPORTS_TRADE_AMOUNT_USD = 10;
 
 function getBotDef(botName: string) {
   return BOT_DEFS.find((b) => b.name === botName);
+}
+
+function getBotTradeAmountEnv(user: User, botName: string): string | null {
+  if (!SPORTS_AMOUNT_BOTS.has(botName)) return null;
+  const amount = getSportsTradeAmount(
+    user.metamask_address,
+    botName,
+    DEFAULT_SPORTS_TRADE_AMOUNT_USD,
+  );
+  return Number(amount.toFixed(6)).toString();
+}
+
+async function fetchUserCollateralUsdce(address: string): Promise<number> {
+  const user = getUser(address);
+  if (!user) throw new Error("User not found");
+  const balRes = await fetch(`${WDK_TREASURY_URL}/balance`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ index: user.bot_wallet_index }),
+    signal: AbortSignal.timeout(6_000),
+  });
+  if (!balRes.ok) {
+    const body = await balRes.text();
+    throw new Error(`Treasury balance failed (${balRes.status}): ${body}`);
+  }
+  const payload = (await balRes.json()) as { usdce?: string };
+  const collateral = Number(payload.usdce ?? "0");
+  if (!Number.isFinite(collateral) || collateral < 0) return 0;
+  return Number(collateral.toFixed(6));
 }
 
 function getUserBotBaseUrl(user: User, botName: string): string | null {
@@ -507,11 +541,14 @@ function discoveryHasAnyMatches(feed: unknown): boolean {
 function getSanitizedWorldChampionshipSnapshot(): WorldChampionshipDiscoveryCache | null {
   if (!worldChampionshipDiscoveryCache) return null;
 
-  const today = filterWorldChampionshipDiscovery(worldChampionshipDiscoveryCache.today);
+  const today = filterWorldChampionshipDiscovery(
+    worldChampionshipDiscoveryCache.today,
+  );
   const tomorrow = filterWorldChampionshipDiscovery(
     worldChampionshipDiscoveryCache.tomorrow,
   );
-  const hasMatches = discoveryHasAnyMatches(today) || discoveryHasAnyMatches(tomorrow);
+  const hasMatches =
+    discoveryHasAnyMatches(today) || discoveryHasAnyMatches(tomorrow);
   if (!hasMatches) return null;
 
   return {
@@ -683,6 +720,7 @@ function userBasePort(botWalletIndex: number): number {
 
 function safeUser(user: User) {
   const botAllocations = getBotAllocations(user.metamask_address);
+  const sportsTradeAmounts = getSportsTradeAmounts(user.metamask_address);
   return {
     metamaskAddress: user.metamask_address,
     botWalletAddress: user.bot_wallet_address,
@@ -695,6 +733,7 @@ function safeUser(user: User) {
     autonomousMode: user.autonomous_mode === 1,
     createdAt: user.created_at,
     botAllocations,
+    sportsTradeAmounts,
   };
 }
 
@@ -813,6 +852,9 @@ async function ensureUserBotProcess(
       TREASURY_URL: WDK_TREASURY_URL,
       BOT_COUNT: String(Math.max(1, totalEnabledBots)),
       PAPER_TRADING: "",
+      ...(getBotTradeAmountEnv(user, botName)
+        ? { MAX_POSITION_USD: getBotTradeAmountEnv(user, botName) }
+        : {}),
     },
   };
 
@@ -1005,6 +1047,9 @@ router.post(
             TREASURY_URL: WDK_TREASURY_URL,
             BOT_COUNT: String(enabledBots.length),
             PAPER_TRADING: "",
+            ...(getBotTradeAmountEnv(user, bot.name)
+              ? { MAX_POSITION_USD: getBotTradeAmountEnv(user, bot.name) }
+              : {}),
           },
         };
       });
@@ -1081,6 +1126,119 @@ router.get("/:address/bots/:botName/readiness", async (req, res) => {
 
   const readiness = await probeBotReadiness(user, botName);
   return res.json({ ok: true, readiness });
+});
+
+// ── GET /users/:address/bots/:botName/trade-amount ─────────────────────────
+
+router.get("/:address/bots/:botName/trade-amount", async (req, res) => {
+  const { address, botName } = req.params;
+  const user = getUser(address);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  if (!SPORTS_AMOUNT_BOTS.has(botName)) {
+    return res.status(400).json({
+      error: `Trade amount is only supported for hockey-bot and football-bot`,
+    });
+  }
+
+  const amounts = getSportsTradeAmounts(address);
+  const hockeyAmount = Number(
+    (amounts["hockey-bot"] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
+  );
+  const footballAmount = Number(
+    (amounts["football-bot"] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
+  );
+  const totalAssigned = Number((hockeyAmount + footballAmount).toFixed(6));
+
+  let collateralUsdce: number | null = null;
+  let collateralError: string | null = null;
+  try {
+    collateralUsdce = await fetchUserCollateralUsdce(address);
+  } catch (err) {
+    collateralError = err instanceof Error ? err.message : String(err);
+  }
+
+  return res.json({
+    ok: true,
+    botName,
+    amountUsd: botName === "hockey-bot" ? hockeyAmount : footballAmount,
+    hockeyAmountUsd: hockeyAmount,
+    footballAmountUsd: footballAmount,
+    totalAssignedUsd: totalAssigned,
+    collateralUsdce,
+    remainingCollateralUsd:
+      collateralUsdce == null
+        ? null
+        : Number((collateralUsdce - totalAssigned).toFixed(6)),
+    collateralError,
+  });
+});
+
+// ── PUT /users/:address/bots/:botName/trade-amount ─────────────────────────
+
+router.put("/:address/bots/:botName/trade-amount", async (req, res) => {
+  const { address, botName } = req.params;
+  const user = getUser(address);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  if (!SPORTS_AMOUNT_BOTS.has(botName)) {
+    return res.status(400).json({
+      error: `Trade amount is only supported for hockey-bot and football-bot`,
+    });
+  }
+
+  const amountUsd = Number((req.body as { amountUsd?: unknown })?.amountUsd);
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+    return res
+      .status(400)
+      .json({ error: "amountUsd must be a positive number" });
+  }
+
+  let collateralUsdce: number;
+  try {
+    collateralUsdce = await fetchUserCollateralUsdce(address);
+  } catch (err) {
+    return res.status(502).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  const normalizedAmount = Number(amountUsd.toFixed(6));
+  const amounts = getSportsTradeAmounts(address);
+  const otherBotName = botName === "hockey-bot" ? "football-bot" : "hockey-bot";
+  const otherAmount = Number(
+    (amounts[otherBotName] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
+  );
+  const nextTotal = Number((normalizedAmount + otherAmount).toFixed(6));
+
+  if (nextTotal > collateralUsdce + 1e-9) {
+    return res.status(400).json({
+      error:
+        "Amount higher than collateral. Combined hockey + football trade amounts must be within available collateral.",
+      botName,
+      requestedAmountUsd: normalizedAmount,
+      otherBotName,
+      otherAmountUsd: otherAmount,
+      combinedAmountUsd: nextTotal,
+      collateralUsdce,
+      maxAllowedForThisBotUsd: Number(
+        Math.max(0, collateralUsdce - otherAmount).toFixed(6),
+      ),
+    });
+  }
+
+  setSportsTradeAmount(address, botName, normalizedAmount);
+
+  return res.json({
+    ok: true,
+    botName,
+    amountUsd: normalizedAmount,
+    hockeyAmountUsd: botName === "hockey-bot" ? normalizedAmount : otherAmount,
+    footballAmountUsd:
+      botName === "football-bot" ? normalizedAmount : otherAmount,
+    combinedAmountUsd: nextTotal,
+    collateralUsdce,
+    remainingCollateralUsd: Number((collateralUsdce - nextTotal).toFixed(6)),
+    note: "Saved. Restart this bot process to apply updated MAX_POSITION_USD if it is already running.",
+  });
 });
 
 // ── PUT /users/:address/bots/:botName/watched-games ─────────────────────────

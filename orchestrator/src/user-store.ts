@@ -35,6 +35,7 @@ db.exec(`
     poly_api_passphrase TEXT,
     poly_funder_address TEXT,
     bot_allocations_json TEXT NOT NULL DEFAULT '{}',
+    sports_trade_amounts_json TEXT NOT NULL DEFAULT '{}',
     watched_games_json TEXT NOT NULL DEFAULT '{}',
     bots_running       INTEGER NOT NULL DEFAULT 0,
     autonomous_mode    INTEGER NOT NULL DEFAULT 0,
@@ -87,6 +88,19 @@ if (
   );
 }
 
+// Migration: add sports_trade_amounts_json to databases that predate this column
+if (
+  !db
+    .prepare(
+      "SELECT name FROM pragma_table_info('users') WHERE name = 'sports_trade_amounts_json'",
+    )
+    .get()
+) {
+  db.exec(
+    "ALTER TABLE users ADD COLUMN sports_trade_amounts_json TEXT NOT NULL DEFAULT '{}'",
+  );
+}
+
 // Migration: add watched_games_json to databases that predate this column
 if (
   !db
@@ -120,6 +134,9 @@ const stmtUpdateFunderAddress = db.prepare<[string, string]>(
 const stmtUpdateBotAllocations = db.prepare<[string, string]>(
   "UPDATE users SET bot_allocations_json = ? WHERE metamask_address = ?",
 );
+const stmtUpdateSportsTradeAmounts = db.prepare<[string, string]>(
+  "UPDATE users SET sports_trade_amounts_json = ? WHERE metamask_address = ?",
+);
 const stmtUpdateWatchedGames = db.prepare<[string, string]>(
   "UPDATE users SET watched_games_json = ? WHERE metamask_address = ?",
 );
@@ -148,6 +165,7 @@ export interface User {
   poly_api_passphrase: string | null;
   poly_funder_address: string | null;
   bot_allocations_json: string | null;
+  sports_trade_amounts_json: string | null;
   watched_games_json: string | null;
   bots_running: number;
   autonomous_mode: number;
@@ -191,6 +209,28 @@ function parseBotAllocations(
 
 function stringifyBotAllocations(allocations: Record<string, boolean>): string {
   return JSON.stringify(allocations);
+}
+
+function parseSportsTradeAmounts(
+  raw: string | null | undefined,
+): Record<string, number> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const result: Record<string, number> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) continue;
+      result[key] = Number(n.toFixed(6));
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function stringifySportsTradeAmounts(amounts: Record<string, number>): string {
+  return JSON.stringify(amounts);
 }
 
 function parseWatchedGamesMap(
@@ -327,6 +367,35 @@ export function setAllBotAllocations(
   for (const botName of botNames) allocations[botName] = enabled;
   stmtUpdateBotAllocations.run(
     stringifyBotAllocations(allocations),
+    metamaskAddress,
+  );
+}
+
+export function getSportsTradeAmounts(address: string): Record<string, number> {
+  const user = getUser(address);
+  return parseSportsTradeAmounts(user?.sports_trade_amounts_json);
+}
+
+export function getSportsTradeAmount(
+  address: string,
+  botName: string,
+  fallback: number,
+): number {
+  const amounts = getSportsTradeAmounts(address);
+  const n = Number(amounts[botName]);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Number(n.toFixed(6));
+}
+
+export function setSportsTradeAmount(
+  metamaskAddress: string,
+  botName: string,
+  amountUsd: number,
+): void {
+  const amounts = getSportsTradeAmounts(metamaskAddress);
+  amounts[botName] = Number(amountUsd.toFixed(6));
+  stmtUpdateSportsTradeAmounts.run(
+    stringifySportsTradeAmounts(amounts),
     metamaskAddress,
   );
 }
