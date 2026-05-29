@@ -145,6 +145,43 @@ export async function cancelOrder(orderId: string): Promise<void> {
   }
 }
 
+export async function getOpenOrders(): Promise<
+  Array<{
+    id: string;
+    tokenId: string;
+    side: string;
+    price: number;
+    size: number;
+  }>
+> {
+  try {
+    const c = await getSigningClient();
+    const result = await c.getOpenOrders();
+    const orders = Array.isArray(result)
+      ? result
+      : ((result as { data?: unknown[] }).data ?? []);
+    return orders.map((o: unknown) => {
+      const order = o as Record<string, string>;
+      const size = parseFloat(
+        order["size_remaining"] ??
+          order["remaining_size"] ??
+          order["size"] ??
+          "0",
+      );
+      return {
+        id: order["id"] ?? "",
+        tokenId: order["asset_id"] ?? "",
+        side: order["side"] ?? "",
+        price: parseFloat(order["price"] ?? "0"),
+        size: Number.isFinite(size) ? size : 0,
+      };
+    });
+  } catch (err) {
+    console.error("[clob] getOpenOrders error:", (err as Error).message);
+    return [];
+  }
+}
+
 // ── Balance & fills ────────────────────────────────────────────────────────────
 
 export async function getCollateralBalance(): Promise<number> {

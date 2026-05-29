@@ -30,7 +30,7 @@ import {
   getOpenPositionsCount,
 } from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
-import { getCollateralBalance } from "./clob.js";
+import { getCollateralBalance, cancelOrder, getOpenOrders } from "./clob.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 
 // ── CTF redeem helpers ────────────────────────────────────────────────────────
@@ -303,13 +303,30 @@ app.post("/redeem", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/orders/cancel-all", async (_req: Request, res: Response) => {
+  const orders = await getOpenOrders();
+  let cancelled = 0;
+  const errors: string[] = [];
+  for (const order of orders) {
+    try {
+      await cancelOrder(order.id);
+      cancelled++;
+    } catch (err) {
+      errors.push(`${order.id}: ${(err as Error).message}`);
+    }
+  }
+  res.json({ ok: true, cancelled, total: orders.length, errors });
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(config.port, () => {
   console.log(
     `[lag] Resolution Lag Bot (id=${config.botId}) listening on :${config.port}`,
   );
-  loadAnalysis().then(() => scheduleAnalysisRefresh()).catch(() => {});
+  loadAnalysis()
+    .then(() => scheduleAnalysisRefresh())
+    .catch(() => {});
   scheduleMonitor();
   scheduleMetrics();
 });

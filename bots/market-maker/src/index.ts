@@ -22,6 +22,7 @@ import {
   getCollateralBalance,
   fetchTradeHistory,
   getOpenOrders,
+  cancelOrder,
 } from "./clob.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 
@@ -298,6 +299,21 @@ app.put("/config", (req, res) => {
   res.json({ ok: true, params: updated });
 });
 
+app.post("/orders/cancel-all", async (_req, res) => {
+  const orders = await getOpenOrders();
+  let cancelled = 0;
+  const errors: string[] = [];
+  for (const order of orders) {
+    try {
+      await cancelOrder(order.id);
+      cancelled++;
+    } catch (err) {
+      errors.push(`${order.id}: ${(err as Error).message}`);
+    }
+  }
+  res.json({ ok: true, cancelled, total: orders.length, errors });
+});
+
 app.post("/config/reset", (_req, res) => {
   const reset = resetParams();
   res.json({ ok: true, params: reset, defaults: getDefaults() });
@@ -311,7 +327,9 @@ app.listen(config.port, () => {
     `[server] Mode: ${config.paperTrading ? "PAPER TRADING" : "LIVE TRADING"}`,
   );
   console.log(`[server] Polymarket wallet: ${config.polymarket.walletAddress}`);
-  loadAnalysis().then(() => scheduleAnalysisRefresh()).catch(() => {});
+  loadAnalysis()
+    .then(() => scheduleAnalysisRefresh())
+    .catch(() => {});
   mainLoop().catch((err) => {
     console.error("[main] Fatal error:", err);
     process.exit(1);

@@ -121,12 +121,14 @@ function BotCard({
   onToggleEnabled,
   onStartStop,
   onViewAnalysis,
+  onCancelOrders,
 }: {
   bot: BotSummary;
   onClick: () => void;
   onToggleEnabled: (enabled: boolean) => void;
   onStartStop: (start: boolean) => void;
   onViewAnalysis: () => void;
+  onCancelOrders?: () => Promise<void>;
 }) {
   return (
     <div
@@ -211,6 +213,27 @@ function BotCard({
           >
             📊
           </button>
+          {onCancelOrders && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                void onCancelOrders();
+              }}
+              title="Cancel all open orders on Polymarket CLOB"
+              style={{
+                background: "none",
+                border: "1px solid #ff3b30",
+                color: "#ff3b30",
+                fontSize: 10,
+                cursor: "pointer",
+                padding: "2px 6px",
+                borderRadius: 4,
+                lineHeight: 1.4,
+              }}
+            >
+              ✕ Orders
+            </button>
+          )}
         </div>
       </div>
       <div className="metrics-row">
@@ -703,7 +726,12 @@ function CopyTraderView({
   } | null>(null);
 
   async function handleCloseAll() {
-    if (!window.confirm(`Sell ALL ${openPositions} open positions at best bid? This cannot be undone.`)) return;
+    if (
+      !window.confirm(
+        `Sell ALL ${openPositions} open positions at best bid? This cannot be undone.`,
+      )
+    )
+      return;
     setClosingAll(true);
     setCloseAllResult(null);
     const result = await closeAll();
@@ -711,7 +739,11 @@ function CopyTraderView({
     setCloseAllResult({
       closed: result.closed.length,
       skipped: result.skipped.length,
-      error: result.error ?? (result.skipped.length > 0 ? `${result.skipped.length} skipped (no liquid bid)` : undefined),
+      error:
+        result.error ??
+        (result.skipped.length > 0
+          ? `${result.skipped.length} skipped (no liquid bid)`
+          : undefined),
     });
   }
 
@@ -1075,11 +1107,23 @@ function CopyTraderView({
       {/* ── Our Positions ── */}
       {positions.filter((p) => p.netSize > 0.001).length > 0 && (
         <div style={{ marginBottom: 32 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 10,
+            }}
+          >
             <div className="section-label">Our Copy Positions</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {closeAllResult && (
-                <span style={{ fontSize: 12, color: closeAllResult.error ? "#ff6b6b" : "#4caf50" }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: closeAllResult.error ? "#ff6b6b" : "#4caf50",
+                  }}
+                >
                   {closeAllResult.error
                     ? `⚠ ${closeAllResult.error}`
                     : `✓ Sold ${closeAllResult.closed} position(s)`}
@@ -1087,9 +1131,18 @@ function CopyTraderView({
               )}
               <button
                 className="btn-secondary"
-                style={{ fontSize: 12, padding: "5px 14px", color: "#ff6b6b", borderColor: "#ff6b6b" }}
+                style={{
+                  fontSize: 12,
+                  padding: "5px 14px",
+                  color: "#ff6b6b",
+                  borderColor: "#ff6b6b",
+                }}
                 disabled={closingAll || !online}
-                title={online ? "Market-sell all positions at best bid" : "Start the bot first to sell positions"}
+                title={
+                  online
+                    ? "Market-sell all positions at best bid"
+                    : "Start the bot first to sell positions"
+                }
                 onClick={() => void handleCloseAll()}
               >
                 {closingAll ? "Selling…" : "🚨 Close All"}
@@ -3720,12 +3773,14 @@ function PortfolioSection({
   metamaskAddress,
   onToggleBotEnabled,
   onStartStopBot,
+  onCancelBotOrders,
   depositWallet,
 }: {
   onSelectBot: (bot: BotSummary) => void;
   metamaskAddress?: string;
   onToggleBotEnabled: (botId: string, enabled: boolean) => void;
   onStartStopBot: (botId: string, start: boolean) => void;
+  onCancelBotOrders: (botId: string) => Promise<void>;
   depositWallet?: string;
 }) {
   const { portfolio, loading, error } = usePortfolio(metamaskAddress);
@@ -3804,20 +3859,31 @@ function PortfolioSection({
             </div>
           </div>
           <div className="bot-grid">
-            {portfolio.bots.map((bot) => (
-              <BotCard
-                key={bot.id}
-                bot={bot}
-                onClick={() => onSelectBot(bot)}
-                onToggleEnabled={(enabled) =>
-                  onToggleBotEnabled(bot.id, enabled)
-                }
-                onStartStop={(start) => onStartStopBot(bot.id, start)}
-                onViewAnalysis={() =>
-                  setShowAnalysisForBot({ id: Number(bot.id), name: bot.name })
-                }
-              />
-            ))}
+            {portfolio.bots.map((bot) => {
+              const CLOB_BOT_IDS = new Set(["1", "3", "4", "5", "6"]);
+              return (
+                <BotCard
+                  key={bot.id}
+                  bot={bot}
+                  onClick={() => onSelectBot(bot)}
+                  onToggleEnabled={(enabled) =>
+                    onToggleBotEnabled(bot.id, enabled)
+                  }
+                  onStartStop={(start) => onStartStopBot(bot.id, start)}
+                  onViewAnalysis={() =>
+                    setShowAnalysisForBot({
+                      id: Number(bot.id),
+                      name: bot.name,
+                    })
+                  }
+                  onCancelOrders={
+                    CLOB_BOT_IDS.has(bot.id)
+                      ? () => onCancelBotOrders(bot.id)
+                      : undefined
+                  }
+                />
+              );
+            })}
           </div>
         </>
       ) : null}
@@ -4851,6 +4917,37 @@ export default function App() {
                     await stopBot(botName);
                   }
                   await refreshBotStatus();
+                }}
+                onCancelBotOrders={async (botId) => {
+                  const botNameById: Record<string, string> = {
+                    "1": "market-maker",
+                    "3": "copy-trader",
+                    "4": "in-market-arb",
+                    "5": "resolution-lag",
+                    "6": "microstructure",
+                  };
+                  const botName = botNameById[botId];
+                  if (!botName || !user?.metamaskAddress) return;
+                  try {
+                    const res = await fetch(
+                      `/api/orchestrator/users/${user.metamaskAddress}/bots/${botName}/proxy/orders/cancel-all`,
+                      { method: "POST" },
+                    );
+                    const data = (await res.json()) as {
+                      ok: boolean;
+                      cancelled: number;
+                      total: number;
+                    };
+                    if (data.ok) {
+                      toast.success(
+                        `${botName}: cancelled ${data.cancelled} of ${data.total} open orders`,
+                      );
+                    } else {
+                      toast.error(`${botName}: cancel orders failed`);
+                    }
+                  } catch {
+                    toast.error(`${botName}: could not reach bot`);
+                  }
                 }}
                 depositWallet={balance?.depositWalletAddress}
               />

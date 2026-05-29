@@ -247,14 +247,29 @@ app.get("/config", (_req: Request, res: Response) => {
     maxConcurrentMarkets: config.maxConcurrentMarkets,
   });
 });
-
+app.post("/orders/cancel-all", async (_req: Request, res: Response) => {
+  const orders = await getOpenOrders();
+  let cancelled = 0;
+  const errors: string[] = [];
+  for (const order of orders) {
+    try {
+      await cancelOrder(order.id);
+      cancelled++;
+    } catch (err) {
+      errors.push(`${order.id}: ${(err as Error).message}`);
+    }
+  }
+  res.json({ ok: true, cancelled, total: orders.length, errors });
+});
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(config.port, () => {
   console.log(
     `[arb] In-Market Arb Bot (id=${config.botId}) listening on :${config.port}`,
   );
-  loadAnalysis().then(() => scheduleAnalysisRefresh()).catch(() => {});
+  loadAnalysis()
+    .then(() => scheduleAnalysisRefresh())
+    .catch(() => {});
   scheduleScan();
   scheduleMetrics();
 });

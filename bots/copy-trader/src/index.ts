@@ -37,6 +37,8 @@ import {
   fetchTradeHistory,
   getBestBid,
   placeLimitOrder,
+  cancelOrder,
+  getOpenOrders,
 } from "./clob.js";
 import {
   getAllPositions,
@@ -244,10 +246,30 @@ app.get("/positions", (_req: Request, res: Response) => {
 });
 
 // Emergency/manual close: sell all currently held inventory at best bid.
+app.post("/orders/cancel-all", async (_req: Request, res: Response) => {
+  const orders = await getOpenOrders();
+  let cancelled = 0;
+  const errors: string[] = [];
+  for (const order of orders) {
+    try {
+      await cancelOrder(order.id);
+      cancelled++;
+    } catch (err) {
+      errors.push(`${order.id}: ${(err as Error).message}`);
+    }
+  }
+  res.json({ ok: true, cancelled, total: orders.length, errors });
+});
+
 app.post("/positions/close-all", async (_req: Request, res: Response) => {
   const positions = getAllPositions().filter((p) => p.netSize > 0.001);
   if (positions.length === 0) {
-    res.json({ ok: true, closed: [], skipped: [], message: "No open positions" });
+    res.json({
+      ok: true,
+      closed: [],
+      skipped: [],
+      message: "No open positions",
+    });
     return;
   }
 
@@ -263,7 +285,10 @@ app.post("/positions/close-all", async (_req: Request, res: Response) => {
     try {
       const price = await getBestBid(pos.tokenId);
       if (!Number.isFinite(price) || price <= 0 || price >= 1) {
-        skipped.push({ tokenId: pos.tokenId, reason: `Invalid bid price: ${price}` });
+        skipped.push({
+          tokenId: pos.tokenId,
+          reason: `Invalid bid price: ${price}`,
+        });
         continue;
       }
 
