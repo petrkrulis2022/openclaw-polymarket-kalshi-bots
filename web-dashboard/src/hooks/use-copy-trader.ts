@@ -280,5 +280,32 @@ export function useCopyTrader(metamaskAddress?: string) {
     updateTrader,
     approveTrade,
     rejectTrade,
+    closeAll: useCallback(async (): Promise<{
+      ok: boolean;
+      closed: Array<{ tokenId: string; size: number; price: number; orderId: string }>;
+      skipped: Array<{ tokenId: string; reason: string }>;
+      error?: string;
+    }> => {
+      try {
+        const base = metamaskAddress
+          ? `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/bots/copy-trader/proxy`
+          : "/api/bot/3";
+        const res = await fetch(`${base}/positions/close-all`, { method: "POST" });
+        const data = await res.json() as {
+          ok: boolean;
+          closed: Array<{ tokenId: string; size: number; price: number; orderId: string }>;
+          skipped: Array<{ tokenId: string; reason: string }>;
+        };
+        await refresh();
+        return data;
+      } catch (err) {
+        return {
+          ok: false,
+          closed: [],
+          skipped: [],
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }, [refresh, metamaskAddress]),
   };
 }

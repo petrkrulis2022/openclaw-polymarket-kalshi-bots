@@ -180,7 +180,9 @@ function BotCard({
               const running = bot.status === "online";
               onStartStop(!running);
             }}
-            className={bot.status === "online" ? "btn-secondary" : "btn-primary"}
+            className={
+              bot.status === "online" ? "btn-secondary" : "btn-primary"
+            }
             style={{ fontSize: 11, padding: "3px 8px" }}
             title={
               bot.status === "online"
@@ -690,7 +692,28 @@ function CopyTraderView({
     updateTrader,
     approveTrade,
     rejectTrade,
+    closeAll,
   } = useCopyTrader(metamaskAddress);
+
+  const [closingAll, setClosingAll] = useState(false);
+  const [closeAllResult, setCloseAllResult] = useState<{
+    closed: number;
+    skipped: number;
+    error?: string;
+  } | null>(null);
+
+  async function handleCloseAll() {
+    if (!window.confirm(`Sell ALL ${openPositions} open positions at best bid? This cannot be undone.`)) return;
+    setClosingAll(true);
+    setCloseAllResult(null);
+    const result = await closeAll();
+    setClosingAll(false);
+    setCloseAllResult({
+      closed: result.closed.length,
+      skipped: result.skipped.length,
+      error: result.error ?? (result.skipped.length > 0 ? `${result.skipped.length} skipped (no liquid bid)` : undefined),
+    });
+  }
 
   // Add trader form state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -1052,8 +1075,26 @@ function CopyTraderView({
       {/* ── Our Positions ── */}
       {positions.filter((p) => p.netSize > 0.001).length > 0 && (
         <div style={{ marginBottom: 32 }}>
-          <div className="section-label" style={{ marginBottom: 10 }}>
-            Our Copy Positions
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div className="section-label">Our Copy Positions</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {closeAllResult && (
+                <span style={{ fontSize: 12, color: closeAllResult.error ? "#ff6b6b" : "#4caf50" }}>
+                  {closeAllResult.error
+                    ? `⚠ ${closeAllResult.error}`
+                    : `✓ Sold ${closeAllResult.closed} position(s)`}
+                </span>
+              )}
+              <button
+                className="btn-secondary"
+                style={{ fontSize: 12, padding: "5px 14px", color: "#ff6b6b", borderColor: "#ff6b6b" }}
+                disabled={closingAll || !online}
+                title={online ? "Market-sell all positions at best bid" : "Start the bot first to sell positions"}
+                onClick={() => void handleCloseAll()}
+              >
+                {closingAll ? "Selling…" : "🚨 Close All"}
+              </button>
+            </div>
           </div>
           <div style={{ overflowX: "auto" }}>
             {(() => {
@@ -1101,6 +1142,9 @@ function CopyTraderView({
                         colSpan={3}
                       >
                         Trader
+                      </th>
+                      <th style={{ ...thStyle }} rowSpan={2}>
+                        Sell
                       </th>
                     </tr>
                     <tr
@@ -1252,6 +1296,26 @@ function CopyTraderView({
                               {traderUnrealPnl != null
                                 ? `${traderUnrealPnl >= 0 ? "+" : ""}$${traderUnrealPnl.toFixed(2)}`
                                 : "—"}
+                            </td>
+                            {/* Sell link → Polymarket */}
+                            <td style={{ ...cellStyle, textAlign: "center" }}>
+                              <a
+                                href={`https://polymarket.com/event/${p.tokenId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  color: "#2196f3",
+                                  fontSize: 11,
+                                  textDecoration: "none",
+                                  border: "1px solid #2196f3",
+                                  borderRadius: 4,
+                                  padding: "2px 7px",
+                                  whiteSpace: "nowrap",
+                                }}
+                                title="Open on Polymarket to sell"
+                              >
+                                Sell ↗
+                              </a>
                             </td>
                           </tr>
                         );
