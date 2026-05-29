@@ -119,11 +119,13 @@ function BotCard({
   bot,
   onClick,
   onToggleEnabled,
+  onStartStop,
   onViewAnalysis,
 }: {
   bot: BotSummary;
   onClick: () => void;
   onToggleEnabled: (enabled: boolean) => void;
+  onStartStop: (start: boolean) => void;
   onViewAnalysis: () => void;
 }) {
   return (
@@ -175,17 +177,18 @@ function BotCard({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onToggleEnabled(!bot.enabled);
+              const running = bot.status === "online";
+              onStartStop(!running);
             }}
-            className={bot.enabled ? "btn-secondary" : "btn-primary"}
+            className={bot.status === "online" ? "btn-secondary" : "btn-primary"}
             style={{ fontSize: 11, padding: "3px 8px" }}
             title={
-              bot.enabled
-                ? "Stop this bot for your account"
-                : "Start this bot for your account"
+              bot.status === "online"
+                ? "Stop this bot (stops PM2 process)"
+                : "Start this bot (starts PM2 process)"
             }
           >
-            {bot.enabled ? "Stop" : "Start"}
+            {bot.status === "online" ? "Stop" : "Start"}
           </button>
           <button
             onClick={(e) => {
@@ -3652,11 +3655,13 @@ function PortfolioSection({
   onSelectBot,
   metamaskAddress,
   onToggleBotEnabled,
+  onStartStopBot,
   depositWallet,
 }: {
   onSelectBot: (bot: BotSummary) => void;
   metamaskAddress?: string;
   onToggleBotEnabled: (botId: string, enabled: boolean) => void;
+  onStartStopBot: (botId: string, start: boolean) => void;
   depositWallet?: string;
 }) {
   const { portfolio, loading, error } = usePortfolio(metamaskAddress);
@@ -3743,6 +3748,7 @@ function PortfolioSection({
                 onToggleEnabled={(enabled) =>
                   onToggleBotEnabled(bot.id, enabled)
                 }
+                onStartStop={(start) => onStartStopBot(bot.id, start)}
                 onViewAnalysis={() =>
                   setShowAnalysisForBot({ id: Number(bot.id), name: bot.name })
                 }
@@ -4762,6 +4768,25 @@ export default function App() {
                   const botName = botNameById[botId];
                   if (!botName) return;
                   await setBotEnabled(botName, enabled);
+                }}
+                onStartStopBot={async (botId, start) => {
+                  const botNameById: Record<string, string> = {
+                    "1": "market-maker",
+                    "3": "copy-trader",
+                    "4": "in-market-arb",
+                    "5": "resolution-lag",
+                    "6": "microstructure",
+                    "8": "football-bot",
+                    "10": "hockey-bot",
+                  };
+                  const botName = botNameById[botId];
+                  if (!botName) return;
+                  if (start) {
+                    await startBot(botName);
+                  } else {
+                    await stopBot(botName);
+                  }
+                  await refreshBotStatus();
                 }}
                 depositWallet={balance?.depositWalletAddress}
               />

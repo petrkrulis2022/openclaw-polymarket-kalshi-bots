@@ -95,32 +95,11 @@ export function useCopyTrader(metamaskAddress?: string) {
       : "/api/bot/3";
 
     try {
-      if (metamaskAddress) {
-        const statusRes = await fetch(
-          `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/bots/status`,
-        );
-        if (statusRes.ok) {
-          const statusList = (await statusRes.json()) as Array<{
-            name?: string;
-            status?: string;
-            enabled?: boolean;
-          }>;
-          const copyStatus = statusList.find((s) => s.name === "copy-trader");
-          if (!copyStatus || copyStatus.status !== "online") {
-            setState((s) => ({
-              ...s,
-              traders: [],
-              pending: [],
-              positions: [],
-              totalRealizedPnl: 0,
-              traderSnapshots: {},
-              online: false,
-              loading: false,
-            }));
-            return;
-          }
-        }
-      }
+      // Note: we intentionally do NOT bail out early based on PM2 status here.
+      // The proxy calls below are the authoritative source of truth — if the bot
+      // process is truly stopped the fetches will fail and we mark online:false,
+      // but this way we still display last-known data during brief restarts and
+      // avoid a confusing blank dashboard whenever PM2 status lags reality.
 
       const [tradersRes, pendingRes, positionsRes] = await Promise.all([
         fetch(`${base}/traders`),
