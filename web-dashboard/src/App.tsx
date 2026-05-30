@@ -3832,7 +3832,9 @@ function PortfolioSection({
               <div className="balance-label">Open Positions</div>
               <div
                 className="balance-big"
-                style={{ color: livePositions.length > 0 ? "#4caf50" : undefined }}
+                style={{
+                  color: livePositions.length > 0 ? "#4caf50" : undefined,
+                }}
               >
                 {livePositions.length}
               </div>
