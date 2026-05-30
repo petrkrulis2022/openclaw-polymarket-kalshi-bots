@@ -44,6 +44,7 @@ import {
   getAllPositions,
   getTotalRealizedPnl,
   initFromTrades,
+  loadPersistedState,
   recordFill,
 } from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
