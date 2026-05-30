@@ -1373,6 +1373,8 @@ router.put("/:address/bots/:botName/trade-amount", async (req, res) => {
     (amounts2[otherBotName2] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
   );
   const combinedAmountUsd = Number((normalizedAmount + otherAmount2).toFixed(6));
+
+  return res.json({
     ok: true,
     botName,
     amountUsd: normalizedAmount,
