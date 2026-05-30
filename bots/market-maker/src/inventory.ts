@@ -1,4 +1,6 @@
 // Tracks net inventory per market token to detect imbalance
+import fs from "fs";
+
 export interface InventoryPosition {
   tokenId: string;
   netSize: number; // positive = long YES, negative = short/long NO
@@ -7,6 +9,34 @@ export interface InventoryPosition {
 }
 
 const inventory = new Map<string, InventoryPosition>();
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+const STATE_FILE = process.env["POSITIONS_STATE_FILE"] ?? "";
+
+function persistState(): void {
+  if (!STATE_FILE) return;
+  try {
+    const data = {
+      positions: Array.from(inventory.values()),
+      savedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch { /* non-fatal */ }
+}
+
+export function loadPersistedState(): void {
+  if (!STATE_FILE || !fs.existsSync(STATE_FILE)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(STATE_FILE, "utf-8")) as {
+      positions: InventoryPosition[];
+    };
+    inventory.clear();
+    for (const p of raw.positions ?? []) inventory.set(p.tokenId, p);
+    console.log(`[inventory] Loaded ${inventory.size} position(s) from disk.`);
+  } catch (err) {
+    console.warn("[inventory] Failed to load persisted state:", (err as Error).message);
+  }
+}
 
 export function recordFill(
   tokenId: string,
@@ -33,6 +63,7 @@ export function recordFill(
   }
 
   inventory.set(tokenId, pos);
+  persistState();
 }
 
 export function getPosition(tokenId: string): InventoryPosition {
@@ -102,4 +133,5 @@ export function initFromTrades(
   } else {
     console.log("[inventory] No open positions found in trade history.");
   }
+  persistState();
 }

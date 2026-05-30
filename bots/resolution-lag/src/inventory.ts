@@ -3,6 +3,7 @@
  */
 
 import "dotenv/config";
+import fs from "fs";
 
 const ORCHESTRATOR_URL =
   process.env["ORCHESTRATOR_URL"] ?? "http://localhost:3002";
@@ -61,8 +62,40 @@ export interface LagPosition {
 const positions = new Map<string, LagPosition>();
 let totalRealizedPnl = 0;
 
+// ── Persistence ───────────────────────────────────────────────────────────────
+const STATE_FILE = process.env["POSITIONS_STATE_FILE"] ?? "";
+
+function persistState(): void {
+  if (!STATE_FILE) return;
+  try {
+    const data = {
+      positions: Array.from(positions.values()),
+      totalRealizedPnl,
+      savedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch { /* non-fatal */ }
+}
+
+export function loadPersistedState(): void {
+  if (!STATE_FILE || !fs.existsSync(STATE_FILE)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(STATE_FILE, "utf-8")) as {
+      positions: LagPosition[];
+      totalRealizedPnl: number;
+    };
+    positions.clear();
+    for (const p of raw.positions ?? []) positions.set(p.id, p);
+    totalRealizedPnl = raw.totalRealizedPnl ?? 0;
+    console.log(`[inventory] Loaded ${positions.size} position(s) from disk.`);
+  } catch (err) {
+    console.warn("[inventory] Failed to load persisted state:", (err as Error).message);
+  }
+}
+
 export function addPosition(pos: LagPosition): void {
   positions.set(pos.id, pos);
+  persistState();
 }
 
 export function updatePosition(
@@ -70,7 +103,10 @@ export function updatePosition(
   updates: Partial<LagPosition>,
 ): void {
   const existing = positions.get(id);
-  if (existing) positions.set(id, { ...existing, ...updates });
+  if (existing) {
+    positions.set(id, { ...existing, ...updates });
+    persistState();
+  }
 }
 
 export function getAllPositions(): LagPosition[] {
@@ -97,6 +133,7 @@ export function resolvePosition(id: string, settledPrice: number): void {
   });
   totalRealizedPnl += realizedPnl;
   void persistTrade(pos, settledPrice, realizedPnl);
+  persistState();
 }
 
 export function getTotalRealizedPnl(): number {

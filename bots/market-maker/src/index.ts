@@ -14,6 +14,7 @@ import {
   getAllPositions,
   getTotalRealizedPnl,
   initFromTrades,
+  loadPersistedState,
   recordFill,
 } from "./inventory.js";
 import { reportMetrics, getLastSnapshot } from "./metrics.js";
@@ -119,6 +120,9 @@ async function mainLoop(): Promise<void> {
 
   // Pre-load markets
   await getActiveMarkets();
+
+  // Restore last known state from disk (fallback if CLOB is unavailable)
+  loadPersistedState();
 
   // Seed inventory from trade history so positions survive bot restarts
   const tradeHistory = await fetchTradeHistory();

@@ -38,6 +38,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../../");
 const DATA_DIR = path.resolve(__dirname, "../../data");
 const ENVS_DIR = path.join(DATA_DIR, "envs");
+const POSITIONS_DIR = path.join(DATA_DIR, "positions");
 
 const WDK_TREASURY_URL =
   process.env["WDK_TREASURY_URL"] ?? "http://localhost:3001";
@@ -896,6 +897,7 @@ async function ensureUserBotProcess(
   ]);
 
   if (!fs.existsSync(ENVS_DIR)) fs.mkdirSync(ENVS_DIR, { recursive: true });
+  if (!fs.existsSync(POSITIONS_DIR)) fs.mkdirSync(POSITIONS_DIR, { recursive: true });
 
   const app = {
     name: pmName,
@@ -914,6 +916,7 @@ async function ensureUserBotProcess(
       TREASURY_URL: WDK_TREASURY_URL,
       BOT_COUNT: String(Math.max(1, totalEnabledBots)),
       PAPER_TRADING: "",
+      POSITIONS_STATE_FILE: path.join(POSITIONS_DIR, `${bot.name}-u${slot}.json`),
       ...(getBotTradeAmountEnv(user, botName)
         ? { MAX_POSITION_USD: getBotTradeAmountEnv(user, botName) }
         : {}),
@@ -1072,6 +1075,7 @@ router.post(
 
       // Write per-user env files and build PM2 app configs
       if (!fs.existsSync(ENVS_DIR)) fs.mkdirSync(ENVS_DIR, { recursive: true });
+      if (!fs.existsSync(POSITIONS_DIR)) fs.mkdirSync(POSITIONS_DIR, { recursive: true });
 
       const slot = userSlot(user.bot_wallet_index);
       const basePort = userBasePort(user.bot_wallet_index);
@@ -1109,6 +1113,7 @@ router.post(
             TREASURY_URL: WDK_TREASURY_URL,
             BOT_COUNT: String(enabledBots.length),
             PAPER_TRADING: "",
+            POSITIONS_STATE_FILE: path.join(POSITIONS_DIR, `${bot.name}-u${slot}.json`),
             ...(getBotTradeAmountEnv(user, bot.name)
               ? { MAX_POSITION_USD: getBotTradeAmountEnv(user, bot.name) }
               : {}),
@@ -2087,6 +2092,21 @@ router.get(
   },
 );
 
+/** Read the last-persisted position count for a bot from disk (used as fallback when bot is stopped). */
+function getPersistedPositionCount(botName: string, slot: number): number {
+  try {
+    const file = path.join(POSITIONS_DIR, `${botName}-u${slot}.json`);
+    if (!fs.existsSync(file)) return 0;
+    const raw = JSON.parse(fs.readFileSync(file, "utf-8")) as {
+      positions?: unknown[];
+      pairs?: unknown[];
+    };
+    return (raw.positions ?? raw.pairs ?? []).length;
+  } catch {
+    return 0;
+  }
+}
+
 // ── GET /users/:address/portfolio-summary ───────────────────────────────────
 // User-scoped portfolio summary (never mixes other users' bot metrics).
 
@@ -2129,7 +2149,12 @@ router.get(
               metrics?.utilization == null
                 ? null
                 : Number(metrics.utilization.toFixed(4)),
-            openPositions: Math.max(0, Math.round(metrics?.openPositions ?? 0)),
+            openPositions: Math.max(
+              0,
+              Math.round(
+                metrics?.openPositions ?? getPersistedPositionCount(bot.name, slot),
+              ),
+            ),
             allocationPct: 0,
             status,
             enabled,

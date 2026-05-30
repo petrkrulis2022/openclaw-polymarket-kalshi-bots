@@ -3784,7 +3784,7 @@ function PortfolioSection({
   depositWallet?: string;
 }) {
   const { portfolio, loading, error } = usePortfolio(metamaskAddress);
-  const { summary } = usePositions(depositWallet);
+  const { summary, positions: livePositions } = usePositions(depositWallet);
   const [showAnalysisForBot, setShowAnalysisForBot] = React.useState<{
     id: number;
     name: string;
@@ -3885,6 +3885,267 @@ function PortfolioSection({
               );
             })}
           </div>
+          {/* ── Live Open Positions ─────────────────────────────────────────── */}
+          {livePositions.length > 0 && (
+            <div style={{ marginTop: 24 }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "var(--text-secondary)",
+                  marginBottom: 8,
+                }}
+              >
+                Open Positions ({livePositions.length})
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: 12,
+                  }}
+                >
+                  <thead>
+                    <tr
+                      style={{
+                        color: "var(--text-secondary)",
+                        borderBottom: "1px solid var(--border)",
+                        textAlign: "left",
+                      }}
+                    >
+                      <th style={{ padding: "4px 8px", fontWeight: 500 }}>
+                        Market
+                      </th>
+                      <th style={{ padding: "4px 8px", fontWeight: 500 }}>
+                        Side
+                      </th>
+                      <th
+                        style={{
+                          padding: "4px 8px",
+                          fontWeight: 500,
+                          textAlign: "right",
+                        }}
+                      >
+                        Shares
+                      </th>
+                      <th
+                        style={{
+                          padding: "4px 8px",
+                          fontWeight: 500,
+                          textAlign: "right",
+                        }}
+                      >
+                        Avg
+                      </th>
+                      <th
+                        style={{
+                          padding: "4px 8px",
+                          fontWeight: 500,
+                          textAlign: "right",
+                        }}
+                      >
+                        Now
+                      </th>
+                      <th
+                        style={{
+                          padding: "4px 8px",
+                          fontWeight: 500,
+                          textAlign: "right",
+                        }}
+                      >
+                        Value
+                      </th>
+                      <th
+                        style={{
+                          padding: "4px 8px",
+                          fontWeight: 500,
+                          textAlign: "right",
+                        }}
+                      >
+                        PnL
+                      </th>
+                      <th style={{ padding: "4px 8px", fontWeight: 500 }}>
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {livePositions.map((pos) => (
+                      <tr
+                        key={`${pos.conditionId}:${pos.outcomeIndex}`}
+                        style={{
+                          borderBottom: "1px solid var(--border)",
+                          opacity: pos.size < 0.01 ? 0.4 : 1,
+                        }}
+                      >
+                        <td
+                          style={{
+                            padding: "6px 8px",
+                            maxWidth: 260,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            color: "var(--text-primary)",
+                          }}
+                          title={pos.title}
+                        >
+                          {pos.title}
+                        </td>
+                        <td style={{ padding: "6px 8px" }}>
+                          <span
+                            style={{
+                              background:
+                                pos.outcome.toUpperCase() === "YES"
+                                  ? "#1a5c2e"
+                                  : "#5c1a1a",
+                              color:
+                                pos.outcome.toUpperCase() === "YES"
+                                  ? "#4ade80"
+                                  : "#f87171",
+                              borderRadius: 4,
+                              padding: "1px 6px",
+                              fontWeight: 600,
+                              fontSize: 11,
+                            }}
+                          >
+                            {pos.outcome}
+                          </span>
+                        </td>
+                        <td
+                          style={{
+                            padding: "6px 8px",
+                            textAlign: "right",
+                            color: "var(--text-primary)",
+                          }}
+                        >
+                          {pos.size.toFixed(2)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "6px 8px",
+                            textAlign: "right",
+                            color: "var(--text-secondary)",
+                          }}
+                        >
+                          {(pos.avgPrice * 100).toFixed(1)}¢
+                        </td>
+                        <td
+                          style={{
+                            padding: "6px 8px",
+                            textAlign: "right",
+                            color: "var(--text-primary)",
+                          }}
+                        >
+                          {(pos.curPrice * 100).toFixed(1)}¢
+                        </td>
+                        <td
+                          style={{
+                            padding: "6px 8px",
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: "var(--text-primary)",
+                          }}
+                        >
+                          ${pos.currentValue.toFixed(2)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "6px 8px",
+                            textAlign: "right",
+                            color:
+                              pos.cashPnl >= 0 ? "var(--green)" : "var(--red)",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {pos.cashPnl >= 0 ? "+" : ""}$
+                          {pos.cashPnl.toFixed(2)}
+                        </td>
+                        <td style={{ padding: "6px 8px" }}>
+                          {pos.redeemable ? (
+                            <span
+                              style={{
+                                background: "#ff9500",
+                                color: "#000",
+                                borderRadius: 4,
+                                padding: "1px 6px",
+                                fontSize: 10,
+                                fontWeight: 700,
+                              }}
+                            >
+                              REDEEM
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                color: "var(--text-secondary)",
+                                fontSize: 10,
+                              }}
+                            >
+                              open
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr
+                      style={{
+                        borderTop: "2px solid var(--border)",
+                        fontWeight: 600,
+                      }}
+                    >
+                      <td
+                        colSpan={5}
+                        style={{
+                          padding: "6px 8px",
+                          color: "var(--text-secondary)",
+                          fontSize: 11,
+                        }}
+                      >
+                        Total
+                      </td>
+                      <td
+                        style={{
+                          padding: "6px 8px",
+                          textAlign: "right",
+                          color: "var(--text-primary)",
+                        }}
+                      >
+                        $
+                        {livePositions
+                          .reduce((s, p) => s + p.currentValue, 0)
+                          .toFixed(2)}
+                      </td>
+                      <td
+                        style={{
+                          padding: "6px 8px",
+                          textAlign: "right",
+                          color:
+                            livePositions.reduce((s, p) => s + p.cashPnl, 0) >=
+                            0
+                              ? "var(--green)"
+                              : "var(--red)",
+                        }}
+                      >
+                        {livePositions.reduce((s, p) => s + p.cashPnl, 0) >= 0
+                          ? "+"
+                          : ""}
+                        $
+                        {livePositions
+                          .reduce((s, p) => s + p.cashPnl, 0)
+                          .toFixed(2)}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       ) : null}
       {showAnalysisForBot !== null && (

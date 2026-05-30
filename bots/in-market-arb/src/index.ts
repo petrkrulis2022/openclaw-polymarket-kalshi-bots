@@ -15,6 +15,7 @@ import {
   getAllPairs,
   getOpenPairs,
   getTotalRealizedPnl,
+  loadPersistedState,
   settlePair,
   updatePair,
 } from "./inventory.js";
@@ -267,6 +268,7 @@ app.listen(config.port, () => {
   console.log(
     `[arb] In-Market Arb Bot (id=${config.botId}) listening on :${config.port}`,
   );
+  loadPersistedState();
   loadAnalysis()
     .then(() => scheduleAnalysisRefresh())
     .catch(() => {});

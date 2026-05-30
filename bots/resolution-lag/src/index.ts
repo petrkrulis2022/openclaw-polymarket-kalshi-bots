@@ -28,6 +28,7 @@ import {
   getTotalRealizedPnl,
   hasOpenPosition,
   getOpenPositionsCount,
+  loadPersistedState,
 } from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
 import { getCollateralBalance, cancelOrder, getOpenOrders } from "./clob.js";
@@ -324,6 +325,7 @@ app.listen(config.port, () => {
   console.log(
     `[lag] Resolution Lag Bot (id=${config.botId}) listening on :${config.port}`,
   );
+  loadPersistedState();
   loadAnalysis()
     .then(() => scheduleAnalysisRefresh())
     .catch(() => {});

@@ -1,0 +1,144 @@
+{
+  "apps": [
+    {
+      "name": "market-maker-u5",
+      "script": "npx",
+      "args": "tsx src/index.ts",
+      "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/market-maker",
+      "env": {
+        "PORT": "4060",
+        "BOT_ID": "1",
+        "USER_METAMASK_ADDRESS": "0x8727ce9103289b7df1E55dcb3E18Afd07E12B2B6",
+        "POLYMARKET_WALLET_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "BOT_SIGNER_KEY": "6015cd87b5407c855c39cbd841cc328de43288a6c0fd90f1ec3c1050d6a96b92",
+        "POLYMARKET_FUNDER_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "POLYMARKET_SIGNATURE_TYPE": "POLY_1271",
+        "ORCHESTRATOR_URL": "http://localhost:3002",
+        "TREASURY_URL": "http://localhost:3001",
+        "BOT_COUNT": "7",
+        "PAPER_TRADING": "",
+        "POSITIONS_STATE_FILE": "/home/petrunix/openclaw-polymarket-kalshi-bots/orchestrator/data/positions/market-maker-u5.json"
+      }
+    },
+    {
+      "name": "copy-trader-u5",
+      "script": "npx",
+      "args": "tsx src/index.ts",
+      "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/copy-trader",
+      "env": {
+        "PORT": "4061",
+        "BOT_ID": "3",
+        "USER_METAMASK_ADDRESS": "0x8727ce9103289b7df1E55dcb3E18Afd07E12B2B6",
+        "POLYMARKET_WALLET_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "BOT_SIGNER_KEY": "6015cd87b5407c855c39cbd841cc328de43288a6c0fd90f1ec3c1050d6a96b92",
+        "POLYMARKET_FUNDER_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "POLYMARKET_SIGNATURE_TYPE": "POLY_1271",
+        "ORCHESTRATOR_URL": "http://localhost:3002",
+        "TREASURY_URL": "http://localhost:3001",
+        "BOT_COUNT": "7",
+        "PAPER_TRADING": "",
+        "POSITIONS_STATE_FILE": "/home/petrunix/openclaw-polymarket-kalshi-bots/orchestrator/data/positions/copy-trader-u5.json"
+      }
+    },
+    {
+      "name": "in-market-arb-u5",
+      "script": "npx",
+      "args": "tsx src/index.ts",
+      "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/in-market-arb",
+      "env": {
+        "PORT": "4062",
+        "BOT_ID": "4",
+        "USER_METAMASK_ADDRESS": "0x8727ce9103289b7df1E55dcb3E18Afd07E12B2B6",
+        "POLYMARKET_WALLET_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "BOT_SIGNER_KEY": "6015cd87b5407c855c39cbd841cc328de43288a6c0fd90f1ec3c1050d6a96b92",
+        "POLYMARKET_FUNDER_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "POLYMARKET_SIGNATURE_TYPE": "POLY_1271",
+        "ORCHESTRATOR_URL": "http://localhost:3002",
+        "TREASURY_URL": "http://localhost:3001",
+        "BOT_COUNT": "7",
+        "PAPER_TRADING": "",
+        "POSITIONS_STATE_FILE": "/home/petrunix/openclaw-polymarket-kalshi-bots/orchestrator/data/positions/in-market-arb-u5.json"
+      }
+    },
+    {
+      "name": "resolution-lag-u5",
+      "script": "npx",
+      "args": "tsx src/index.ts",
+      "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/resolution-lag",
+      "env": {
+        "PORT": "4063",
+        "BOT_ID": "5",
+        "USER_METAMASK_ADDRESS": "0x8727ce9103289b7df1E55dcb3E18Afd07E12B2B6",
+        "POLYMARKET_WALLET_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "BOT_SIGNER_KEY": "6015cd87b5407c855c39cbd841cc328de43288a6c0fd90f1ec3c1050d6a96b92",
+        "POLYMARKET_FUNDER_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "POLYMARKET_SIGNATURE_TYPE": "POLY_1271",
+        "ORCHESTRATOR_URL": "http://localhost:3002",
+        "TREASURY_URL": "http://localhost:3001",
+        "BOT_COUNT": "7",
+        "PAPER_TRADING": "",
+        "POSITIONS_STATE_FILE": "/home/petrunix/openclaw-polymarket-kalshi-bots/orchestrator/data/positions/resolution-lag-u5.json"
+      }
+    },
+    {
+      "name": "microstructure-u5",
+      "script": "npx",
+      "args": "tsx src/index.ts",
+      "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/microstructure",
+      "env": {
+        "PORT": "4064",
+        "BOT_ID": "6",
+        "USER_METAMASK_ADDRESS": "0x8727ce9103289b7df1E55dcb3E18Afd07E12B2B6",
+        "POLYMARKET_WALLET_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "BOT_SIGNER_KEY": "6015cd87b5407c855c39cbd841cc328de43288a6c0fd90f1ec3c1050d6a96b92",
+        "POLYMARKET_FUNDER_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "POLYMARKET_SIGNATURE_TYPE": "POLY_1271",
+        "ORCHESTRATOR_URL": "http://localhost:3002",
+        "TREASURY_URL": "http://localhost:3001",
+        "BOT_COUNT": "7",
+        "PAPER_TRADING": "",
+        "POSITIONS_STATE_FILE": "/home/petrunix/openclaw-polymarket-kalshi-bots/orchestrator/data/positions/microstructure-u5.json"
+      }
+    },
+    {
+      "name": "hockey-bot-u5",
+      "script": "npx",
+      "args": "tsx scripts/hockey-bot.ts",
+      "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/hockey",
+      "env": {
+        "PORT": "4065",
+        "BOT_ID": "10",
+        "USER_METAMASK_ADDRESS": "0x8727ce9103289b7df1E55dcb3E18Afd07E12B2B6",
+        "POLYMARKET_WALLET_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "BOT_SIGNER_KEY": "6015cd87b5407c855c39cbd841cc328de43288a6c0fd90f1ec3c1050d6a96b92",
+        "POLYMARKET_FUNDER_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "POLYMARKET_SIGNATURE_TYPE": "POLY_1271",
+        "ORCHESTRATOR_URL": "http://localhost:3002",
+        "TREASURY_URL": "http://localhost:3001",
+        "BOT_COUNT": "7",
+        "PAPER_TRADING": "",
+        "MAX_POSITION_USD": "10"
+      }
+    },
+    {
+      "name": "football-bot-u5",
+      "script": "npx",
+      "args": "tsx scripts/football-bot.ts",
+      "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/football",
+      "env": {
+        "PORT": "4066",
+        "BOT_ID": "8",
+        "USER_METAMASK_ADDRESS": "0x8727ce9103289b7df1E55dcb3E18Afd07E12B2B6",
+        "POLYMARKET_WALLET_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "BOT_SIGNER_KEY": "6015cd87b5407c855c39cbd841cc328de43288a6c0fd90f1ec3c1050d6a96b92",
+        "POLYMARKET_FUNDER_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "POLYMARKET_SIGNATURE_TYPE": "POLY_1271",
+        "ORCHESTRATOR_URL": "http://localhost:3002",
+        "TREASURY_URL": "http://localhost:3001",
+        "BOT_COUNT": "7",
+        "PAPER_TRADING": "",
+        "MAX_POSITION_USD": "10"
+      }
+    }
+  ]
+}

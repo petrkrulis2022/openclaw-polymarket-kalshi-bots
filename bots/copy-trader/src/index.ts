@@ -509,6 +509,8 @@ async function main(): Promise<void> {
   );
 
   // Restore inventory from trade history
+  // First load last-known state from disk (fallback if CLOB unreachable)
+  loadPersistedState();
   try {
     const trades = await fetchTradeHistory();
     if (trades.length > 0) {

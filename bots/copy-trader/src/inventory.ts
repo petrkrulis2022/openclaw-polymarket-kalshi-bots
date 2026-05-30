@@ -2,6 +2,7 @@
  * inventory.ts — tracks our own copy-trade positions in memory.
  * Same shape as market-maker but also tracks which trader triggered each position.
  */
+import fs from "fs";
 
 export interface InventoryPosition {
   tokenId: string;
@@ -14,6 +15,34 @@ export interface InventoryPosition {
 
 // keyed by tokenId
 const positions = new Map<string, InventoryPosition>();
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+const STATE_FILE = process.env["POSITIONS_STATE_FILE"] ?? "";
+
+function persistState(): void {
+  if (!STATE_FILE) return;
+  try {
+    const data = {
+      positions: Array.from(positions.values()),
+      savedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch { /* non-fatal */ }
+}
+
+export function loadPersistedState(): void {
+  if (!STATE_FILE || !fs.existsSync(STATE_FILE)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(STATE_FILE, "utf-8")) as {
+      positions: InventoryPosition[];
+    };
+    positions.clear();
+    for (const p of raw.positions ?? []) positions.set(p.tokenId, p);
+    console.log(`[inventory] Loaded ${positions.size} position(s) from disk.`);
+  } catch (err) {
+    console.warn("[inventory] Failed to load persisted state:", (err as Error).message);
+  }
+}
 
 export function recordFill(
   tokenId: string,
@@ -53,6 +82,7 @@ export function recordFill(
       positions.delete(tokenId);
     }
   }
+  persistState();
 }
 
 export function getPosition(tokenId: string): InventoryPosition | undefined {
@@ -88,4 +118,5 @@ export function initFromTrades(
       parseFloat(t.size),
     );
   }
+  persistState();
 }
