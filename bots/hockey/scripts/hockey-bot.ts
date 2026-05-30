@@ -295,6 +295,34 @@ async function resolveUserAddressFromOrchestrator(): Promise<void> {
   }
 }
 
+async function fetchTradeAmountFromOrchestrator(): Promise<void> {
+  const userAddress = resolvedUserAddress;
+  if (!userAddress) return;
+  try {
+    const res = await fetch(
+      `${config.orchestrator.baseUrl}/users/${userAddress}/bots/hockey-bot/trade-amount`,
+      { signal: AbortSignal.timeout(5_000) },
+    );
+    if (res.ok) {
+      const data = (await res.json()) as { amountUsd?: number };
+      if (typeof data.amountUsd === "number" && data.amountUsd >= 0) {
+        runtimeMaxPositionUsd = data.amountUsd;
+        console.log(
+          `[config] Trade amount fetched from orchestrator: ${runtimeMaxPositionUsd} USDC`,
+        );
+      }
+    } else {
+      console.warn(
+        `[config] Could not fetch trade amount from orchestrator (HTTP ${res.status})`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      `[config] Trade amount fetch failed: ${(err as Error).message}`,
+    );
+  }
+}
+
 async function loadWatchedGamesFromOrchestrator(): Promise<void> {
   const userAddress = resolvedUserAddress;
   if (!userAddress) return;
@@ -1165,13 +1193,15 @@ httpApp.listen(config.port, () => {
 async function main(): Promise<void> {
   console.log("═".repeat(60));
   console.log("HOCKEY BOT — Live Score Arbitrage");
-  console.log(`budget=${runtimeMaxPositionUsd} USDC`);
   console.log("═".repeat(60) + "\n");
 
   // Step 1: Resolve user address from orchestrator (dynamic — works for any wallet)
   await resolveUserAddressFromOrchestrator();
 
-  // Step 2: Load watched games (requires resolved user address)
+  // Step 2: Fetch current trade amount from orchestrator (overrides env MAX_POSITION_USD)
+  await fetchTradeAmountFromOrchestrator();
+
+  // Step 3: Load watched games (requires resolved user address)
   await loadWatchedGamesFromOrchestrator();
   startWatchedGamesWatcher();
 
