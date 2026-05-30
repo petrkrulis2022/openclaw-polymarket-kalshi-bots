@@ -39,5 +39,32 @@ module.exports = {
       watch: false,
       autorestart: true,
     },
+    // ── Sports bots — user slot 15 (bot_wallet_index 25) ──────────────────
+    // Port formula: 4010 + (botWalletIndex - 10) * 10 + portOffset
+    // slot 15 → base port 4160; hockey portOffset=5 → 4165; football portOffset=6 → 4166
+    {
+      name: "hockey-bot-u5",
+      cwd: "./bots/hockey",
+      script: "npx",
+      args: "tsx scripts/hockey-bot.ts",
+      watch: false,
+      autorestart: true,
+      env: {
+        PORT: "4165",
+        ORCHESTRATOR_URL: "http://localhost:3002",
+      },
+    },
+    {
+      name: "football-bot-u5",
+      cwd: "./bots/football",
+      script: "npx",
+      args: "tsx scripts/football-bot.ts",
+      watch: false,
+      autorestart: true,
+      env: {
+        PORT: "4166",
+        ORCHESTRATOR_URL: "http://localhost:3002",
+      },
+    },
   ],
 };
