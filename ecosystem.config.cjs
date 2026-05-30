@@ -50,7 +50,7 @@ module.exports = {
       watch: false,
       autorestart: true,
       env: {
-        PORT: "4165",
+        PORT: "4065",
         ORCHESTRATOR_URL: "http://localhost:3002",
       },
     },
@@ -62,7 +62,7 @@ module.exports = {
       watch: false,
       autorestart: true,
       env: {
-        PORT: "4166",
+        PORT: "4066",
         ORCHESTRATOR_URL: "http://localhost:3002",
       },
     },
