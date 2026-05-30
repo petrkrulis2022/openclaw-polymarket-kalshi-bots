@@ -323,6 +323,55 @@ async function fetchTradeAmountFromOrchestrator(): Promise<void> {
   }
 }
 
+async function resolvePolymarketConfigFromOrchestrator(): Promise<void> {
+  const userAddress = resolvedUserAddress;
+  if (!userAddress) return;
+  try {
+    const res = await fetch(
+      `${config.orchestrator.baseUrl}/users/${userAddress}/bots/polymarket-config`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    if (!res.ok) {
+      console.warn(
+        `[setup] polymarket-config fetch failed: HTTP ${res.status}`,
+      );
+      return;
+    }
+    const data = (await res.json()) as {
+      ok?: boolean;
+      signerKey?: string;
+      walletAddress?: string;
+      funderAddress?: string;
+      signatureType?: string;
+      eoa?: string;
+    };
+    if (!data.signerKey) {
+      console.warn(`[setup] polymarket-config returned no signerKey`);
+      return;
+    }
+    const { polymarketOverrides, resetSigningClient } = await import(
+      "../src/polymarket.js"
+    );
+    const { SignatureTypeV2 } = await import("@polymarket/clob-client-v2");
+    polymarketOverrides.signerKey = data.signerKey;
+    if (data.walletAddress) polymarketOverrides.walletAddress = data.walletAddress;
+    if (data.funderAddress) polymarketOverrides.funderAddress = data.funderAddress;
+    if (data.signatureType === "POLY_1271") {
+      polymarketOverrides.signatureType = SignatureTypeV2.POLY_1271;
+    } else if (data.signatureType === "POLY_PROXY") {
+      polymarketOverrides.signatureType = SignatureTypeV2.POLY_PROXY;
+    }
+    resetSigningClient(); // allow re-init with new credentials
+    console.log(
+      `[setup] Polymarket config loaded from orchestrator (wallet=${data.walletAddress ?? "?"} sig=${data.signatureType ?? "?"})`,
+    );
+  } catch (err) {
+    console.warn(
+      `[setup] Could not load polymarket config: ${(err as Error).message}`,
+    );
+  }
+}
+
 async function loadWatchedGamesFromOrchestrator(): Promise<void> {
   const userAddress = resolvedUserAddress;
   if (!userAddress) return;
@@ -340,7 +389,10 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
     }
 
     const payload = (await res.json()) as { games?: WatchedGame[] };
-    watchedGames = Array.isArray(payload.games) ? payload.games : [];
+    // Sort by createdAt descending so the most recently added game is [0].
+    watchedGames = Array.isArray(payload.games)
+      ? [...payload.games].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+      : [];
     seedWatchlistStateFromWatchedGames();
     if (watchedGames.length === 0) {
       selectedWatchedGameKey = null;
@@ -438,11 +490,21 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
 
 function startWatchedGamesWatcher(): void {
   const ms = Math.max(2_000, config.orchestrator.watchedGamesPollMs);
+  let tickCount = 0;
   setInterval(async () => {
+    tickCount++;
     // If address wasn't resolved at startup, keep retrying (orchestrator may have been updating)
     if (!resolvedUserAddress) {
       await resolveUserAddressFromOrchestrator();
-      if (resolvedUserAddress) await fetchTradeAmountFromOrchestrator();
+      if (resolvedUserAddress) {
+        await fetchTradeAmountFromOrchestrator();
+        await resolvePolymarketConfigFromOrchestrator();
+      }
+    }
+    // Re-fetch trade amount and polymarket config every ~60 s (30 ticks at 2 s each)
+    if (tickCount % 30 === 0) {
+      void fetchTradeAmountFromOrchestrator();
+      if (!signingClientReady) void resolvePolymarketConfigFromOrchestrator();
     }
     void loadWatchedGamesFromOrchestrator();
   }, ms);
@@ -1204,6 +1266,10 @@ async function main(): Promise<void> {
 
   // Step 2: Fetch current trade amount from orchestrator (overrides env MAX_POSITION_USD)
   await fetchTradeAmountFromOrchestrator();
+
+  // Step 2b: Fetch Polymarket signing credentials from orchestrator
+  //          (allows the bot to work without BOT_SIGNER_KEY in the process env)
+  await resolvePolymarketConfigFromOrchestrator();
 
   // Step 3: Load watched games (requires resolved user address)
   await loadWatchedGamesFromOrchestrator();

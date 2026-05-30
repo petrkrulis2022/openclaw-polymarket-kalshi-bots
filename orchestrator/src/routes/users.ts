@@ -1044,6 +1044,35 @@ router.get("/bots/identify", (req, res) => {
   return res.status(404).json({ error: `No user found for port ${port}` });
 });
 
+// ── GET /users/:address/bots/polymarket-config ───────────────────────────────
+// Returns the Polymarket signing credentials for a user's bot wallet.
+// Bots call this at startup to get BOT_SIGNER_KEY, wallet addresses and
+// signature type without needing those env vars set in their process.
+
+router.get("/:address/bots/polymarket-config", async (req, res) => {
+  const { address } = req.params;
+  const user = getUser(address);
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  try {
+    const [{ signerKey, address: eoa }, { depositWalletAddress }] =
+      await Promise.all([
+        deriveWallet(user.bot_wallet_index),
+        getDepositWalletAddress(user.bot_wallet_index),
+      ]);
+    return res.json({
+      ok: true,
+      signerKey,
+      walletAddress: depositWalletAddress,
+      funderAddress: depositWalletAddress,
+      signatureType: "POLY_1271",
+      eoa,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // ── PUT /users/:address/api-keys ──────────────────────────────────────────────
 // Kept for backward-compat; stores API key/secret/passphrase if provided.
 
