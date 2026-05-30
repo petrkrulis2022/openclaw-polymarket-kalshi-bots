@@ -139,6 +139,26 @@
         "PAPER_TRADING": "",
         "MAX_POSITION_USD": "10"
       }
+    },
+    {
+      "name": "btc-lag-u5",
+      "script": "npx",
+      "args": "tsx src/index.ts",
+      "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/btc-lag",
+      "env": {
+        "PORT": "4067",
+        "BOT_ID": "7",
+        "USER_METAMASK_ADDRESS": "0x8727ce9103289b7df1E55dcb3E18Afd07E12B2B6",
+        "POLYMARKET_WALLET_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "BOT_SIGNER_KEY": "6015cd87b5407c855c39cbd841cc328de43288a6c0fd90f1ec3c1050d6a96b92",
+        "POLYMARKET_FUNDER_ADDRESS": "0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A",
+        "POLYMARKET_SIGNATURE_TYPE": "POLY_1271",
+        "ORCHESTRATOR_URL": "http://localhost:3002",
+        "TREASURY_URL": "http://localhost:3001",
+        "BOT_COUNT": "7",
+        "PAPER_TRADING": "",
+        "POSITIONS_STATE_FILE": "/home/petrunix/openclaw-polymarket-kalshi-bots/orchestrator/data/positions/btc-lag-u5.json"
+      }
     }
   ]
 }
