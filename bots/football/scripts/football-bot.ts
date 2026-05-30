@@ -1015,6 +1015,10 @@ httpApp.get("/watchlist-state", (_req, res) => {
     watchedGamesCount: watchedGames.length,
     selectedWatchedGameKey,
     games: Array.from(watchlistLiveState.values()),
+    marketReady,
+    signingClientReady,
+    ready: marketReady && signingClientReady,
+    lastSetupError,
   });
 });
 

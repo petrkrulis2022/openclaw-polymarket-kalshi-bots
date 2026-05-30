@@ -59,6 +59,12 @@ export function LiveManager({
   const [manualStatusByKey, setManualStatusByKey] = useState<
     Record<string, string>
   >({});
+  const [botReady, setBotReady] = useState<{
+    ready: boolean;
+    marketReady: boolean;
+    signingClientReady: boolean;
+    lastSetupError: string | null;
+  } | null>(null);
 
   useEffect(() => {
     let stopped = false;
@@ -73,8 +79,19 @@ export function LiveManager({
         const payload = (await res.json()) as {
           games?: Array<Partial<HockeyFeedMatch> & { key: string }>;
           selectedWatchedGameKey?: string | null;
+          marketReady?: boolean;
+          signingClientReady?: boolean;
+          ready?: boolean;
+          lastSetupError?: string | null;
         };
         if (stopped) return;
+
+        setBotReady({
+          ready: Boolean(payload.ready),
+          marketReady: Boolean(payload.marketReady),
+          signingClientReady: Boolean(payload.signingClientReady),
+          lastSetupError: payload.lastSetupError ?? null,
+        });
 
         const next: Record<string, HockeyFeedMatch> = {};
         for (const match of payload.games ?? []) {
@@ -204,6 +221,42 @@ export function LiveManager({
         </div>
         <div className="hky-toolbar-right">1s refresh</div>
       </div>
+
+      {/* Bot readiness indicator */}
+      {botReady !== null && (
+        <div
+          style={{
+            margin: "0 0 10px 0",
+            padding: "8px 12px",
+            borderRadius: 8,
+            background: botReady.ready
+              ? "#1b3a1b"
+              : "#3a2000",
+            border: `1px solid ${botReady.ready ? "#4caf50" : "#ff9800"}`,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            fontSize: 12,
+          }}
+        >
+          <span style={{ fontSize: 16 }}>
+            {botReady.ready ? "✅" : "⏳"}
+          </span>
+          <span style={{ fontWeight: 600, color: botReady.ready ? "#4caf50" : "#ff9800" }}>
+            {botReady.ready ? "Bot ready — will trade on next goal" : "Bot initializing…"}
+          </span>
+          <span style={{ color: "var(--text-secondary)", marginLeft: 4 }}>
+            Market: {botReady.marketReady ? "✓" : "✗"}
+            {" · "}
+            Signing: {botReady.signingClientReady ? "✓" : "✗"}
+          </span>
+          {!botReady.ready && botReady.lastSetupError && (
+            <span style={{ color: "#ff6b6b", marginLeft: 4 }}>
+              — {botReady.lastSetupError}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="hky-cards-grid">
         {cards.map((m) => {
