@@ -1353,7 +1353,7 @@ function CopyTraderView({
                             {/* Sell link → Polymarket */}
                             <td style={{ ...cellStyle, textAlign: "center" }}>
                               <a
-                                href={`https://polymarket.com/event/${p.tokenId}`}
+                                href={`https://polymarket.com/trade/${p.tokenId}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 style={{
