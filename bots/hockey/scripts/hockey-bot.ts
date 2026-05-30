@@ -437,9 +437,13 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
 }
 
 function startWatchedGamesWatcher(): void {
-  if (!resolvedUserAddress) return;
   const ms = Math.max(2_000, config.orchestrator.watchedGamesPollMs);
-  setInterval(() => {
+  setInterval(async () => {
+    // If address wasn't resolved at startup, keep retrying (orchestrator may have been updating)
+    if (!resolvedUserAddress) {
+      await resolveUserAddressFromOrchestrator();
+      if (resolvedUserAddress) await fetchTradeAmountFromOrchestrator();
+    }
     void loadWatchedGamesFromOrchestrator();
   }, ms);
 }
