@@ -19,12 +19,19 @@
 import "../src/config.js"; // side-effect: loads dotenv
 import express from "express";
 import { config } from "../src/config.js";
-import {
-  findMatchStaticId,
-  findMatchStaticIdForTeams,
-  pollLiveMatch,
-  type MatchState,
-} from "../src/goalserve.js";
+
+// MatchState type (previously imported from goalserve, now inlined)
+interface MatchState {
+  staticId: string;
+  status: string;
+  minute: string;
+  scoreHome: number;
+  scoreAway: number;
+  teamHome: string;
+  teamAway: string;
+}
+
+let runtimeMaxPositionUsd: number = config.maxPositionUsd;
 import {
   fetchEventLifecycle,
   fetchHomeTeamMarket,
@@ -112,10 +119,8 @@ let activeMarketBindingKey = "";
 let watchedGames: WatchedGame[] = [];
 let selectedWatchedGameKey: string | null = null;
 const watchlistLiveState = new Map<string, WatchlistStateRow>();
-let lastGoalservePollAt: string | null = null;
 let marketReady = false;
 let signingClientReady = false;
-let staticIdReady = false;
 let lastSetupError: string | null = null;
 
 let lastScoreHome = NaN;
@@ -338,7 +343,6 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
     if (watchedStaticId) {
       const prevEffectiveStaticId = staticId;
       staticId = watchedStaticId;
-      staticIdReady = Boolean(staticId);
       fixId = selected.fixId;
       if (
         prevEffectiveStaticId !== staticId ||
@@ -367,27 +371,6 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
     console.warn(
       `[watch] watched-games fetch error: ${(err as Error).message}`,
     );
-  }
-}
-
-async function ensureStaticIdReady(): Promise<void> {
-  while (!staticId) {
-    try {
-      staticId = await findMatchStaticIdForTeams(
-        activeTeamHome,
-        activeTeamAway,
-      );
-      staticIdReady = Boolean(staticId);
-      lastSetupError = null;
-      return;
-    } catch (err) {
-      lastSetupError = (err as Error).message;
-      console.warn(
-        `[setup] Static-id resolution failed for ${activeTeamHome} vs ${activeTeamAway}: ${(err as Error).message}`,
-      );
-    }
-    await sleep(10_000);
-    await loadWatchedGamesFromOrchestrator();
   }
 }
 
@@ -494,6 +477,12 @@ async function onGoalDetected(
     return { ok: false, reason: "ignored_open_position", message };
   }
 
+  if (runtimeMaxPositionUsd === 0) {
+    const message = "Bot disabled: trade amount is 0";
+    console.log(`[trade] ⚠️  ${message} — skipping`);
+    return { ok: false, reason: "error", message };
+  }
+
   const isHomeGoal = scorer === "home";
   const tokenId = isHomeGoal ? market.yesTokenId : market.noTokenId;
   const label = isHomeGoal ? `${activeTeamHome} WIN` : `${activeTeamAway} WIN`;
@@ -503,7 +492,7 @@ async function onGoalDetected(
     `\n[trade] 🚨 SCORE: ${scoringTeam} update detected. Score: ${state.scoreHome}-${state.scoreAway} (${state.minute}')`,
   );
   console.log(
-    `[trade] → Market BUY ${label} (${fmt(config.maxPositionUsd, 2)} USDC, FOK)`,
+    `[trade] → Market BUY ${label} (${fmt(runtimeMaxPositionUsd, 2)} USDC, FOK)`,
   );
   const buyWorstPriceCap = getBuyWorstPriceCap();
   const tickSize = market.orderPriceMinTickSize ?? 0.001;
@@ -521,13 +510,13 @@ async function onGoalDetected(
   // CLOB collateral probes can occasionally lag right after balance changes.
   // Treat probe result as advisory and let exchange-side order validation decide.
   const availableCollateralUsd = await getAvailableCollateralBalanceUsdc();
-  let spendAmountUsd = Number(config.maxPositionUsd.toFixed(6));
+  let spendAmountUsd = Number(runtimeMaxPositionUsd.toFixed(6));
   if (availableCollateralUsd > BUY_BALANCE_BUFFER_USD) {
     spendAmountUsd = Number(
       Math.max(
         0,
         Math.min(
-          config.maxPositionUsd,
+          runtimeMaxPositionUsd,
           availableCollateralUsd - BUY_BALANCE_BUFFER_USD,
         ),
       ).toFixed(6),
@@ -806,10 +795,10 @@ function printReport(): void {
 // ── Main loops ────────────────────────────────────────────────────────────────
 
 /**
- * Goalserve poll loop — detects score changes and drives game state.
+ * Polymarket lifecycle monitor — detects game-over from Polymarket market status.
  * Runs every LIVE_POLL_MS during the game.
  */
-async function goalserveLoop(): Promise<void> {
+async function lifecycleMonitorLoop(): Promise<void> {
   while (!gameIsOver) {
     const lifecycle = await readMarketLifecycleSnapshot();
     if (lifecycle) {
@@ -830,36 +819,6 @@ async function goalserveLoop(): Promise<void> {
       }
       consecutiveEndedLifecyclePolls = 0;
     }
-
-    const state = await pollLiveMatch(
-      staticId,
-      activeTeamHome,
-      activeTeamAway,
-      fixId,
-    );
-    lastGoalservePollAt = new Date().toISOString();
-
-    if (!state) {
-      await sleep(config.livePollMs);
-      continue;
-    }
-
-    updateWatchlistStateFromLive(state);
-
-    // Log current state
-    const scoreStr = isNaN(state.scoreHome)
-      ? "?-?"
-      : `${state.scoreHome}-${state.scoreAway}`;
-    console.log(
-      `[gs]    ${state.minute || state.status}' | ${state.teamHome} ${scoreStr} ${state.teamAway} | status=${state.status}`,
-    );
-
-    // Keep live scoreboard context for UI, but never trigger trades from Goalserve.
-    if (!isNaN(state.scoreHome) && !isNaN(state.scoreAway)) {
-      lastScoreHome = state.scoreHome;
-      lastScoreAway = state.scoreAway;
-    }
-
     await sleep(config.livePollMs);
   }
 }
@@ -921,16 +880,6 @@ async function waitForKickoff(): Promise<void> {
         lifecycle.gamma.acceptingOrders &&
         lifecycle.tradable
       ) {
-        const state = await pollLiveMatch(
-          staticId,
-          activeTeamHome,
-          activeTeamAway,
-          fixId,
-        );
-        if (state && !isNaN(state.scoreHome) && !isNaN(state.scoreAway)) {
-          lastScoreHome = state.scoreHome;
-          lastScoreAway = state.scoreAway;
-        }
         consecutiveEndedLifecyclePolls = 0;
         console.log(
           "\n[bot]  ✅ Polymarket lifecycle indicates live tradable market — entering live mode",
@@ -972,8 +921,7 @@ httpApp.get("/health", (_req, res) => {
     selectedWatchedGameKey,
     marketReady,
     signingClientReady,
-    staticIdReady,
-    ready: marketReady && signingClientReady && staticIdReady,
+    ready: marketReady && signingClientReady,
     lastSetupError,
   });
 });
@@ -985,7 +933,6 @@ httpApp.get("/ready", (_req, res) => {
   if (!activeMatchSlug) missing.push("matchSlug");
   if (!marketReady) missing.push("market");
   if (!signingClientReady) missing.push("signing");
-  if (!staticIdReady) missing.push("goalserveStaticId");
 
   const ready = missing.length === 0;
   res.json({
@@ -1000,7 +947,6 @@ httpApp.get("/ready", (_req, res) => {
       matchSlug: activeMatchSlug,
       marketReady,
       signingClientReady,
-      staticIdReady,
       selectedWatchedGameKey,
       watchedGamesCount: watchedGames.length,
     },
@@ -1026,11 +972,9 @@ httpApp.get("/diagnostics", (_req, res) => {
     selectedWatchedGameKey,
     marketReady,
     signingClientReady,
-    staticIdReady,
-    ready: marketReady && signingClientReady && staticIdReady,
+    ready: marketReady && signingClientReady,
     lastSetupError,
     lastMarketLifecycle,
-    lastGoalservePollAt,
     openPositions: openPosition ? 1 : 0,
     totalPnl,
     tradesExecuted: trades.length,
@@ -1040,7 +984,7 @@ httpApp.get("/diagnostics", (_req, res) => {
 httpApp.get("/metrics", (_req, res) => {
   const spent = trades.reduce((s, t) => s + t.entryAsk * t.size, 0);
   const walletBalance = parseFloat(
-    process.env["WALLET_BALANCE"] ?? String(config.maxPositionUsd),
+    process.env["WALLET_BALANCE"] ?? String(runtimeMaxPositionUsd),
   );
   const equity = Math.max(0, walletBalance - spent + totalPnl);
   res.json({
@@ -1078,7 +1022,6 @@ httpApp.get("/watchlist-state", (_req, res) => {
     botId: config.botId,
     watchedGamesCount: watchedGames.length,
     selectedWatchedGameKey,
-    lastGoalservePollAt,
     games: Array.from(watchlistLiveState.values()),
   });
 });
@@ -1093,7 +1036,6 @@ httpApp.get("/watchlist-state/:key", (req, res) => {
     ok: true,
     botId: config.botId,
     selectedWatchedGameKey,
-    lastGoalservePollAt,
     game: row,
   });
 });
@@ -1166,6 +1108,16 @@ httpApp.post("/manual-trigger", async (req, res) => {
   });
 });
 
+httpApp.post("/set-trade-amount", (req, res) => {
+  const amount = Number((req.body as { amountUsd?: unknown })?.amountUsd);
+  if (!Number.isFinite(amount) || amount < 0) {
+    return res.status(400).json({ error: "amountUsd must be >= 0" });
+  }
+  runtimeMaxPositionUsd = amount;
+  console.log(`[config] Trade amount updated to ${runtimeMaxPositionUsd} USDC`);
+  return res.json({ ok: true, maxPositionUsd: runtimeMaxPositionUsd });
+});
+
 httpApp.listen(config.port, () => {
   console.log(`[api]  Hockey Bot HTTP API listening on :${config.port}`);
 });
@@ -1175,7 +1127,7 @@ httpApp.listen(config.port, () => {
 async function main(): Promise<void> {
   console.log("═".repeat(60));
   console.log("HOCKEY BOT — Live Score Arbitrage");
-  console.log(`budget=${config.maxPositionUsd} USDC`);
+  console.log(`budget=${runtimeMaxPositionUsd} USDC`);
   console.log("═".repeat(60) + "\n");
 
   // Step 1: Load watched games (if user-scoped bot env is configured)
@@ -1187,7 +1139,7 @@ async function main(): Promise<void> {
     `HOCKEY BOT — ${activeTeamHome} vs ${activeTeamAway} | Live Score Arbitrage`,
   );
   console.log(
-    `match=${activeMatchSlug || "(awaiting watched game slug)"} | budget=${config.maxPositionUsd} USDC`,
+    `match=${activeMatchSlug || "(awaiting watched game slug)"} | budget=${runtimeMaxPositionUsd} USDC`,
   );
   console.log("═".repeat(60) + "\n");
 
@@ -1201,27 +1153,16 @@ async function main(): Promise<void> {
   console.log("\n[setup] Initialising CLOB signing client...");
   await ensureSigningClientReady();
 
-  // Step 5: Find Goalserve match ID unless watched list already supplied one
-  if (!staticId) {
-    console.log("\n[setup] Finding Goalserve match ID...");
-    await ensureStaticIdReady();
-  }
-
-  if (!staticId) {
-    staticId = await findMatchStaticId();
-    staticIdReady = Boolean(staticId);
-  }
-
-  // Step 6: Wait for kickoff
+  // Step 5: Wait for kickoff
   await waitForKickoff();
 
-  // Step 7: Run live loops concurrently
+  // Step 6: Run live loops concurrently
   console.log(
-    `[bot]  Live polling: Goalserve every ${config.livePollMs / 1000}s | CLOB sell check every ${config.sellPollMs / 1000}s\n`,
+    `[bot]  Live monitoring: Polymarket lifecycle every ${config.livePollMs / 1000}s | CLOB sell check every ${config.sellPollMs / 1000}s\n`,
   );
-  await Promise.all([goalserveLoop(), sellMonitorLoop()]);
+  await Promise.all([lifecycleMonitorLoop(), sellMonitorLoop()]);
 
-  // Step 8: Print final report
+  // Step 7: Print final report
   printReport();
 }
 

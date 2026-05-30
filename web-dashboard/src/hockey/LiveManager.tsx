@@ -73,18 +73,8 @@ export function LiveManager({
         const payload = (await res.json()) as {
           games?: Array<Partial<HockeyFeedMatch> & { key: string }>;
           selectedWatchedGameKey?: string | null;
-          lastGoalservePollAt?: string | null;
         };
         if (stopped) return;
-
-        // If bot hasn't successfully polled Goalserve yet, don't let seeded
-        // watchlist defaults override fresher discovery-feed values.
-        if (!payload.lastGoalservePollAt) {
-          setLiveByKey({});
-          setSelectedWatchedGameKey(payload.selectedWatchedGameKey ?? null);
-          setPollTick((t) => t + 1);
-          return;
-        }
 
         const next: Record<string, HockeyFeedMatch> = {};
         for (const match of payload.games ?? []) {

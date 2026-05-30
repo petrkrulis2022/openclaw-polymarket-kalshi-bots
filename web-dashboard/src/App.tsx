@@ -3304,8 +3304,8 @@ function SportsBotView({
   const saveTradeAmount = async () => {
     if (!metamaskAddress) return;
     const amountUsd = Number(tradeAmountInput);
-    if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
-      setTradeAmountStatus("Enter a valid positive USD amount");
+    if (!Number.isFinite(amountUsd) || amountUsd < 0) {
+      setTradeAmountStatus("Enter a valid USD amount (0 to disable bot)");
       return;
     }
 

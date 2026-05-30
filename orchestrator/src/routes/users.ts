@@ -1309,58 +1309,78 @@ router.put("/:address/bots/:botName/trade-amount", async (req, res) => {
   }
 
   const amountUsd = Number((req.body as { amountUsd?: unknown })?.amountUsd);
-  if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+  if (!Number.isFinite(amountUsd) || amountUsd < 0) {
     return res
       .status(400)
-      .json({ error: "amountUsd must be a positive number" });
-  }
-
-  let collateralUsdce: number;
-  try {
-    collateralUsdce = await fetchUserCollateralUsdce(address);
-  } catch (err) {
-    return res.status(502).json({
-      error: err instanceof Error ? err.message : String(err),
-    });
+      .json({ error: "amountUsd must be >= 0" });
   }
 
   const normalizedAmount = Number(amountUsd.toFixed(6));
-  const amounts = getSportsTradeAmounts(address);
-  const otherBotName = botName === "hockey-bot" ? "football-bot" : "hockey-bot";
-  const otherAmount = Number(
-    (amounts[otherBotName] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
-  );
-  const nextTotal = Number((normalizedAmount + otherAmount).toFixed(6));
 
-  if (nextTotal > collateralUsdce + 1e-9) {
-    return res.status(400).json({
-      error:
-        "Amount higher than collateral. Combined hockey + football trade amounts must be within available collateral.",
-      botName,
-      requestedAmountUsd: normalizedAmount,
-      otherBotName,
-      otherAmountUsd: otherAmount,
-      combinedAmountUsd: nextTotal,
-      collateralUsdce,
-      maxAllowedForThisBotUsd: Number(
-        Math.max(0, collateralUsdce - otherAmount).toFixed(6),
-      ),
-    });
+  // Zero always means "disable bot" — skip collateral check
+  if (amountUsd > 0) {
+    let collateralUsdce: number;
+    try {
+      collateralUsdce = await fetchUserCollateralUsdce(address);
+    } catch (err) {
+      return res.status(502).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    const amounts = getSportsTradeAmounts(address);
+    const otherBotName = botName === "hockey-bot" ? "football-bot" : "hockey-bot";
+    const otherAmount = Number(
+      (amounts[otherBotName] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
+    );
+    const nextTotal = Number((normalizedAmount + otherAmount).toFixed(6));
+
+    if (nextTotal > collateralUsdce + 1e-9) {
+      return res.status(400).json({
+        error:
+          "Amount higher than collateral. Combined hockey + football trade amounts must be within available collateral.",
+        botName,
+        requestedAmountUsd: normalizedAmount,
+        otherBotName,
+        otherAmountUsd: otherAmount,
+        combinedAmountUsd: nextTotal,
+        collateralUsdce,
+        maxAllowedForThisBotUsd: Number(
+          Math.max(0, collateralUsdce - otherAmount).toFixed(6),
+        ),
+      });
+    }
   }
 
   setSportsTradeAmount(address, botName, normalizedAmount);
 
-  return res.json({
+  // Notify running bot of amount change (best-effort)
+  try {
+    const botBaseUrl = getUserBotBaseUrl(user, botName);
+    if (botBaseUrl) {
+      await fetch(`${botBaseUrl}/set-trade-amount`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amountUsd: normalizedAmount }),
+        signal: AbortSignal.timeout(2_000),
+      });
+    }
+  } catch { /* bot may not be running, ignore */ }
+
+  const amounts2 = getSportsTradeAmounts(address);
+  const otherBotName2 = botName === "hockey-bot" ? "football-bot" : "hockey-bot";
+  const otherAmount2 = Number(
+    (amounts2[otherBotName2] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
+  );
+  const combinedAmountUsd = Number((normalizedAmount + otherAmount2).toFixed(6));
     ok: true,
     botName,
     amountUsd: normalizedAmount,
-    hockeyAmountUsd: botName === "hockey-bot" ? normalizedAmount : otherAmount,
+    hockeyAmountUsd: botName === "hockey-bot" ? normalizedAmount : otherAmount2,
     footballAmountUsd:
-      botName === "football-bot" ? normalizedAmount : otherAmount,
-    combinedAmountUsd: nextTotal,
-    collateralUsdce,
-    remainingCollateralUsd: Number((collateralUsdce - nextTotal).toFixed(6)),
-    note: "Saved. Restart this bot process to apply updated MAX_POSITION_USD if it is already running.",
+      botName === "football-bot" ? normalizedAmount : otherAmount2,
+    combinedAmountUsd,
+    note: "Saved. Bot will use new trade amount immediately if already running.",
   });
 });
 

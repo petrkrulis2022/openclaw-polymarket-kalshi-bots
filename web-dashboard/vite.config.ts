@@ -1,9 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-const goalserveApiKey =
-  process.env["GOALSERVE_API_KEY"] ?? "edc0ecd4f73c4c1a20f808dea8e5ebf2";
-
 const proxyConfig = {
   "/api/treasury": {
     target: "http://localhost:3001",
@@ -54,13 +51,6 @@ const proxyConfig = {
     target: "http://localhost:3009",
     changeOrigin: true,
     rewrite: (path: string) => path.replace(/^\/api\/bot\/8/, ""),
-  },
-  "/api/hockey-feed": {
-    target: "https://www.goalserve.com",
-    changeOrigin: true,
-    secure: true,
-    rewrite: (path: string) =>
-      path.replace(/^\/api\/hockey-feed/, `/getfeed/${goalserveApiKey}/hockey`),
   },
 };
 

@@ -14,13 +14,6 @@ function signatureTypeFromEnv(): SignatureTypeV2 {
 }
 
 export const config = {
-  goalserve: {
-    apiKey:
-      process.env["GOALSERVE_API_KEY"] ?? "edc0ecd4f73c4c1a20f808dea8e5ebf2",
-    baseUrl: "https://www.goalserve.com/getfeed",
-    leagueId: process.env["GOALSERVE_LEAGUE_ID"] ?? "1002", // KHL default
-    matchStaticId: process.env["GOALSERVE_MATCH_STATIC_ID"] ?? "",
-  },
   polymarket: {
     walletAddress: process.env["POLYMARKET_WALLET_ADDRESS"] ?? "",
     signerKey: process.env["BOT_SIGNER_KEY"] ?? "",

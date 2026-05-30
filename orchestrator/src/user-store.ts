@@ -220,7 +220,7 @@ function parseSportsTradeAmounts(
     const result: Record<string, number> = {};
     for (const [key, value] of Object.entries(parsed)) {
       const n = Number(value);
-      if (!Number.isFinite(n) || n <= 0) continue;
+      if (!Number.isFinite(n) || n < 0) continue;
       result[key] = Number(n.toFixed(6));
     }
     return result;
@@ -383,7 +383,7 @@ export function getSportsTradeAmount(
 ): number {
   const amounts = getSportsTradeAmounts(address);
   const n = Number(amounts[botName]);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
+  if (!Number.isFinite(n) || n < 0) return fallback;
   return Number(n.toFixed(6));
 }
 
