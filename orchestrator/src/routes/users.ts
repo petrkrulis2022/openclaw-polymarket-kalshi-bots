@@ -162,6 +162,13 @@ const BOT_DEFS = [
     portOffset: 6,
     entrypoint: "scripts/football-bot.ts",
   },
+  {
+    name: "btc-lag",
+    folder: "btc-lag",
+    botId: 7,
+    portOffset: 7,
+    entrypoint: "src/index.ts",
+  },
 ] as const;
 
 const WATCHLIST_BOTS = new Set([
