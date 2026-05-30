@@ -3799,9 +3799,9 @@ function PortfolioSection({
         Bot Portfolio
       </div>
 
-      {loading ? (
+      {loading && !portfolio ? (
         <p className="offline">Loading portfolio…</p>
-      ) : error ? (
+      ) : error && !portfolio ? (
         <p className="offline">
           ⚠ Orchestrator offline — start orchestrator on :3002
         </p>

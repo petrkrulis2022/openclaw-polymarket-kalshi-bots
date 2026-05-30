@@ -44,12 +44,16 @@ export function usePortfolio(metamaskAddress?: string) {
       const summaryUrl = metamaskAddress
         ? `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/portfolio-summary`
         : "/api/orchestrator/portfolio/summary";
-      const [res, statusRes] = await Promise.all([
-        fetch(summaryUrl),
-        metamaskAddress
-          ? fetch(`/api/orchestrator/users/${metamaskAddress}/bots/status`)
-          : Promise.resolve(null),
-      ]);
+      let res = await fetch(summaryUrl);
+      // If user-specific endpoint returns 404 (not registered), fall back to global.
+      if (!res.ok && res.status === 404 && metamaskAddress) {
+        res = await fetch("/api/orchestrator/portfolio/summary");
+      }
+      const statusRes = metamaskAddress
+        ? await fetch(
+            `/api/orchestrator/users/${metamaskAddress}/bots/status`,
+          ).catch(() => null)
+        : null;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const raw = await res.json();
       const statusRows =
