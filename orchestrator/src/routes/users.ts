@@ -17,6 +17,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import {
   getUser,
+  getAllUsers,
   upsertUser,
   updateBotWalletAddress,
   updateApiKeys,
@@ -1018,6 +1019,31 @@ router.get(
   },
 );
 
+// ── GET /users/bots/identify ─────────────────────────────────────────────────
+// Reverse port lookup: given a bot's listening port, return the owning user's
+// address and bot name. Bots call this at startup to resolve their user address
+// dynamically instead of relying on a hardcoded USER_METAMASK_ADDRESS env var.
+
+router.get("/bots/identify", (req, res) => {
+  const port = parseInt(req.query.port as string, 10);
+  if (!port || Number.isNaN(port)) {
+    return res.status(400).json({ error: "port query param required" });
+  }
+  const users = getAllUsers();
+  for (const bot of BOT_DEFS) {
+    for (const user of users) {
+      if (userBasePort(user.bot_wallet_index) + bot.portOffset === port) {
+        return res.json({
+          userAddress: user.metamask_address,
+          botName: bot.name,
+          port,
+        });
+      }
+    }
+  }
+  return res.status(404).json({ error: `No user found for port ${port}` });
+});
+
 // ── PUT /users/:address/api-keys ──────────────────────────────────────────────
 // Kept for backward-compat; stores API key/secret/passphrase if provided.
 
@@ -1310,9 +1336,7 @@ router.put("/:address/bots/:botName/trade-amount", async (req, res) => {
 
   const amountUsd = Number((req.body as { amountUsd?: unknown })?.amountUsd);
   if (!Number.isFinite(amountUsd) || amountUsd < 0) {
-    return res
-      .status(400)
-      .json({ error: "amountUsd must be >= 0" });
+    return res.status(400).json({ error: "amountUsd must be >= 0" });
   }
 
   const normalizedAmount = Number(amountUsd.toFixed(6));
@@ -1329,7 +1353,8 @@ router.put("/:address/bots/:botName/trade-amount", async (req, res) => {
     }
 
     const amounts = getSportsTradeAmounts(address);
-    const otherBotName = botName === "hockey-bot" ? "football-bot" : "hockey-bot";
+    const otherBotName =
+      botName === "hockey-bot" ? "football-bot" : "hockey-bot";
     const otherAmount = Number(
       (amounts[otherBotName] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
     );
@@ -1365,14 +1390,19 @@ router.put("/:address/bots/:botName/trade-amount", async (req, res) => {
         signal: AbortSignal.timeout(2_000),
       });
     }
-  } catch { /* bot may not be running, ignore */ }
+  } catch {
+    /* bot may not be running, ignore */
+  }
 
   const amounts2 = getSportsTradeAmounts(address);
-  const otherBotName2 = botName === "hockey-bot" ? "football-bot" : "hockey-bot";
+  const otherBotName2 =
+    botName === "hockey-bot" ? "football-bot" : "hockey-bot";
   const otherAmount2 = Number(
     (amounts2[otherBotName2] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
   );
-  const combinedAmountUsd = Number((normalizedAmount + otherAmount2).toFixed(6));
+  const combinedAmountUsd = Number(
+    (normalizedAmount + otherAmount2).toFixed(6),
+  );
 
   return res.json({
     ok: true,

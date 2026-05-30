@@ -105,14 +105,18 @@ interface MarketLifecycleSnapshot {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
+// Resolved user address — starts from env var, then overridden by orchestrator
+// reverse-lookup on startup so any connected wallet works dynamically.
+let resolvedUserAddress = config.orchestrator.userAddress;
+
 let market: HomeTeamMarket;
 let staticId = "";
 let fixId: string | undefined;
-let activeMatchSlug = config.orchestrator.userAddress ? "" : config.matchSlug;
-let activeTeamHome = config.orchestrator.userAddress
+let activeMatchSlug = resolvedUserAddress ? "" : config.matchSlug;
+let activeTeamHome = resolvedUserAddress
   ? "HOME"
   : config.matchTeamHome || "HOME";
-let activeTeamAway = config.orchestrator.userAddress
+let activeTeamAway = resolvedUserAddress
   ? "AWAY"
   : config.matchTeamAway || "AWAY";
 let activeMarketBindingKey = "";
@@ -261,8 +265,38 @@ function updateWatchlistStateFromLive(state: MatchState): void {
   });
 }
 
+async function resolveUserAddressFromOrchestrator(): Promise<void> {
+  // Always ask the orchestrator which user owns this bot's port.
+  // This lets any connected wallet work without a hardcoded USER_METAMASK_ADDRESS.
+  try {
+    const res = await fetch(
+      `${config.orchestrator.baseUrl}/users/bots/identify?port=${config.port}`,
+      { signal: AbortSignal.timeout(5_000) },
+    );
+    if (res.ok) {
+      const data = (await res.json()) as { userAddress?: string };
+      if (data.userAddress) {
+        resolvedUserAddress = data.userAddress;
+        console.log(
+          `[setup] User address resolved from orchestrator: ${resolvedUserAddress}`,
+        );
+        // Ensure bot starts in orchestrator-managed mode once address is known.
+        if (!activeMatchSlug) activeMatchSlug = "";
+      }
+    } else {
+      console.warn(
+        `[setup] Could not resolve user address from orchestrator (HTTP ${res.status})`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      `[setup] Could not resolve user address: ${(err as Error).message}`,
+    );
+  }
+}
+
 async function loadWatchedGamesFromOrchestrator(): Promise<void> {
-  const userAddress = config.orchestrator.userAddress;
+  const userAddress = resolvedUserAddress;
   if (!userAddress) return;
 
   try {
@@ -375,7 +409,7 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
 }
 
 function startWatchedGamesWatcher(): void {
-  if (!config.orchestrator.userAddress) return;
+  if (!resolvedUserAddress) return;
   const ms = Math.max(2_000, config.orchestrator.watchedGamesPollMs);
   setInterval(() => {
     void loadWatchedGamesFromOrchestrator();
@@ -1134,7 +1168,10 @@ async function main(): Promise<void> {
   console.log(`budget=${runtimeMaxPositionUsd} USDC`);
   console.log("═".repeat(60) + "\n");
 
-  // Step 1: Load watched games (if user-scoped bot env is configured)
+  // Step 1: Resolve user address from orchestrator (dynamic — works for any wallet)
+  await resolveUserAddressFromOrchestrator();
+
+  // Step 2: Load watched games (requires resolved user address)
   await loadWatchedGamesFromOrchestrator();
   startWatchedGamesWatcher();
 
