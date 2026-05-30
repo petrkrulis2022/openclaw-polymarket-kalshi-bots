@@ -43,9 +43,9 @@ export const config = {
   stopLossRatio: parseFloat(process.env["STOP_LOSS_RATIO"] ?? "0.5"),
   sellTimeoutMinutes: parseInt(process.env["SELL_TIMEOUT_MINUTES"] ?? "15", 10),
   preGamePollMs:
-    parseInt(process.env["PRE_GAME_POLL_SECONDS"] ?? "60", 10) * 1_000,
-  livePollMs: parseInt(process.env["LIVE_POLL_SECONDS"] ?? "10", 10) * 1_000,
-  sellPollMs: parseInt(process.env["SELL_POLL_SECONDS"] ?? "5", 10) * 1_000,
+    parseInt(process.env["PRE_GAME_POLL_SECONDS"] ?? "1", 10) * 1_000,
+  livePollMs: parseInt(process.env["LIVE_POLL_SECONDS"] ?? "1", 10) * 1_000,
+  sellPollMs: parseInt(process.env["SELL_POLL_SECONDS"] ?? "1", 10) * 1_000,
   port: parseInt(process.env["PORT"] ?? "3009", 10),
   botId: 8,
 } as const;

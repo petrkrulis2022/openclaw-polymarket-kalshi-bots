@@ -261,6 +261,101 @@ Buy those discounted shares, collect $1 at oracle resolution.
 
 ---
 
+## Bot 6 — Sports Score-Lag Arbitrage
+
+**Status**: Live / implemented for hockey and football  
+**Strategy**: Use external sports score updates to trade before Polymarket fully reprices the game market
+
+### One-Page Explainer
+
+The sports bots are event-driven trading agents designed to exploit the short delay between a real-world scoring event being published by a sports data feed and Polymarket's market price fully adjusting on the CLOB. The edge comes from reacting to a goal before the order book completely reprices the scoring team's win probability.
+
+The system uses three different data sources, each with a separate role:
+
+- **Sports API (Goalserve)**: score trigger only. We poll live match data and compare the latest score to the previous snapshot. If the score changes, the bot treats that as a trade signal.
+- **Polymarket Gamma API**: market metadata and lifecycle truth. Gamma provides the event slug, token IDs, tick size, active/closed/resolved state, whether the market is accepting orders, and the official resolution source.
+- **Polymarket CLOB**: execution and price truth. The CLOB provides bids, asks, liquidity, fills, and the actual venue where the bot buys and sells shares.
+
+### Core Trading Idea
+
+When a team scores, the real-world probability of that team winning rises immediately. Polymarket market makers and traders usually reprice very quickly, but not always instantly. The bot tries to capture that lag:
+
+1. Goalserve reports a scoring event.
+2. The bot maps the scorer to the correct Polymarket outcome token.
+3. It checks Gamma to confirm the market is still active and CLOB to confirm the book is still tradable.
+4. It buys shares of the scoring team's side with a marketable FOK order.
+5. It monitors the best bid and sells after repricing, using profit, stop-loss, timeout, or market-end rules.
+
+For a home goal, the bot buys the home-win side. For an away goal, the bot buys the away-win side or the corresponding NO side depending on the market structure.
+
+### Why We Split the Sources
+
+The sports feed is best at detecting goals first, but it is not reliable enough for lifecycle control. Goalserve status fields can regress or mislabel breaks and end-of-game transitions. Because of that, the bots no longer use Goalserve to determine whether a game is live or over.
+
+Instead:
+
+- Goalserve tells us **that a goal happened**
+- Gamma tells us **whether the market should still be active**
+- CLOB tells us **whether a trade can actually be executed**
+
+This separation makes the system more robust and aligns the bot with Polymarket's own market state.
+
+### Entry Logic
+
+1. Resolve the watched match to a Polymarket event slug and token IDs.
+2. Poll Goalserve for score changes.
+3. On score delta:
+
+- determine the scoring side
+- map to the correct token ID
+- confirm via Gamma that the market is active / not resolved
+- confirm via CLOB that liquidity exists
+
+4. Submit a FOK buy order.
+5. Retry briefly if liquidity disappears during the repricing window.
+
+### Exit Logic
+
+After a fill, the bot watches the CLOB bid and exits when one of the following happens:
+
+- profit target reached
+- stop-loss threshold reached
+- maximum hold timeout reached
+- Gamma/CLOB lifecycle indicates the game market is over
+
+### Technical Stack
+
+- **TypeScript**
+- **Node.js**
+- **Express** for health, diagnostics, and dashboard integration
+- **PM2** for process management
+- **Polymarket Gamma API** for event and market metadata
+- **Polymarket CLOB API** via `@polymarket/clob-client-v2` for order placement and order book reads
+- **viem** for wallet and signing support
+- **Goalserve** for live score triggers
+- **Orchestrator + web dashboard** for per-user watched-game control and bot monitoring
+
+### Architecture Notes
+
+The bots run in a multi-user architecture. A central orchestrator tracks watched games and passes selections to individual per-user bot processes. Each bot process resolves the market, monitors the selected game, exposes diagnostics over HTTP, and reports status back to the dashboard.
+
+### Risks and Constraints
+
+- Market makers can pull liquidity immediately after a goal, causing FOK orders to miss.
+- If the post-goal ask jumps above the configured price cap, fills will fail even when liquidity exists.
+- Sports feeds can still be late relative to Polymarket repricing, which compresses the edge.
+- This strategy depends on extremely fast detection, low-latency execution, and disciplined exit logic.
+
+### Current Design Principle
+
+- **Goalserve = score trigger**
+- **Gamma = market lifecycle and resolution metadata**
+- **CLOB = pricing, liquidity, and execution**
+
+That is the current production architecture for the sports bots. The edge exists in the brief window between the sports feed's score update and Polymarket's full repricing of the relevant win market.
+
+---
+
 ## Bot 6 — Low-Price Microstructure ("0.1¢ Bot")
 
 **Status**: Live / implemented  

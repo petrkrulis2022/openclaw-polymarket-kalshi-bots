@@ -21,7 +21,9 @@ function persistState(): void {
       savedAt: new Date().toISOString(),
     };
     fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2), "utf-8");
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 }
 
 export function loadPersistedState(): void {
@@ -34,7 +36,10 @@ export function loadPersistedState(): void {
     for (const p of raw.positions ?? []) inventory.set(p.tokenId, p);
     console.log(`[inventory] Loaded ${inventory.size} position(s) from disk.`);
   } catch (err) {
-    console.warn("[inventory] Failed to load persisted state:", (err as Error).message);
+    console.warn(
+      "[inventory] Failed to load persisted state:",
+      (err as Error).message,
+    );
   }
 }
 

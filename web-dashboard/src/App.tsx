@@ -3810,7 +3810,7 @@ function PortfolioSection({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
+              gridTemplateColumns: "repeat(4, 1fr)",
               gap: 12,
               marginBottom: 12,
             }}
@@ -3826,6 +3826,15 @@ function PortfolioSection({
               <div className={`balance-big ${pnlClass(portfolio.totalPnl)}`}>
                 {portfolio.totalPnl >= 0 ? "+" : ""}$
                 {portfolio.totalPnl.toFixed(2)}
+              </div>
+            </div>
+            <div className="card" style={{ textAlign: "center" }}>
+              <div className="balance-label">Open Positions</div>
+              <div
+                className="balance-big"
+                style={{ color: livePositions.length > 0 ? "#4caf50" : undefined }}
+              >
+                {livePositions.length}
               </div>
             </div>
             <div
@@ -4060,8 +4069,7 @@ function PortfolioSection({
                             fontWeight: 600,
                           }}
                         >
-                          {pos.cashPnl >= 0 ? "+" : ""}$
-                          {pos.cashPnl.toFixed(2)}
+                          {pos.cashPnl >= 0 ? "+" : ""}${pos.cashPnl.toFixed(2)}
                         </td>
                         <td style={{ padding: "6px 8px" }}>
                           {pos.redeemable ? (
@@ -5155,6 +5163,7 @@ export default function App() {
                     "4": "in-market-arb",
                     "5": "resolution-lag",
                     "6": "microstructure",
+                    "7": "btc-lag",
                   };
                   const botName = botNameById[botId];
                   if (!botName) return;
@@ -5167,6 +5176,7 @@ export default function App() {
                     "4": "in-market-arb",
                     "5": "resolution-lag",
                     "6": "microstructure",
+                    "7": "btc-lag",
                     "8": "football-bot",
                     "10": "hockey-bot",
                   };
@@ -5186,6 +5196,7 @@ export default function App() {
                     "4": "in-market-arb",
                     "5": "resolution-lag",
                     "6": "microstructure",
+                    "7": "btc-lag",
                   };
                   const botName = botNameById[botId];
                   if (!botName || !user?.metamaskAddress) return;

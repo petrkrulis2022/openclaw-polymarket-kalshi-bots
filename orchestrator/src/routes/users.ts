@@ -904,7 +904,8 @@ async function ensureUserBotProcess(
   ]);
 
   if (!fs.existsSync(ENVS_DIR)) fs.mkdirSync(ENVS_DIR, { recursive: true });
-  if (!fs.existsSync(POSITIONS_DIR)) fs.mkdirSync(POSITIONS_DIR, { recursive: true });
+  if (!fs.existsSync(POSITIONS_DIR))
+    fs.mkdirSync(POSITIONS_DIR, { recursive: true });
 
   const app = {
     name: pmName,
@@ -923,7 +924,10 @@ async function ensureUserBotProcess(
       TREASURY_URL: WDK_TREASURY_URL,
       BOT_COUNT: String(Math.max(1, totalEnabledBots)),
       PAPER_TRADING: "",
-      POSITIONS_STATE_FILE: path.join(POSITIONS_DIR, `${bot.name}-u${slot}.json`),
+      POSITIONS_STATE_FILE: path.join(
+        POSITIONS_DIR,
+        `${bot.name}-u${slot}.json`,
+      ),
       ...(getBotTradeAmountEnv(user, botName)
         ? { MAX_POSITION_USD: getBotTradeAmountEnv(user, botName) }
         : {}),
@@ -1082,7 +1086,8 @@ router.post(
 
       // Write per-user env files and build PM2 app configs
       if (!fs.existsSync(ENVS_DIR)) fs.mkdirSync(ENVS_DIR, { recursive: true });
-      if (!fs.existsSync(POSITIONS_DIR)) fs.mkdirSync(POSITIONS_DIR, { recursive: true });
+      if (!fs.existsSync(POSITIONS_DIR))
+        fs.mkdirSync(POSITIONS_DIR, { recursive: true });
 
       const slot = userSlot(user.bot_wallet_index);
       const basePort = userBasePort(user.bot_wallet_index);
@@ -1120,7 +1125,10 @@ router.post(
             TREASURY_URL: WDK_TREASURY_URL,
             BOT_COUNT: String(enabledBots.length),
             PAPER_TRADING: "",
-            POSITIONS_STATE_FILE: path.join(POSITIONS_DIR, `${bot.name}-u${slot}.json`),
+            POSITIONS_STATE_FILE: path.join(
+              POSITIONS_DIR,
+              `${bot.name}-u${slot}.json`,
+            ),
             ...(getBotTradeAmountEnv(user, bot.name)
               ? { MAX_POSITION_USD: getBotTradeAmountEnv(user, bot.name) }
               : {}),
@@ -2159,7 +2167,8 @@ router.get(
             openPositions: Math.max(
               0,
               Math.round(
-                metrics?.openPositions ?? getPersistedPositionCount(bot.name, slot),
+                metrics?.openPositions ??
+                  getPersistedPositionCount(bot.name, slot),
               ),
             ),
             allocationPct: 0,

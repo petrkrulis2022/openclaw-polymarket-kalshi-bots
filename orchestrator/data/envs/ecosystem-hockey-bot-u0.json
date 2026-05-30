@@ -1,0 +1,23 @@
+{
+  "apps": [
+    {
+      "name": "hockey-bot-u0",
+      "script": "npx",
+      "args": "tsx scripts/hockey-bot.ts",
+      "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/hockey",
+      "env": {
+        "PORT": "4015",
+        "BOT_ID": "10",
+        "USER_METAMASK_ADDRESS": "0xD7CA8219C8AfA07b455Ab7e004FC5381B3727B1e",
+        "POLYMARKET_WALLET_ADDRESS": "0x3f2Ed7e5158C3b06E35193D54e98E3d829c41618",
+        "BOT_SIGNER_KEY": "527deced79edabb8c788e9d574358bf9bf78f7a8a7e31469be2567963d981797",
+        "POLYMARKET_FUNDER_ADDRESS": "0x3f2Ed7e5158C3b06E35193D54e98E3d829c41618",
+        "POLYMARKET_SIGNATURE_TYPE": "POLY_1271",
+        "ORCHESTRATOR_URL": "http://localhost:3002",
+        "TREASURY_URL": "http://localhost:3001",
+        "BOT_COUNT": "6",
+        "PAPER_TRADING": ""
+      }
+    }
+  ]
+}

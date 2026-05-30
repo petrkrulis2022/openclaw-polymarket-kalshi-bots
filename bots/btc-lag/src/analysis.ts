@@ -21,7 +21,9 @@ export async function loadAnalysis(): Promise<void> {
     const text = await res.text();
     cachedAnalysis = text;
     const lines = text.split("\n").length;
-    console.log(`[analysis] Loaded own analysis (bot ${BOT_ID}, ${lines} lines)`);
+    console.log(
+      `[analysis] Loaded own analysis (bot ${BOT_ID}, ${lines} lines)`,
+    );
   } catch (err) {
     console.warn("[analysis] Could not load analysis:", (err as Error).message);
   }

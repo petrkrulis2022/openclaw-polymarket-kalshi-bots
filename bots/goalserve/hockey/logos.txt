@@ -1,0 +1,44 @@
+League logos by League ID (for several leagues add league IDs separated by comma):
+18960
+http://data2.goalserve.com:8084/api/v1/logotips/soccer/leagues?k={USER_GUID}&ids=1151
+
+
+Team logos by team ID (for several teams add team IDs separated by comma):
+
+http://data2.goalserve.com:8084/api/v1/logotips/soccer/teams?k={USER_GUID}&ids=9002,9240
+
+
+Request schema:
+
+
+http://data2.goalserve.com:8084/api/v1/logotips/{SPORT_TYPES}/{CATEGORY}?k={USER_GUID}&ids={ENTITIES_IDS}
+
+{SPORT_TYPES} :
+     soccer,
+     basketball,
+     baseball,
+     volleyball,
+     tennis,
+     handball,
+     amfootball,
+     hockey,
+     cricket,
+     golf,
+     rugby_union,
+     rugby_league
+
+{CATEGORY} :
+     leagues,
+     teams,
+     players
+
+{USER_GUID} : 
+     User's global unique identifier
+
+{ENTITIES_IDS} :
+     Comma separated ids of leagues or teams or players
+
+
+
+
+Requests limit - 1 request per second 

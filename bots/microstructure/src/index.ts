@@ -10,7 +10,11 @@ import express, { type Request, type Response } from "express";
 import { config } from "./config.js";
 import { runScreener, getScreenedMarkets } from "./screener.js";
 import { refreshQuote } from "./quoter.js";
-import { getAllPositions, getTotalRealizedPnl, loadPersistedState } from "./inventory.js";
+import {
+  getAllPositions,
+  getTotalRealizedPnl,
+  loadPersistedState,
+} from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
 import {
   fetchTradeHistory,

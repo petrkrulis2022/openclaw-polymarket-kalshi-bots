@@ -78,6 +78,8 @@ async function fetchPortfolioContext(): Promise<string> {
       5: "Resolution Lag Buyer (Bot 5)",
       6: "Microstructure MM (Bot 6)",
       7: "BTC Lag (Bot 7)",
+      8: "Football Bot (Bot 8)",
+      10: "Hockey Bot (Bot 10)",
     };
 
     const botLines = rows.map((r) => {
@@ -157,6 +159,8 @@ function buildSystemPrompt(
     5: "Resolution Lag Buyer",
     6: "Microstructure MM",
     7: "BTC Lag",
+    8: "Football Bot",
+    10: "Hockey Bot",
   };
   const botName = BOT_NAMES[botId] ?? `Bot ${botId}`;
 
@@ -176,6 +180,8 @@ TRADING STRATEGIES IN USE:
 - Bot 5 (Resolution Lag): Buys winning shares at a discount during oracle settlement delay.
 - Bot 6 (Microstructure MM): Posts resting bids at 0.1¢ across hundreds of illiquid markets.
 - Bot 7 (BTC Lag): CEX candle lag arb (stub, not yet live).
+- Bot 8 (Football Bot): Goalserve-driven football arb bot using live match polling.
+- Bot 10 (Hockey Bot): Goalserve-driven hockey arb bot using live match polling.
 
 INFRASTRUCTURE:
 - All bots run on Polygon, collateral is USDC.e for Polymarket.

@@ -1,3 +1,11 @@
+const tunnelToken = process.env.CLOUDFLARE_TUNNEL_TOKEN;
+
+if (!tunnelToken) {
+  throw new Error(
+    "CLOUDFLARE_TUNNEL_TOKEN is required to start the Cloudflare tunnel",
+  );
+}
+
 module.exports = {
   apps: [
     {
@@ -27,7 +35,7 @@ module.exports = {
     {
       name: "tunnel",
       script: "/home/petrunix/.local/bin/cloudflared",
-      args: "tunnel run --token eyJhIjoiNGNlZTQwYmJjODQ0YzNiMDdiNTNiMTJjODg5YTJjMGEiLCJ0IjoiYzUzOGI1NGEtNjg3OC00MWQ0LWI4NmItYWRkMjlhNjE4MWY2IiwicyI6Ik56TTJNbUV6TVRNdE1HWTBaQzAwTlRaa0xUa3dZMk10TURNNU16a3hZbVpqTnpOayJ9",
+      args: `tunnel run --token ${tunnelToken}`,
       watch: false,
       autorestart: true,
     },

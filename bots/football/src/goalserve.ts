@@ -312,7 +312,11 @@ export async function pollLiveMatch(
       }
 
       const byId = wantedIds.size > 0 ? findById(feedData) : null;
-      const byTeams = findMatchNodeRecursive(feedData, resolvedHome, resolvedAway);
+      const byTeams = findMatchNodeRecursive(
+        feedData,
+        resolvedHome,
+        resolvedAway,
+      );
       const candidate = byId ?? byTeams;
       if (!candidate) continue;
 

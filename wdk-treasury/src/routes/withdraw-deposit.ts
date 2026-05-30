@@ -402,7 +402,10 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     const balCalldata = erc20If.encodeFunctionData("balanceOf", [
       depositWalletAddress,
     ]);
-    const balResult = await provider.call({ to: tokenAddress, data: balCalldata });
+    const balResult = await provider.call({
+      to: tokenAddress,
+      data: balCalldata,
+    });
     const balance = BigInt(balResult);
 
     if (balance === 0n) {
@@ -447,7 +450,9 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       amount,
     ]);
 
-    const calls = [{ target: tokenAddress, value: "0", data: transferCalldata }];
+    const calls = [
+      { target: tokenAddress, value: "0", data: transferCalldata },
+    ];
 
     // ── Get CLOB / builder API keys ───────────────────────────────────────────
 

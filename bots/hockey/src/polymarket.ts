@@ -176,7 +176,9 @@ function asBool(v: unknown): boolean | undefined {
  * Fetch market lifecycle flags from Gamma.
  * Used for kickoff/game-over decisions (independent from Goalserve status strings).
  */
-export async function fetchEventLifecycle(slug: string): Promise<EventLifecycle> {
+export async function fetchEventLifecycle(
+  slug: string,
+): Promise<EventLifecycle> {
   const url = `${config.polymarket.gammaApi}/events?slug=${slug}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`Gamma API ${res.status} for slug=${slug}`);
@@ -222,7 +224,13 @@ export async function fetchEventLifecycle(slug: string): Promise<EventLifecycle>
   const rawStatus = String(
     event["status"] ??
       event["gameStatus"] ??
-      (resolved ? "resolved" : closed ? "closed" : active ? "active" : "inactive"),
+      (resolved
+        ? "resolved"
+        : closed
+          ? "closed"
+          : active
+            ? "active"
+            : "inactive"),
   );
 
   return {

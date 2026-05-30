@@ -1,0 +1,69 @@
+To change output to JSON please add "?json=1" to the feed URL
+
+Hockey:
+
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/leagues  - leagues list
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1002 - fixtures by league ID
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1002_table - standings by league ID
+
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/h2h_1375-1562  - h2h stats comparison by team ID
+
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/getodds/soccer?cat=hockey_10 - odds comparison
+
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/home     - livescore
+
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d-1 - yesterday matches
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d-2
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d-3
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d-4
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d-5
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d-6
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d-7
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d1 - tomorrow matches
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d2
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d3
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d4
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d5
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d6
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/d7
+
+NHL
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1144_rosters - rosters by team ID
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1144_stats - season stats by team ID
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1144_injuries - injuries by team ID
+
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/nhl-scores  — NHL livescore
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/nhl-scores?date=12.02.2018 - NHL scores by date
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/nhl-shedule   - NHL schedule
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/nhl-standings  - NHL standings
+
+KHL
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1002-scores
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1002-scores?date=12.02.2018 - KHL scores by date
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1613_rosters  - KHL team rosters
+
+Finland Liiga
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1000-scores
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1000-scores?date=12.02.2018 - Liiga scores by date
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1613_rosters  - Liiga team rosters
+
+Czech Liga
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1006-scores
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1006-scores?date=12.02.2018 - scores by date
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1613_rosters  - team rosters
+
+SHL
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1004-scores
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1004-scores?date=12.02.2018 - scores by date
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/hockey/1613_rosters  - team rosters
+

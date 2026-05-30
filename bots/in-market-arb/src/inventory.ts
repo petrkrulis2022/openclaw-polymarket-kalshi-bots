@@ -40,7 +40,9 @@ function persistState(): void {
       savedAt: new Date().toISOString(),
     };
     fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2), "utf-8");
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 }
 
 export function loadPersistedState(): void {
@@ -55,7 +57,10 @@ export function loadPersistedState(): void {
     totalRealizedPnl = raw.totalRealizedPnl ?? 0;
     console.log(`[inventory] Loaded ${pairs.size} arb pair(s) from disk.`);
   } catch (err) {
-    console.warn("[inventory] Failed to load persisted state:", (err as Error).message);
+    console.warn(
+      "[inventory] Failed to load persisted state:",
+      (err as Error).message,
+    );
   }
 }
 

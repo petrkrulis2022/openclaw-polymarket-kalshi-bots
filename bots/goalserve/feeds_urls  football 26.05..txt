@@ -1,0 +1,50 @@
+
+
+for JSON output please add "?json=1" to the feed URL
+
+
+Soccer full season fixtures - you can map fixtures with live score and stats by static_id:
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/soccerfixtures/data/mapping - leagues ids list
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/soccerfixtures/data/seasons - leagues seasons list
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/soccerfixtures/leagueid/1204    - fixtures by league IDleague ID
+
+
+Soccer historical data (updated list can be requested by email - support@goalserve.com):
+
+https://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/soccerhistory/leagueid/1204-2009-2010   - fixtures by league ID
+
+
+
+Soccer league standings:
+
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/standings/1204.xml    - standings by league ID
+
+
+
+
+Soccer profiles/stats:
+
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/soccerstats/team/9260
+where 9260 is a team id
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/soccerstats/player/193
+where 193 is a player id
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/soccerstats/coach/105040
+where 105040 is a player id
+
+
+
+Players and team by league ID
+
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/soccerleague/1204
+where 1204 is league id
+
+
+
+Soccer h2h:
+
+http://www.goalserve.com/getfeed/edc0ecd4f73c4c1a20f808dea8e5ebf2/h2h/9249/9002
+
+Where 9249 and 9002 are team Id`s

@@ -96,6 +96,8 @@ app.listen(PORT, () => {
   console.log(
     `[btc-lag] STUB Bot (id=${BOT_ID}) listening on :${PORT} — awaiting full implementation`,
   );
-  loadAnalysis().then(() => scheduleAnalysisRefresh()).catch(() => {});
+  loadAnalysis()
+    .then(() => scheduleAnalysisRefresh())
+    .catch(() => {});
   reportHeartbeat();
 });
