@@ -209,14 +209,19 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [todayMatches, setTodayMatches] = useState<HockeyFeedMatch[]>([]);
   const [tomorrowMatches, setTomorrowMatches] = useState<HockeyFeedMatch[]>([]);
-  const [selectedKeys, setSelectedKeys] = useState<string[]>(() => {
+  // Single-slot: only one game can be watched at a time.
+  const [selectedKey, setSelectedKey] = useState<string | null>(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as string[];
-      return Array.isArray(parsed) ? parsed : [];
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as unknown;
+      // Support legacy array format stored by old code.
+      if (Array.isArray(parsed))
+        return (parsed[0] as string | undefined) ?? null;
+      if (typeof parsed === "string") return parsed || null;
+      return null;
     } catch {
-      return [];
+      return null;
     }
   });
   const [polymarketInputByKey, setPolymarketInputByKey] = useState<
@@ -230,8 +235,8 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
   );
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedKeys));
-  }, [selectedKeys]);
+    localStorage.setItem(STORAGE_KEY, selectedKey ?? "");
+  }, [selectedKey]);
 
   useEffect(() => {
     let stopped = false;
@@ -246,8 +251,9 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
         const payload = (await res.json()) as { games?: WatchedGameDto[] };
         if (stopped) return;
         const games = payload.games ?? [];
-        const keys = games.map((g) => g.key).filter(Boolean);
-        if (keys.length > 0) setSelectedKeys(keys);
+        // Take only the first (backend now enforces single-game-per-bot).
+        const firstKey = games[0]?.key ?? null;
+        if (firstKey) setSelectedKey(firstKey);
 
         const nextInputs: Record<string, string> = {};
         for (const game of games) {
@@ -340,16 +346,16 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
   }, [allMatches]);
 
   const persistSelection = async (
-    keys: string[],
+    key: string | null,
     slugInputMap: Record<string, string> = polymarketInputByKey,
   ): Promise<boolean> => {
     if (!metamaskAddress) return false;
-    const games: WatchedGameDto[] = keys
-      .map((key) => byKey[key])
-      .filter((m): m is HockeyFeedMatch => Boolean(m))
-      .map((m) => {
+    const games: WatchedGameDto[] = [];
+    if (key !== null) {
+      const m = byKey[key];
+      if (m) {
         const slug = extractMatchSlug(slugInputMap[m.key] ?? "");
-        return {
+        games.push({
           key: m.key,
           sport: "hockey",
           staticId: m.staticId,
@@ -363,8 +369,9 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
           statusAtAdd: m.status,
           matchSlug: slug,
           createdAt: Date.now(),
-        };
-      });
+        });
+      }
+    }
 
     try {
       await fetch(
@@ -377,45 +384,42 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
       );
       return true;
     } catch {
-      // dashboard still works with local cache
       return false;
     }
   };
 
   const toggleGame = (key: string) => {
-    setSelectedKeys((prev) => {
-      const next = prev.includes(key)
-        ? prev.filter((k) => k !== key)
-        : [...prev, key];
-      void persistSelection(next);
-      return next;
-    });
+    if (selectedKey !== null && selectedKey !== key) {
+      // A different game is already selected — user must remove it first.
+      return;
+    }
+    const next = selectedKey === key ? null : key;
+    setSelectedKey(next);
+    void persistSelection(next);
   };
 
   const removeGame = (key: string) => {
-    setSelectedKeys((prev) => {
-      const next = prev.filter((k) => k !== key);
-      void persistSelection(next);
-      return next;
-    });
+    if (selectedKey !== key) return;
+    setSelectedKey(null);
+    void persistSelection(null);
   };
 
   const onPolymarketInputChange = (key: string, value: string) => {
     setSavedSlugByKey((prev) => ({ ...prev, [key]: false }));
     setPolymarketInputByKey((prev) => {
       const next = { ...prev, [key]: value };
-      if (selectedKeys.includes(key)) {
-        void persistSelection(selectedKeys, next);
+      if (selectedKey === key) {
+        void persistSelection(key, next);
       }
       return next;
     });
   };
 
   const savePolymarketUrl = async (key: string) => {
-    if (!selectedKeys.includes(key)) return;
+    if (selectedKey !== key) return;
     const nextMap = { ...polymarketInputByKey };
     setSavingSlugByKey((prev) => ({ ...prev, [key]: true }));
-    const ok = await persistSelection(selectedKeys, nextMap);
+    const ok = await persistSelection(key, nextMap);
     setSavingSlugByKey((prev) => ({ ...prev, [key]: false }));
     setSavedSlugByKey((prev) => ({ ...prev, [key]: ok }));
   };
@@ -444,12 +448,15 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
 
           <div className="hky-day-title">TODAY</div>
           {todayMatches.map((m) => {
-            const added = selectedKeys.includes(m.key);
+            const added = selectedKey === m.key;
+            const blocked = !added && selectedKey !== null;
             return (
               <div key={`today-${m.key}`} className="hky-game-row-wrap">
                 <button
-                  className={`hky-game-row ${added ? "hky-game-row-added" : ""}`}
+                  className={`hky-game-row ${added ? "hky-game-row-added" : ""} ${blocked ? "hky-game-row-blocked" : ""}`}
                   onClick={() => toggleGame(m.key)}
+                  disabled={blocked}
+                  title={blocked ? "Remove the current game first" : undefined}
                 >
                   <div className="hky-game-row-top">
                     <span className="hky-chip">
@@ -464,7 +471,7 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
                     #{m.staticId || m.fixId || m.key}
                   </div>
                   <div className="hky-game-added">
-                    {added ? "Added" : "Add"}
+                    {added ? "Added" : blocked ? "—" : "Add"}
                   </div>
                 </button>
                 {added && (
@@ -514,12 +521,15 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
 
           <div className="hky-day-title">TOMORROW</div>
           {tomorrowMatches.map((m) => {
-            const added = selectedKeys.includes(m.key);
+            const added = selectedKey === m.key;
+            const blocked = !added && selectedKey !== null;
             return (
               <div key={`tomorrow-${m.key}`} className="hky-game-row-wrap">
                 <button
-                  className={`hky-game-row ${added ? "hky-game-row-added" : ""}`}
+                  className={`hky-game-row ${added ? "hky-game-row-added" : ""} ${blocked ? "hky-game-row-blocked" : ""}`}
                   onClick={() => toggleGame(m.key)}
+                  disabled={blocked}
+                  title={blocked ? "Remove the current game first" : undefined}
                 >
                   <div className="hky-game-row-top">
                     <span className="hky-chip">
@@ -534,7 +544,7 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
                     #{m.staticId || m.fixId || m.key}
                   </div>
                   <div className="hky-game-added">
-                    {added ? "Added" : "Add"}
+                    {added ? "Added" : blocked ? "—" : "Add"}
                   </div>
                 </button>
                 {added && (
@@ -586,7 +596,7 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
         <main className="hky-main">
           <LiveManager
             botName="hockey-bot"
-            selectedKeys={selectedKeys}
+            selectedKeys={selectedKey ? [selectedKey] : []}
             baseByKey={byKey}
             metamaskAddress={metamaskAddress}
             onRemove={removeGame}

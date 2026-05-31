@@ -229,9 +229,7 @@ export function LiveManager({
             margin: "0 0 10px 0",
             padding: "8px 12px",
             borderRadius: 8,
-            background: botReady.ready
-              ? "#1b3a1b"
-              : "#3a2000",
+            background: botReady.ready ? "#1b3a1b" : "#3a2000",
             border: `1px solid ${botReady.ready ? "#4caf50" : "#ff9800"}`,
             display: "flex",
             alignItems: "center",
@@ -239,11 +237,16 @@ export function LiveManager({
             fontSize: 12,
           }}
         >
-          <span style={{ fontSize: 16 }}>
-            {botReady.ready ? "✅" : "⏳"}
-          </span>
-          <span style={{ fontWeight: 600, color: botReady.ready ? "#4caf50" : "#ff9800" }}>
-            {botReady.ready ? "Bot ready — will trade on next goal" : "Bot initializing…"}
+          <span style={{ fontSize: 16 }}>{botReady.ready ? "✅" : "⏳"}</span>
+          <span
+            style={{
+              fontWeight: 600,
+              color: botReady.ready ? "#4caf50" : "#ff9800",
+            }}
+          >
+            {botReady.ready
+              ? "Bot ready — will trade on next goal"
+              : "Bot initializing…"}
           </span>
           <span style={{ color: "var(--text-secondary)", marginLeft: 4 }}>
             Market: {botReady.marketReady ? "✓" : "✗"}

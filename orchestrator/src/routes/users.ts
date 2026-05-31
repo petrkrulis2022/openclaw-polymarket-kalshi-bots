@@ -178,7 +178,7 @@ const WATCHLIST_BOTS = new Set([
   "hockey-bot",
 ]);
 const SPORTS_AMOUNT_BOTS = new Set(["hockey-bot", "football-bot"]);
-const DEFAULT_SPORTS_TRADE_AMOUNT_USD = 10;
+const DEFAULT_SPORTS_TRADE_AMOUNT_USD = 1;
 
 function getBotDef(botName: string) {
   return BOT_DEFS.find((b) => b.name === botName);
@@ -1371,6 +1371,7 @@ router.put("/:address/bots/:botName/trade-amount", async (req, res) => {
   const normalizedAmount = Number(amountUsd.toFixed(6));
 
   // Zero always means "disable bot" — skip collateral check
+  // Also skip when the user has no collateral yet (budget is just a limit, not a reservation)
   if (amountUsd > 0) {
     let collateralUsdce: number;
     try {
@@ -1381,28 +1382,30 @@ router.put("/:address/bots/:botName/trade-amount", async (req, res) => {
       });
     }
 
-    const amounts = getSportsTradeAmounts(address);
-    const otherBotName =
-      botName === "hockey-bot" ? "football-bot" : "hockey-bot";
-    const otherAmount = Number(
-      (amounts[otherBotName] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
-    );
-    const nextTotal = Number((normalizedAmount + otherAmount).toFixed(6));
+    if (collateralUsdce > 0) {
+      const amounts = getSportsTradeAmounts(address);
+      const otherBotName =
+        botName === "hockey-bot" ? "football-bot" : "hockey-bot";
+      const otherAmount = Number(
+        (amounts[otherBotName] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
+      );
+      const nextTotal = Number((normalizedAmount + otherAmount).toFixed(6));
 
-    if (nextTotal > collateralUsdce + 1e-9) {
-      return res.status(400).json({
-        error:
-          "Amount higher than collateral. Combined hockey + football trade amounts must be within available collateral.",
-        botName,
-        requestedAmountUsd: normalizedAmount,
-        otherBotName,
-        otherAmountUsd: otherAmount,
-        combinedAmountUsd: nextTotal,
-        collateralUsdce,
-        maxAllowedForThisBotUsd: Number(
-          Math.max(0, collateralUsdce - otherAmount).toFixed(6),
-        ),
-      });
+      if (nextTotal > collateralUsdce + 1e-9) {
+        return res.status(400).json({
+          error:
+            "Amount higher than collateral. Combined hockey + football trade amounts must be within available collateral.",
+          botName,
+          requestedAmountUsd: normalizedAmount,
+          otherBotName,
+          otherAmountUsd: otherAmount,
+          combinedAmountUsd: nextTotal,
+          collateralUsdce,
+          maxAllowedForThisBotUsd: Number(
+            Math.max(0, collateralUsdce - otherAmount).toFixed(6),
+          ),
+        });
+      }
     }
   }
 
@@ -1489,10 +1492,13 @@ router.put("/:address/bots/:botName/watched-games", async (req, res) => {
     })
     .filter((row): row is WatchedGame => row !== null);
 
-  setWatchedGames(address, botName, normalized);
+  // Each bot supports exactly one watched game at a time.
+  const single = normalized.slice(0, 1);
+
+  setWatchedGames(address, botName, single);
 
   const readiness = await probeBotReadiness(user, botName);
-  return res.json({ ok: true, botName, games: normalized, readiness });
+  return res.json({ ok: true, botName, games: single, readiness });
 });
 
 // ── GET /users/:address/bots/hockey-bot/discovery ───────────────────────────
