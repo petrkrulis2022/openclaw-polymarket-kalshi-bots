@@ -103,6 +103,20 @@ interface MarketLifecycleSnapshot {
   checkedAt: string;
 }
 
+interface TriggerTimingMeta {
+  source: "manual" | "auto";
+  clientTriggeredAtMs?: number;
+  serverReceivedAtMs?: number;
+}
+
+interface TriggerTimingResult {
+  source: "manual" | "auto";
+  clientTriggeredAtMs?: number;
+  serverReceivedAtMs?: number;
+  botDetectedAtMs: number;
+  botFilledAtMs?: number;
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 // Resolved user address — starts from env var, then overridden by orchestrator
@@ -587,19 +601,50 @@ async function ensureSigningClientReady(): Promise<void> {
 async function onGoalDetected(
   scorer: "home" | "away",
   state: MatchState,
+  triggerMeta: TriggerTimingMeta = { source: "auto" },
 ): Promise<
-  | { ok: true; reason: "executed"; message: string }
+  | {
+      ok: true;
+      reason: "executed";
+      message: string;
+      timing: TriggerTimingResult;
+    }
   | {
       ok: false;
       reason: "ignored_open_position" | "rejected_market_state" | "error";
       message: string;
+      timing: TriggerTimingResult;
     }
 > {
+  const botDetectedAtMs = Date.now();
+  const timingBase: TriggerTimingResult = {
+    source: triggerMeta.source,
+    clientTriggeredAtMs: triggerMeta.clientTriggeredAtMs,
+    serverReceivedAtMs: triggerMeta.serverReceivedAtMs,
+    botDetectedAtMs,
+  };
+
+  const asIso = (ms?: number): string =>
+    ms && Number.isFinite(ms) ? new Date(ms).toISOString() : "n/a";
+  const asLatency = (from?: number, to?: number): string =>
+    from && to && Number.isFinite(from) && Number.isFinite(to)
+      ? `${Math.max(0, to - from)}ms`
+      : "n/a";
+
+  console.log(
+    `[trigger] source=${timingBase.source} client=${asIso(timingBase.clientTriggeredAtMs)} server=${asIso(timingBase.serverReceivedAtMs)} bot_detect=${asIso(timingBase.botDetectedAtMs)} click→detect=${asLatency(timingBase.clientTriggeredAtMs, timingBase.botDetectedAtMs)} server→detect=${asLatency(timingBase.serverReceivedAtMs, timingBase.botDetectedAtMs)}`,
+  );
+
   const lifecycle = await readMarketLifecycleSnapshot();
   if (!lifecycle) {
     const message = "Lifecycle probe unavailable — skipping manual trigger";
     console.warn(`[trade] ⚠️  ${message}`);
-    return { ok: false, reason: "rejected_market_state", message };
+    return {
+      ok: false,
+      reason: "rejected_market_state",
+      message,
+      timing: timingBase,
+    };
   }
   if (
     lifecycleLooksEnded(lifecycle) ||
@@ -610,19 +655,29 @@ async function onGoalDetected(
       `Market not tradable (status=${lifecycle.gamma.rawStatus} active=${lifecycle.gamma.active} ` +
       `closed=${lifecycle.gamma.closed} resolved=${lifecycle.gamma.resolved} tradable=${lifecycle.tradable})`;
     console.warn(`[trade] ⚠️  ${message}`);
-    return { ok: false, reason: "rejected_market_state", message };
+    return {
+      ok: false,
+      reason: "rejected_market_state",
+      message,
+      timing: timingBase,
+    };
   }
 
   if (openPosition) {
     const message = `Position already open (${openPosition.label})`;
     console.log(`[trade] ⚠️  ${message} — skipping`);
-    return { ok: false, reason: "ignored_open_position", message };
+    return {
+      ok: false,
+      reason: "ignored_open_position",
+      message,
+      timing: timingBase,
+    };
   }
 
   if (runtimeMaxPositionUsd === 0) {
     const message = "Bot disabled: trade amount is 0";
     console.log(`[trade] ⚠️  ${message} — skipping`);
-    return { ok: false, reason: "error", message };
+    return { ok: false, reason: "error", message, timing: timingBase };
   }
 
   const isHomeGoal = scorer === "home";
@@ -666,7 +721,7 @@ async function onGoalDetected(
   if (spendAmountUsd <= 0) {
     const message = "Configured trade amount is non-positive";
     console.warn(`[trade] ⚠️  Skipping BUY: ${message}`);
-    return { ok: false, reason: "error", message };
+    return { ok: false, reason: "error", message, timing: timingBase };
   }
   console.log(
     `[trade] BUY spend precheck: available=${fmt(availableCollateralUsd, 6)} buffer=${fmt(BUY_BALANCE_BUFFER_USD, 4)} spend=${fmt(spendAmountUsd, 6)}`,
@@ -751,8 +806,13 @@ async function onGoalDetected(
   if (!fill || !(fill.filledShares > 0)) {
     const message = `All ${MAX_BUY_ATTEMPTS} BUY attempts returned zero fill — no position opened`;
     console.warn(`[trade] ⚠️  ${message}`);
-    return { ok: false, reason: "error", message };
+    return { ok: false, reason: "error", message, timing: timingBase };
   }
+
+  const botFilledAtMs = Date.now();
+  console.log(
+    `[trigger] fill=${asIso(botFilledAtMs)} detect→fill=${asLatency(botDetectedAtMs, botFilledAtMs)} click→fill=${asLatency(timingBase.clientTriggeredAtMs, botFilledAtMs)}`,
+  );
 
   const avgPrice = fill.filledUsdc / fill.filledShares;
 
@@ -784,6 +844,10 @@ async function onGoalDetected(
     ok: true,
     reason: "executed",
     message: `Bought ${fill.filledShares} shares of ${label} at avg ${fmt(avgPrice)}`,
+    timing: {
+      ...timingBase,
+      botFilledAtMs,
+    },
   };
 }
 
@@ -1199,6 +1263,13 @@ httpApp.get("/watchlist-state/:key", (req, res) => {
 httpApp.post("/manual-trigger", async (req, res) => {
   const sideRaw = String((req.body as { side?: unknown })?.side ?? "").trim();
   const keyRaw = String((req.body as { key?: unknown })?.key ?? "").trim();
+  const rawClientTriggeredAtMs = (req.body as { clientTriggeredAtMs?: unknown })
+    ?.clientTriggeredAtMs;
+  const parsedClientTriggeredAtMs = Number(rawClientTriggeredAtMs);
+  const clientTriggeredAtMs = Number.isFinite(parsedClientTriggeredAtMs)
+    ? parsedClientTriggeredAtMs
+    : undefined;
+  const serverReceivedAtMs = Date.now();
   if (sideRaw !== "home" && sideRaw !== "away") {
     return res.status(400).json({
       ok: false,
@@ -1229,7 +1300,11 @@ httpApp.post("/manual-trigger", async (req, res) => {
     teamAway: row.awayTeam,
   };
 
-  const triggerResult = await onGoalDetected(sideRaw, manualState);
+  const triggerResult = await onGoalDetected(sideRaw, manualState, {
+    source: "manual",
+    clientTriggeredAtMs,
+    serverReceivedAtMs,
+  });
 
   if (triggerResult.ok) {
     watchlistLiveState.set(key, {
@@ -1250,6 +1325,7 @@ httpApp.post("/manual-trigger", async (req, res) => {
       scoreHome: nextScoreHome,
       scoreAway: nextScoreAway,
       message: triggerResult.message,
+      timing: triggerResult.timing,
     });
   }
 
@@ -1261,6 +1337,7 @@ httpApp.post("/manual-trigger", async (req, res) => {
     scoreHome: row.scoreHome,
     scoreAway: row.scoreAway,
     message: triggerResult.message,
+    timing: triggerResult.timing,
   });
 });
 

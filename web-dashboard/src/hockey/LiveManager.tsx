@@ -164,12 +164,13 @@ export function LiveManager({
     }));
 
     try {
+      const clientTriggeredAtMs = Date.now();
       const res = await fetch(
         `/api/orchestrator/users/${metamaskAddress}/bots/${botName}/manual-trigger`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key, side }),
+          body: JSON.stringify({ key, side, clientTriggeredAtMs }),
         },
       );
       const payload = (await res.json()) as {
