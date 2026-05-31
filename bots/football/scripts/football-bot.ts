@@ -430,7 +430,6 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
 }
 
 function startWatchedGamesWatcher(): void {
-function startWatchedGamesWatcher(): void {
   const ms = Math.max(2_000, config.orchestrator.watchedGamesPollMs);
   setInterval(async () => {
     // If address wasn't resolved at startup, keep retrying (orchestrator may have been updating)
