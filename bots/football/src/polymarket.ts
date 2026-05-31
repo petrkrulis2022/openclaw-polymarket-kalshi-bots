@@ -379,6 +379,25 @@ export async function fetchHomeTeamMarket(
 let _readClient: ClobClient | null = null;
 let _signingClient: ClobClient | null = null;
 
+/**
+ * Runtime-settable overrides for Polymarket credentials.
+ * Set by the bot after fetching from the orchestrator's /bots/polymarket-config
+ * endpoint, so the bot doesn't need BOT_SIGNER_KEY / POLYMARKET_* env vars.
+ * Resetting _signingClient to null after patching allows getSigningClient() to
+ * pick up the new values on the next call.
+ */
+export const polymarketOverrides: {
+  signerKey?: string;
+  walletAddress?: string;
+  funderAddress?: string;
+  signatureType?: SignatureTypeV2;
+} = {};
+
+/** Call this after populating polymarketOverrides to force re-init. */
+export function resetSigningClient(): void {
+  _signingClient = null;
+}
+
 function getReadClient(): ClobClient {
   if (_readClient) return _readClient;
   _readClient = new ClobClient({
@@ -391,7 +410,9 @@ function getReadClient(): ClobClient {
 export async function getSigningClient(): Promise<ClobClient> {
   if (_signingClient) return _signingClient;
 
-  const rawKey = config.polymarket.signerKey.trim();
+  const rawKey = (
+    polymarketOverrides.signerKey ?? config.polymarket.signerKey
+  ).trim();
   if (!rawKey) throw new Error("BOT_SIGNER_KEY not set");
   const keyNoPrefix = rawKey.startsWith("0x") ? rawKey.slice(2) : rawKey;
   if (!/^[0-9a-fA-F]{64}$/.test(keyNoPrefix)) {
@@ -408,16 +429,21 @@ export async function getSigningClient(): Promise<ClobClient> {
     transport: http(),
   });
 
+  const effectiveSignatureType =
+    polymarketOverrides.signatureType ?? config.polymarket.signatureType;
+  const effectiveFunderAddress =
+    polymarketOverrides.funderAddress ?? config.polymarket.funderAddress;
+
   const tempClient = new ClobClient({
     host: config.polymarket.host,
     chain: Chain.POLYGON,
     signer: signer as any,
-    signatureType: config.polymarket.signatureType,
-    funderAddress: config.polymarket.funderAddress || undefined,
+    signatureType: effectiveSignatureType,
+    funderAddress: effectiveFunderAddress || undefined,
   });
 
   console.log(
-    `[clob] Deriving API key for ${account.address} (sig_type=${config.polymarket.signatureType})...`,
+    `[clob] Deriving API key for ${account.address} (sig_type=${effectiveSignatureType})...`,
   );
 
   const origConsoleError = console.error;
@@ -458,8 +484,8 @@ export async function getSigningClient(): Promise<ClobClient> {
     chain: Chain.POLYGON,
     signer: signer as any,
     creds: creds as any,
-    signatureType: config.polymarket.signatureType,
-    funderAddress: config.polymarket.funderAddress || undefined,
+    signatureType: effectiveSignatureType,
+    funderAddress: effectiveFunderAddress || undefined,
   });
 
   return _signingClient;

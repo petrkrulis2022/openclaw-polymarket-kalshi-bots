@@ -39,9 +39,9 @@ module.exports = {
       watch: false,
       autorestart: true,
     },
-    // ── Sports bots — user slot 15 (bot_wallet_index 25) ──────────────────
+    // ── Sports bots — user slot 15 (bot_wallet_index 15) ──────────────────
     // Port formula: 4010 + (botWalletIndex - 10) * 10 + portOffset
-    // slot 15 → base port 4160; hockey portOffset=5 → 4165; football portOffset=6 → 4166
+    // slot 15 → base port 4060; hockey portOffset=5 → 4065; football portOffset=6 → 4066
     {
       name: "hockey-bot-u5",
       cwd: "./bots/hockey",
