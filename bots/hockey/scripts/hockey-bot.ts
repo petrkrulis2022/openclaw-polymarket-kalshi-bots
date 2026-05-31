@@ -1,8 +1,8 @@
 /**
  * hockey-bot.ts — Live Score-Triggered Trading Bot
  *
- * Strategy (data-lag arbitrage):
- *   1. Goalserve delivers a scoring update before Gamma/CLOB reprices
+ * Strategy (manual score-trigger arbitrage):
+ *   1. User confirms score event in dashboard before Gamma/CLOB reprices
  *   2. Bot immediately buys at the stale CLOB price
  *   3. Waits for CLOB bid to move up as market reprices
  *   4. Sells for profit as soon as bid clears the profit threshold
@@ -20,7 +20,7 @@ import "../src/config.js"; // side-effect: loads dotenv
 import express from "express";
 import { config } from "../src/config.js";
 
-// MatchState type (previously imported from goalserve, now inlined)
+// MatchState payload used by manual-trigger endpoint.
 interface MatchState {
   staticId: string;
   status: string;
@@ -349,13 +349,14 @@ async function resolvePolymarketConfigFromOrchestrator(): Promise<void> {
       console.warn(`[setup] polymarket-config returned no signerKey`);
       return;
     }
-    const { polymarketOverrides, resetSigningClient } = await import(
-      "../src/polymarket.js"
-    );
+    const { polymarketOverrides, resetSigningClient } =
+      await import("../src/polymarket.js");
     const { SignatureTypeV2 } = await import("@polymarket/clob-client-v2");
     polymarketOverrides.signerKey = data.signerKey;
-    if (data.walletAddress) polymarketOverrides.walletAddress = data.walletAddress;
-    if (data.funderAddress) polymarketOverrides.funderAddress = data.funderAddress;
+    if (data.walletAddress)
+      polymarketOverrides.walletAddress = data.walletAddress;
+    if (data.funderAddress)
+      polymarketOverrides.funderAddress = data.funderAddress;
     if (data.signatureType === "POLY_1271") {
       polymarketOverrides.signatureType = SignatureTypeV2.POLY_1271;
     } else if (data.signatureType === "POLY_PROXY") {
@@ -391,7 +392,9 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
     const payload = (await res.json()) as { games?: WatchedGame[] };
     // Sort by createdAt descending so the most recently added game is [0].
     watchedGames = Array.isArray(payload.games)
-      ? [...payload.games].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+      ? [...payload.games].sort(
+          (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0),
+        )
       : [];
     seedWatchlistStateFromWatchedGames();
     if (watchedGames.length === 0) {

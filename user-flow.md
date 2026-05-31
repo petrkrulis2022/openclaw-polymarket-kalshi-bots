@@ -30,30 +30,23 @@ You'll see its address displayed. You need to send **USDT on Polygon** to it:
 
 ---
 
-## 3. Step 2 — Generate Polymarket API Keys
+## 3. Step 2 — Deposit Collateral to Polymarket
 
-Polymarket requires API keys tied to the **bot wallet address** (not your MetaMask). This is because orders are placed from the bot wallet.
-
-Steps:
-
-1. Go to [polymarket.com/settings](https://polymarket.com/settings)
-2. In MetaMask, **import the bot wallet** using its private key (retrievable from the treasury if needed)
-3. Switch MetaMask to the bot wallet account
-4. Go to **API Keys → Create Key**
-5. Copy the **API Key, API Secret, and Passphrase**
-6. Paste all three into the OpenClaw form and click **Save**
-
----
-
-## 4. Step 3 — Activate Bots
+The bot trades on Polymarket using your **WDK Deposit Wallet** (shown in the dashboard as "Deposit Wallet (Polymarket POLY_1271)"). Funds must be moved there from the Bot EOA before bots can trade.
 
 ### Convert USDT → USDC.e
 
-Bots trade with USDC.e (Polymarket's accepted stablecoin), not USDT.
+Click **Convert X USDT → USDC.e** in the dashboard. This triggers a Uniswap V3 swap on Polygon. Wait ~10–30 seconds for confirmation.
 
-- Click **Convert X USDT → USDC.e** — this triggers a Uniswap V3 swap on-chain (stable pair, 0.01% fee)
-- Wait ~10–30 seconds for the transaction to confirm on Polygon
-- A PolygonScan link appears when done
+### Deposit USDC.e to Polymarket
+
+Click **Deposit USDC.e → Polymarket**. This moves USDC.e from the Bot EOA into the WDK Deposit Wallet (`0x50f0aC2...`). The bots trade directly from this wallet using POLY_1271 signing — **no Polymarket API keys are needed and you should NOT connect any wallet to polymarket.com for this flow.**
+
+> ⚠️ Never connect the Bot EOA or any OpenClaw wallet directly to polymarket.com. The bot handles Polymarket interaction automatically via the POLY_1271 signature standard.
+
+---
+
+## 4. Step 3 — Configure and Start Bots
 
 ### Autonomous Mode (optional)
 

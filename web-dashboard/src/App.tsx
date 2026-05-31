@@ -4760,7 +4760,7 @@ export default function App() {
                         convertFunds().then(() => refreshBalance())
                       }
                     >
-                      Convert USDT → pUSD
+                      Convert USDT → USDC.e
                     </button>
                     <label
                       style={{

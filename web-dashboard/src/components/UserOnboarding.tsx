@@ -430,7 +430,7 @@ export function UserOnboarding({
             </div>
           )}
 
-          {/* Convert USDT → pUSD if any USDT on EOA */}
+          {/* Convert USDT → USDC.e if any USDT on EOA */}
           {usdtBalance > 0 && (
             <div
               style={{
@@ -441,7 +441,7 @@ export function UserOnboarding({
               }}
             >
               <div style={{ fontWeight: 600, marginBottom: 6 }}>
-                Convert USDT → pUSD
+                Convert USDT → USDC.e
               </div>
               <p
                 style={{

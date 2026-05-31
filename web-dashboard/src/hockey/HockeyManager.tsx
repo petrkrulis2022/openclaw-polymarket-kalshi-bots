@@ -10,6 +10,7 @@ type Props = {
 
 const STORAGE_KEY = "openclaw:hockey:selected-games";
 const BOT_NAME = "hockey-bot";
+const SINGLE_KEY = "manual-hockey";
 
 type WatchedGameDto = {
   key: string;
@@ -27,11 +28,18 @@ type WatchedGameDto = {
   createdAt: number;
 };
 
+type BotReadinessDto = {
+  ready?: boolean;
+  stage?: string;
+  unreachable?: boolean;
+  missing?: string[];
+  error?: string;
+};
+
 function extractMatchSlug(input: string): string | undefined {
   const raw = input.trim();
   if (!raw) return undefined;
 
-  // Allow full Polymarket URL, path, or direct slug value.
   let candidate = raw;
   try {
     const url = new URL(raw);
@@ -49,194 +57,25 @@ function extractMatchSlug(input: string): string | undefined {
   return slug;
 }
 
-function asArray<T>(value: T | T[] | null | undefined): T[] {
-  if (Array.isArray(value)) return value;
-  return value == null ? [] : [value];
-}
-
-function parseScore(value: unknown): number {
-  const n = Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function parseKickoffTimestamp(match: HockeyFeedMatch): number {
-  const date = String(match.date ?? "").trim();
-  const time = String(match.time ?? "").trim();
-  const dateMatch = date.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  const timeMatch = time.match(/^(\d{1,2}):(\d{2})$/);
-  if (!dateMatch) return Number.POSITIVE_INFINITY;
-
-  const day = Number(dateMatch[1]);
-  const month = Number(dateMatch[2]);
-  const year = Number(dateMatch[3]);
-  const hours = timeMatch ? Number(timeMatch[1]) : 0;
-  const minutes = timeMatch ? Number(timeMatch[2]) : 0;
-
-  // Goalserve times are UTC-like in these feeds; this keeps ordering consistent.
-  return Date.UTC(year, month - 1, day, hours, minutes);
-}
-
-function rebucketByKickoffWindow(matches: HockeyFeedMatch[]): {
-  today: HockeyFeedMatch[];
-  tomorrow: HockeyFeedMatch[];
-} {
-  const now = Date.now();
-  const next24h = now + 24 * 60 * 60 * 1000;
-  const sorted = [...matches].sort(
-    (a, b) => parseKickoffTimestamp(a) - parseKickoffTimestamp(b),
-  );
-
-  const today = sorted.filter((m) => {
-    const ts = parseKickoffTimestamp(m);
-    return Number.isFinite(ts) && ts <= next24h;
-  });
-
-  const tomorrow = sorted.filter((m) => {
-    const ts = parseKickoffTimestamp(m);
-    return Number.isFinite(ts) && ts > next24h;
-  });
-
-  if (today.length === 0 && tomorrow.length === 0) {
-    return { today: sorted, tomorrow: [] };
-  }
-
-  if (today.length === 0 && tomorrow.length > 0) {
-    // Fallback: keep first upcoming block visible as "Today" instead of empty UI.
-    return { today: tomorrow, tomorrow: [] };
-  }
-
-  return { today, tomorrow };
-}
-
-function readField(
-  obj: Record<string, unknown> | undefined,
-  ...keys: string[]
-): unknown {
-  if (!obj) return undefined;
-  for (const key of keys) {
-    if (key in obj) return obj[key];
-  }
-  return undefined;
-}
-
-function normalizeFeed(
-  payload: unknown,
-  bucket: "today" | "tomorrow",
-): HockeyFeedMatch[] {
-  const root = payload as Record<string, unknown>;
-  const scores = root["scores"] as Record<string, unknown> | undefined;
-  const categories = asArray(
-    (scores?.["category"] as
-      | Record<string, unknown>
-      | Record<string, unknown>[]
-      | undefined) ?? [],
-  );
-
-  const matches: HockeyFeedMatch[] = [];
-
-  for (const cat of categories) {
-    const country = String(readField(cat, "country", "@file_group") ?? "");
-    const leagueName = String(
-      (readField(cat, "name", "@name") ?? country) || "Hockey",
-    );
-    const matchesContainer =
-      (cat["matches"] as Record<string, unknown> | undefined) ?? {};
-    const rawMatches = asArray(
-      ((matchesContainer["match"] ?? cat["match"]) as
-        | Record<string, unknown>
-        | Record<string, unknown>[]
-        | undefined) ?? [],
-    );
-
-    for (const rawMatch of rawMatches) {
-      const local =
-        (rawMatch["localteam"] as Record<string, unknown> | undefined) ?? {};
-      const visitor =
-        (rawMatch["awayteam"] as Record<string, unknown> | undefined) ??
-        (rawMatch["visitorteam"] as Record<string, unknown> | undefined) ??
-        {};
-      const id = String(readField(rawMatch, "id", "@id") ?? "");
-      const fixId = String(readField(rawMatch, "fix_id", "@fix_id") ?? id);
-      const staticId = id || fixId;
-      const homeTeam = String(readField(local, "name", "@name") ?? "Home");
-      const awayTeam = String(readField(visitor, "name", "@name") ?? "Away");
-      const status = String(
-        readField(rawMatch, "status", "@status") ?? "Not Started",
-      );
-      const timer = String(readField(rawMatch, "timer", "@timer") ?? "");
-      const date = String(
-        readField(rawMatch, "date", "@formatted_date") ??
-          readField(matchesContainer, "@formatted_date") ??
-          "",
-      );
-      const time = String(readField(rawMatch, "time", "@time") ?? "");
-      const scoreHome = parseScore(
-        readField(local, "totalscore", "@goals", "goals", "@score", "score"),
-      );
-      const scoreAway = parseScore(
-        readField(visitor, "totalscore", "@goals", "goals", "@score", "score"),
-      );
-      const key = staticId || fixId || `${homeTeam}-${awayTeam}-${date}`;
-
-      if (!homeTeam || !awayTeam) continue;
-
-      matches.push({
-        key,
-        staticId,
-        fixId,
-        leagueName,
-        country,
-        homeTeam,
-        awayTeam,
-        status,
-        timer,
-        scoreHome,
-        scoreAway,
-        periodScores: [],
-        events: [],
-        date,
-        time,
-        bucket,
-      });
-    }
-  }
-
-  return matches;
-}
-
 export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [todayMatches, setTodayMatches] = useState<HockeyFeedMatch[]>([]);
-  const [tomorrowMatches, setTomorrowMatches] = useState<HockeyFeedMatch[]>([]);
-  // Single-slot: only one game can be watched at a time.
   const [selectedKey, setSelectedKey] = useState<string | null>(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as unknown;
-      // Support legacy array format stored by old code.
-      if (Array.isArray(parsed))
-        return (parsed[0] as string | undefined) ?? null;
-      if (typeof parsed === "string") return parsed || null;
-      return null;
+      return raw ? SINGLE_KEY : null;
     } catch {
       return null;
     }
   });
-  const [polymarketInputByKey, setPolymarketInputByKey] = useState<
-    Record<string, string>
-  >({});
-  const [savingSlugByKey, setSavingSlugByKey] = useState<
-    Record<string, boolean>
-  >({});
-  const [savedSlugByKey, setSavedSlugByKey] = useState<Record<string, boolean>>(
-    {},
-  );
+  const [polymarketInput, setPolymarketInput] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [assignmentStatus, setAssignmentStatus] = useState<string | null>(null);
+  const [homeTeam, setHomeTeam] = useState("Team A");
+  const [awayTeam, setAwayTeam] = useState("Team B");
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, selectedKey ?? "");
-  }, [selectedKey]);
+    localStorage.setItem(STORAGE_KEY, selectedKey ? polymarketInput : "");
+  }, [selectedKey, polymarketInput]);
 
   useEffect(() => {
     let stopped = false;
@@ -250,18 +89,15 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
         if (!res.ok) return;
         const payload = (await res.json()) as { games?: WatchedGameDto[] };
         if (stopped) return;
-        const games = payload.games ?? [];
-        // Take only the first (backend now enforces single-game-per-bot).
-        const firstKey = games[0]?.key ?? null;
-        if (firstKey) setSelectedKey(firstKey);
-
-        const nextInputs: Record<string, string> = {};
-        for (const game of games) {
-          if (game.matchSlug) {
-            nextInputs[game.key] = game.matchSlug;
-          }
+        const game = payload.games?.[0];
+        if (!game) {
+          setSelectedKey(null);
+          return;
         }
-        setPolymarketInputByKey(nextInputs);
+        setSelectedKey(SINGLE_KEY);
+        setPolymarketInput(game.matchSlug ?? "");
+        if (game.homeTeam) setHomeTeam(game.homeTeam);
+        if (game.awayTeam) setAwayTeam(game.awayTeam);
       } catch {
         // local fallback remains active
       }
@@ -273,108 +109,35 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
     };
   }, [metamaskAddress]);
 
-  useEffect(() => {
-    let stopped = false;
-
-    const load = async () => {
-      if (!metamaskAddress) {
-        setLoading(false);
-        setError("Connect wallet to load hockey games");
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const res = await fetch(
-          `/api/orchestrator/users/${metamaskAddress}/bots/hockey-bot/discovery/world-championship`,
-        );
-        if (!res.ok) {
-          throw new Error(`Discovery feed failed (${res.status})`);
-        }
-        const payload = (await res.json()) as {
-          today?: unknown;
-          tomorrow?: unknown;
-        };
-
-        if (stopped) return;
-
-        const today = normalizeFeed(payload.today, "today");
-        const tomorrow = normalizeFeed(payload.tomorrow, "tomorrow");
-        const all = [...today, ...tomorrow];
-
-        // Backend endpoint is strict World Championship only.
-        const wcOnly = all;
-        if (wcOnly.length === 0) {
-          setError(
-            "No World Championship matches returned by Goalserve right now",
-          );
-          return;
-        }
-
-        const rebucketed = rebucketByKickoffWindow(wcOnly);
-        setTodayMatches(rebucketed.today);
-        setTomorrowMatches(rebucketed.tomorrow);
-      } catch (err) {
-        if (!stopped) {
-          setError(
-            err instanceof Error ? err.message : "Failed to load hockey feed",
-          );
-        }
-      } finally {
-        if (!stopped) setLoading(false);
-      }
-    };
-
-    void load();
-    const id = setInterval(() => void load(), 10_000);
-    return () => {
-      stopped = true;
-      clearInterval(id);
-    };
-  }, [metamaskAddress]);
-
-  const allMatches = useMemo(() => {
-    return [...todayMatches, ...tomorrowMatches];
-  }, [todayMatches, tomorrowMatches]);
-
-  const byKey = useMemo(() => {
-    const map: Record<string, HockeyFeedMatch> = {};
-    for (const m of allMatches) map[m.key] = m;
-    return map;
-  }, [allMatches]);
-
   const persistSelection = async (
-    key: string | null,
-    slugInputMap: Record<string, string> = polymarketInputByKey,
+    slugInput: string,
+    clear = false,
   ): Promise<boolean> => {
     if (!metamaskAddress) return false;
-    const games: WatchedGameDto[] = [];
-    if (key !== null) {
-      const m = byKey[key];
-      if (m) {
-        const slug = extractMatchSlug(slugInputMap[m.key] ?? "");
-        games.push({
-          key: m.key,
-          sport: "hockey",
-          staticId: m.staticId,
-          fixId: m.fixId,
-          leagueName: m.leagueName,
-          country: m.country,
-          homeTeam: m.homeTeam,
-          awayTeam: m.awayTeam,
-          date: m.date,
-          time: m.time,
-          statusAtAdd: m.status,
-          matchSlug: slug,
-          createdAt: Date.now(),
-        });
-      }
+
+    const slug = extractMatchSlug(slugInput);
+    if (!clear && !slug) {
+      setAssignmentStatus("Enter a valid Polymarket URL or slug");
+      return false;
     }
 
+    const games: WatchedGameDto[] = clear
+      ? []
+      : [
+          {
+            key: SINGLE_KEY,
+            sport: "hockey",
+            homeTeam,
+            awayTeam,
+            leagueName: "Polymarket URL",
+            statusAtAdd: "Manual Trigger",
+            matchSlug: slug,
+            createdAt: Date.now(),
+          },
+        ];
+
     try {
-      await fetch(
+      const res = await fetch(
         `/api/orchestrator/users/${metamaskAddress}/bots/${BOT_NAME}/watched-games`,
         {
           method: "PUT",
@@ -382,53 +145,82 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
           body: JSON.stringify({ games }),
         },
       );
+      if (!res.ok) {
+        setAssignmentStatus(`Save failed (${res.status})`);
+        return false;
+      }
+
+      const payload = (await res.json()) as { readiness?: BotReadinessDto };
+      const readiness = payload.readiness;
+      if (clear) {
+        setAssignmentStatus("Game removed");
+      } else if (readiness?.ready) {
+        setAssignmentStatus("Bot ready and listening to this market");
+      } else if (readiness?.unreachable) {
+        setAssignmentStatus("Bot offline: start bot to activate game");
+      } else if (readiness) {
+        const missing = (readiness.missing ?? []).join(", ") || "setup";
+        setAssignmentStatus(`Bot initializing: waiting for ${missing}`);
+      } else {
+        setAssignmentStatus("Game saved");
+      }
       return true;
     } catch {
+      setAssignmentStatus("Save failed: orchestrator unavailable");
       return false;
     }
   };
 
-  const toggleGame = (key: string) => {
-    if (selectedKey !== null && selectedKey !== key) {
-      // A different game is already selected — user must remove it first.
-      return;
+  const save = async (): Promise<void> => {
+    setSaved(false);
+    setSaving(true);
+    const ok = await persistSelection(polymarketInput, false);
+    setSaving(false);
+    if (ok) {
+      setSelectedKey(SINGLE_KEY);
+      setSaved(true);
     }
-    const next = selectedKey === key ? null : key;
-    setSelectedKey(next);
-    void persistSelection(next);
   };
 
-  const removeGame = (key: string) => {
-    if (selectedKey !== key) return;
-    setSelectedKey(null);
-    void persistSelection(null);
+  const clear = async (): Promise<void> => {
+    setSaving(true);
+    const ok = await persistSelection("", true);
+    setSaving(false);
+    if (ok) {
+      setSelectedKey(null);
+      setSaved(false);
+    }
   };
 
-  const onPolymarketInputChange = (key: string, value: string) => {
-    setSavedSlugByKey((prev) => ({ ...prev, [key]: false }));
-    setPolymarketInputByKey((prev) => {
-      const next = { ...prev, [key]: value };
-      if (selectedKey === key) {
-        void persistSelection(key, next);
-      }
-      return next;
-    });
-  };
-
-  const savePolymarketUrl = async (key: string) => {
-    if (selectedKey !== key) return;
-    const nextMap = { ...polymarketInputByKey };
-    setSavingSlugByKey((prev) => ({ ...prev, [key]: true }));
-    const ok = await persistSelection(key, nextMap);
-    setSavingSlugByKey((prev) => ({ ...prev, [key]: false }));
-    setSavedSlugByKey((prev) => ({ ...prev, [key]: ok }));
-  };
+  const byKey = useMemo(() => {
+    const slug = extractMatchSlug(polymarketInput) ?? "";
+    if (!selectedKey || !slug) return {};
+    const item: HockeyFeedMatch = {
+      key: SINGLE_KEY,
+      staticId: "",
+      fixId: "",
+      leagueName: "Polymarket Manual",
+      country: "",
+      homeTeam,
+      awayTeam,
+      status: "Manual Trigger",
+      timer: "",
+      scoreHome: 0,
+      scoreAway: 0,
+      periodScores: [],
+      events: [`Listening to slug: ${slug}`],
+      date: "",
+      time: "",
+      bucket: "today",
+    };
+    return { [SINGLE_KEY]: item };
+  }, [selectedKey, polymarketInput, homeTeam, awayTeam]);
 
   return (
     <div className="hky-shell">
       <div className="hky-header">
         <div className="hky-brand">goal.live</div>
-        <div className="hky-filter-chip">ICE HOCKEY WC</div>
+        <div className="hky-filter-chip">ICE HOCKEY</div>
         <div className="hky-header-right">
           <button className="hky-small-btn" onClick={onBack}>
             Back
@@ -438,159 +230,75 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
 
       <div className="hky-layout">
         <aside className="hky-sidebar">
-          <div className="hky-sidebar-title">Add Game</div>
+          <div className="hky-sidebar-title">Set Polymarket Game</div>
           <div className="hky-sidebar-subtitle">
-            {botName} · Goalserve hockey feed
+            {botName} · URL-only mode (no Goalserve feed)
           </div>
 
-          {loading && <div className="hky-muted">Loading games...</div>}
-          {error && <div className="hky-error">{error}</div>}
+          <div className="hky-polymarket-box" style={{ marginTop: 16 }}>
+            <label className="hky-polymarket-label" htmlFor="hky-poly-url">
+              Polymarket URL or slug
+            </label>
+            <input
+              id="hky-poly-url"
+              className="hky-polymarket-input"
+              placeholder="https://polymarket.com/sports/..."
+              value={polymarketInput}
+              onChange={(e) => {
+                setSaved(false);
+                setPolymarketInput(e.target.value);
+              }}
+            />
 
-          <div className="hky-day-title">TODAY</div>
-          {todayMatches.map((m) => {
-            const added = selectedKey === m.key;
-            const blocked = !added && selectedKey !== null;
-            return (
-              <div key={`today-${m.key}`} className="hky-game-row-wrap">
-                <button
-                  className={`hky-game-row ${added ? "hky-game-row-added" : ""} ${blocked ? "hky-game-row-blocked" : ""}`}
-                  onClick={() => toggleGame(m.key)}
-                  disabled={blocked}
-                  title={blocked ? "Remove the current game first" : undefined}
-                >
-                  <div className="hky-game-row-top">
-                    <span className="hky-chip">
-                      {m.status || "Not Started"}
-                    </span>
-                    <span className="hky-muted">{m.time} UTC</span>
-                  </div>
-                  <div className="hky-game-title">
-                    {m.homeTeam} vs {m.awayTeam}
-                  </div>
-                  <div className="hky-game-id">
-                    #{m.staticId || m.fixId || m.key}
-                  </div>
-                  <div className="hky-game-added">
-                    {added ? "Added" : blocked ? "—" : "Add"}
-                  </div>
-                </button>
-                {added && (
-                  <div className="hky-polymarket-box">
-                    <label
-                      className="hky-polymarket-label"
-                      htmlFor={`poly-${m.key}`}
-                    >
-                      Polymarket URL or slug
-                    </label>
-                    <input
-                      id={`poly-${m.key}`}
-                      className="hky-polymarket-input"
-                      placeholder="https://polymarket.com/sports/iihf/wch-svk-cze-2026-05-23"
-                      value={polymarketInputByKey[m.key] ?? ""}
-                      onChange={(e) =>
-                        onPolymarketInputChange(m.key, e.target.value)
-                      }
-                      onBlur={() => {
-                        void savePolymarketUrl(m.key);
-                      }}
-                    />
-                    <div className="hky-polymarket-actions">
-                      <button
-                        className="hky-save-url-btn"
-                        onClick={() => {
-                          void savePolymarketUrl(m.key);
-                        }}
-                        disabled={savingSlugByKey[m.key] === true}
-                      >
-                        {savingSlugByKey[m.key] ? "Saving..." : "Save URL"}
-                      </button>
-                      {savedSlugByKey[m.key] ? (
-                        <span className="hky-polymarket-saved">Saved</span>
-                      ) : null}
-                    </div>
-                    <div className="hky-polymarket-hint">
-                      Saved to bot as slug:{" "}
-                      {extractMatchSlug(polymarketInputByKey[m.key] ?? "") ||
-                        "(none yet)"}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+            <label
+              className="hky-polymarket-label"
+              htmlFor="hky-home-team"
+              style={{ marginTop: 10 }}
+            >
+              Team A label
+            </label>
+            <input
+              id="hky-home-team"
+              className="hky-polymarket-input"
+              value={homeTeam}
+              onChange={(e) => setHomeTeam(e.target.value || "Team A")}
+            />
 
-          <div className="hky-day-title">TOMORROW</div>
-          {tomorrowMatches.map((m) => {
-            const added = selectedKey === m.key;
-            const blocked = !added && selectedKey !== null;
-            return (
-              <div key={`tomorrow-${m.key}`} className="hky-game-row-wrap">
-                <button
-                  className={`hky-game-row ${added ? "hky-game-row-added" : ""} ${blocked ? "hky-game-row-blocked" : ""}`}
-                  onClick={() => toggleGame(m.key)}
-                  disabled={blocked}
-                  title={blocked ? "Remove the current game first" : undefined}
-                >
-                  <div className="hky-game-row-top">
-                    <span className="hky-chip">
-                      {m.status || "Not Started"}
-                    </span>
-                    <span className="hky-muted">{m.time} UTC</span>
-                  </div>
-                  <div className="hky-game-title">
-                    {m.homeTeam} vs {m.awayTeam}
-                  </div>
-                  <div className="hky-game-id">
-                    #{m.staticId || m.fixId || m.key}
-                  </div>
-                  <div className="hky-game-added">
-                    {added ? "Added" : blocked ? "—" : "Add"}
-                  </div>
-                </button>
-                {added && (
-                  <div className="hky-polymarket-box">
-                    <label
-                      className="hky-polymarket-label"
-                      htmlFor={`poly-${m.key}`}
-                    >
-                      Polymarket URL or slug
-                    </label>
-                    <input
-                      id={`poly-${m.key}`}
-                      className="hky-polymarket-input"
-                      placeholder="https://polymarket.com/sports/iihf/wch-svk-cze-2026-05-23"
-                      value={polymarketInputByKey[m.key] ?? ""}
-                      onChange={(e) =>
-                        onPolymarketInputChange(m.key, e.target.value)
-                      }
-                      onBlur={() => {
-                        void savePolymarketUrl(m.key);
-                      }}
-                    />
-                    <div className="hky-polymarket-actions">
-                      <button
-                        className="hky-save-url-btn"
-                        onClick={() => {
-                          void savePolymarketUrl(m.key);
-                        }}
-                        disabled={savingSlugByKey[m.key] === true}
-                      >
-                        {savingSlugByKey[m.key] ? "Saving..." : "Save URL"}
-                      </button>
-                      {savedSlugByKey[m.key] ? (
-                        <span className="hky-polymarket-saved">Saved</span>
-                      ) : null}
-                    </div>
-                    <div className="hky-polymarket-hint">
-                      Saved to bot as slug:{" "}
-                      {extractMatchSlug(polymarketInputByKey[m.key] ?? "") ||
-                        "(none yet)"}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+            <label
+              className="hky-polymarket-label"
+              htmlFor="hky-away-team"
+              style={{ marginTop: 10 }}
+            >
+              Team B label
+            </label>
+            <input
+              id="hky-away-team"
+              className="hky-polymarket-input"
+              value={awayTeam}
+              onChange={(e) => setAwayTeam(e.target.value || "Team B")}
+            />
+
+            <div className="hky-polymarket-actions" style={{ marginTop: 10 }}>
+              <button className="hky-save-url-btn" onClick={() => void save()}>
+                {saving ? "Saving..." : "Save and Activate"}
+              </button>
+              <button
+                className="hky-save-url-btn"
+                onClick={() => void clear()}
+                disabled={saving}
+                style={{ marginLeft: 8, background: "#2b2b2b", color: "#ddd" }}
+              >
+                Remove Game
+              </button>
+              {saved ? <span className="hky-polymarket-saved">Saved</span> : null}
+            </div>
+
+            <div className="hky-polymarket-hint">
+              Saved slug: {extractMatchSlug(polymarketInput) || "(none yet)"}
+            </div>
+          </div>
+
+          {assignmentStatus ? <div className="hky-muted">{assignmentStatus}</div> : null}
         </aside>
 
         <main className="hky-main">
@@ -599,7 +307,9 @@ export function HockeyManager({ botName, metamaskAddress, onBack }: Props) {
             selectedKeys={selectedKey ? [selectedKey] : []}
             baseByKey={byKey}
             metamaskAddress={metamaskAddress}
-            onRemove={removeGame}
+            onRemove={() => {
+              void clear();
+            }}
           />
         </main>
       </div>
