@@ -549,13 +549,21 @@ async function waitForDelayedOrder(
   orderId: string,
   side: "BUY" | "SELL",
   timeoutMs = 30_000,
+  postTimeMs?: number,
 ): Promise<{ filledShares: number; filledUsdc: number } | null> {
   const c = await getSigningClient();
-  const deadline = Date.now() + timeoutMs;
+  const delayStartMs = Date.now();
+  const deadline = delayStartMs + timeoutMs;
   let attempt = 0;
+  let firstPollMs = 0;
+  let freezeWindowMs = 0;
+
   while (Date.now() < deadline) {
     await new Promise((res) => setTimeout(res, 2_000));
     attempt++;
+    const pollTimeMs = Date.now();
+    if (firstPollMs === 0) firstPollMs = pollTimeMs;
+
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const order = (await (c as any).getOrder(orderId)) as Record<
@@ -564,15 +572,40 @@ async function waitForDelayedOrder(
       >;
       const matched = parseFloat(String(order["size_matched"] ?? "0")) || 0;
       const status = String(order["status"] ?? "").toLowerCase();
+      const createdAtMs = parseFloat(String(order["created_at"] ?? "0")) * 1000;
+      const matchTimeMs = parseFloat(String(order["match_time"] ?? "0")) * 1000;
+      const lastUpdateMs = parseFloat(
+        String(order["last_update"] ?? "0"),
+      ) * 1000;
+
+      // Estimate freeze window: difference between order creation and first match
+      if (freezeWindowMs === 0 && matchTimeMs > 0 && createdAtMs > 0) {
+        freezeWindowMs = matchTimeMs - createdAtMs;
+      }
+
+      const elapsedSincePost = postTimeMs ? pollTimeMs - postTimeMs : 0;
+      const elapsedSinceDelayStart = pollTimeMs - delayStartMs;
+
       console.log(
-        `[placeMarketOrder] delayed poll #${attempt}: status=${status} size_matched=${matched}`,
+        `[clob] delay-poll #${attempt} @ ${pollTimeMs} | status=${status} size_matched=${matched.toFixed(4)} | ` +
+          `elapsed_since_post=${elapsedSincePost}ms elapsed_since_delayed_detected=${elapsedSinceDelayStart}ms | ` +
+          `created=${createdAtMs > 0 ? new Date(createdAtMs).toISOString() : "n/a"} ` +
+          `match=${matchTimeMs > 0 ? new Date(matchTimeMs).toISOString() : "pending"} ` +
+          `last_update=${lastUpdateMs > 0 ? new Date(lastUpdateMs).toISOString() : "n/a"} ` +
+          `[freeze_window=${freezeWindowMs}ms]`,
       );
+
       if (matched > 0) {
         const price = parseFloat(String(order["price"] ?? "0")) || 0;
         const filledShares = matched;
         const filledUsdc = matched * price;
+        const totalLatencyMs = pollTimeMs - (postTimeMs || delayStartMs);
+        console.log(
+          `[clob] ✅ delayed order matched after ${totalLatencyMs}ms | freeze_duration=${freezeWindowMs}ms | shares=${filledShares.toFixed(4)} usdc=${filledUsdc.toFixed(4)}`,
+        );
         return { filledShares, filledUsdc };
       }
+
       if (
         status === "cancelled" ||
         status === "canceled" ||
@@ -580,19 +613,19 @@ async function waitForDelayedOrder(
         status === "unmatched"
       ) {
         console.warn(
-          `[placeMarketOrder] delayed order ${orderId} ended with status=${status}`,
+          `[clob] ❌ delayed order ${orderId} ended with status=${status}`,
         );
         return null;
       }
     } catch (err) {
       console.warn(
-        `[placeMarketOrder] delayed poll error:`,
+        `[clob] delayed poll error:`,
         (err as Error).message,
       );
     }
   }
   console.warn(
-    `[placeMarketOrder] delayed order ${orderId} timed out after ${timeoutMs}ms`,
+    `[clob] ⏱️  delayed order ${orderId} timed out after ${timeoutMs}ms (freeze_window_estimate=${freezeWindowMs}ms)`,
   );
   return null;
 }
@@ -604,6 +637,7 @@ export async function placeMarketOrder(
   opts?: { worstPrice?: number },
 ): Promise<{ orderId: string; filledShares: number; filledUsdc: number }> {
   const c = await getSigningClient();
+  const postTimeMs = Date.now();
 
   // For BUY: worst acceptable price = 0.99 (CLOB max; pay any ask up to 99¢)
   // For SELL: worst acceptable price = 0.01 (CLOB min; accept any bid down to 1¢)
@@ -613,6 +647,10 @@ export async function placeMarketOrder(
     typeof override === "number" && Number.isFinite(override)
       ? override
       : fallbackWorstPrice;
+
+  console.log(
+    `[clob] 📤 POST order @ ${postTimeMs} | side=${side} amount=${amount} worst=${worstPrice}`,
+  );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await (c as any).createAndPostMarketOrder(
@@ -626,6 +664,9 @@ export async function placeMarketOrder(
     "FOK", // Fill Or Kill — fill immediately at market price or cancel
   );
 
+  const responseTimeMs = Date.now();
+  const postToResponseMs = responseTimeMs - postTimeMs;
+
   const r = result as Record<string, unknown>;
   const errorMsg = String(r["errorMsg"] ?? "").trim();
   const errorText = String(r["error"] ?? "").trim();
@@ -636,14 +677,20 @@ export async function placeMarketOrder(
     rejectionText !== "null" &&
     rejectionText !== "undefined"
   ) {
+    console.log(`[clob] response @ ${responseTimeMs} (rtt=${postToResponseMs}ms) ❌ error: ${rejectionText}`);
     throw new Error(`Market order rejected: ${rejectionText}`);
   }
   if (Number.isFinite(statusCode) && statusCode >= 400) {
+    console.log(`[clob] response @ ${responseTimeMs} (rtt=${postToResponseMs}ms) ❌ status ${statusCode}`);
     throw new Error(`Market order rejected with status ${statusCode}`);
   }
 
   const orderId = String(r["orderID"] ?? "unknown");
-  console.log("[placeMarketOrder] raw result:", JSON.stringify(r));
+  const rawStatus = String(r["status"] ?? "");
+  console.log(
+    `[clob] 📥 response @ ${responseTimeMs} (rtt=${postToResponseMs}ms) | orderId=${orderId} status=${rawStatus}`,
+  );
+
   // Amounts are in micro-units (1e6). For BUY: making=USDC given, taking=shares received.
   // For SELL: making=shares given, taking=USDC received.
   const makingAmt = (parseFloat(String(r["makingAmount"] || "0")) || 0) / 1e6;
@@ -651,7 +698,6 @@ export async function placeMarketOrder(
 
   // If the CLOB delayed the order (brief pause on market-moving events),
   // poll until it settles instead of treating it as a zero fill.
-  const rawStatus = String(r["status"] ?? "");
   if (
     rawStatus === "delayed" &&
     orderId !== "unknown" &&
@@ -659,12 +705,12 @@ export async function placeMarketOrder(
     takingAmt === 0
   ) {
     console.log(
-      `[placeMarketOrder] order ${orderId} is delayed — polling for fill...`,
+      `[clob] ⏳ order ${orderId} delayed by Gamma — starting polling cycle (pass_post_time=${postTimeMs})`,
     );
-    const filled = await waitForDelayedOrder(orderId, side);
+    const filled = await waitForDelayedOrder(orderId, side, 30_000, postTimeMs);
     if (filled) {
       console.log(
-        `[placeMarketOrder] delayed order filled: shares=${filled.filledShares} usdc=${filled.filledUsdc}`,
+        `[clob] delayed order filled: shares=${filled.filledShares.toFixed(4)} usdc=${filled.filledUsdc.toFixed(4)}`,
       );
       return { orderId, ...filled };
     }
@@ -673,6 +719,10 @@ export async function placeMarketOrder(
 
   const filledUsdc = side === "BUY" ? makingAmt : takingAmt;
   const filledShares = side === "BUY" ? takingAmt : makingAmt;
+
+  console.log(
+    `[clob] ✅ immediate fill: shares=${filledShares.toFixed(4)} usdc=${filledUsdc.toFixed(4)} (rtt=${postToResponseMs}ms)`,
+  );
 
   return { orderId, filledShares, filledUsdc };
 }
