@@ -366,6 +366,7 @@ function BotDetailView({
   const positionPnl = detail?.positionPnl ?? null;
   const lockedCollateral = detail?.lockedCollateral ?? null;
   const allocatedEquity = detail?.allocatedEquity ?? null;
+  const openPositions = (inventory ?? []).filter((p) => p.netSize > 0.001).length;
 
   const [closingAll, setClosingAll] = useState(false);
   const [closeAllResult, setCloseAllResult] = useState<{
