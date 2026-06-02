@@ -73,6 +73,27 @@ export function useBotDetail(botId: number | null) {
     }
   }, [botId]);
 
+  const closeAll = useCallback(async () => {
+    if (botId === null) return { closed: [], skipped: [] };
+    const baseUrl = BOT_URLS[botId];
+    if (!baseUrl) return { closed: [], skipped: [] };
+    try {
+      const res = await fetch(`${baseUrl}/positions/close-all`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const result = await res.json();
+      // Refresh positions after close-all
+      await fetch_();
+      return result;
+    } catch (e) {
+      const error =
+        e instanceof Error ? e.message : "Failed to close all positions";
+      return { closed: [], skipped: [], error };
+    }
+  }, [botId, fetch_]);
+
   useEffect(() => {
     if (botId === null) {
       setDetail(null);
@@ -88,5 +109,5 @@ export function useBotDetail(botId: number | null) {
     };
   }, [botId, fetch_]);
 
-  return { detail, loading, error, refresh: fetch_ };
+  return { detail, loading, error, refresh: fetch_, closeAll };
 }

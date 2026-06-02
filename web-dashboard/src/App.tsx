@@ -358,7 +358,7 @@ function BotDetailView({
   onBack: () => void;
   metamaskAddress?: string;
 }) {
-  const { detail, loading, error } = useBotDetail(Number(bot.id));
+  const { detail, loading, error, closeAll } = useBotDetail(Number(bot.id));
   const markets = detail?.markets ?? null;
   const inventory = detail?.inventory ?? null;
   const totalRealizedPnl = detail?.totalRealizedPnl ?? null;
@@ -366,6 +366,42 @@ function BotDetailView({
   const positionPnl = detail?.positionPnl ?? null;
   const lockedCollateral = detail?.lockedCollateral ?? null;
   const allocatedEquity = detail?.allocatedEquity ?? null;
+
+  const [closingAll, setClosingAll] = useState(false);
+  const [closeAllResult, setCloseAllResult] = useState<{
+    closed: number;
+    skipped: number;
+    error?: string;
+  } | null>(null);
+
+  async function handleCloseAll() {
+    const openPositions = (inventory ?? []).filter(
+      (p) => p.netSize > 0.001,
+    ).length;
+    if (openPositions === 0) {
+      setCloseAllResult({ closed: 0, skipped: 0, error: "No open positions" });
+      return;
+    }
+    if (
+      !window.confirm(
+        `Sell ALL ${openPositions} open positions at best bid? This cannot be undone.`,
+      )
+    )
+      return;
+    setClosingAll(true);
+    setCloseAllResult(null);
+    const result = await closeAll();
+    setClosingAll(false);
+    setCloseAllResult({
+      closed: result.closed?.length ?? 0,
+      skipped: result.skipped?.length ?? 0,
+      error:
+        result.error ??
+        ((result.skipped?.length ?? 0 > 0)
+          ? `${result.skipped.length} skipped (no liquid bid)`
+          : undefined),
+    });
+  }
 
   return (
     <div>
@@ -442,6 +478,41 @@ function BotDetailView({
           </div>
         </div>
       </div>
+
+      {bot.id === "1" && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            marginBottom: 24,
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            className="btn-primary"
+            disabled={closingAll || openPositions === 0}
+            onClick={handleCloseAll}
+          >
+            {closingAll ? "Closing all positions…" : "Close All Positions"}
+          </button>
+          <span style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+            {openPositions} open position{openPositions === 1 ? "" : "s"}
+          </span>
+          {closeAllResult && (
+            <span
+              style={{
+                color: closeAllResult.error ? "#ff3b30" : "#4caf50",
+                fontSize: 13,
+              }}
+            >
+              {closeAllResult.error
+                ? `Error: ${closeAllResult.error}`
+                : `Closed ${closeAllResult.closed} positions${closeAllResult.skipped > 0 ? `, skipped ${closeAllResult.skipped}` : ""}`}
+            </span>
+          )}
+        </div>
+      )}
 
       <BotDiagnosticsStrip
         botId={Number(bot.id)}
