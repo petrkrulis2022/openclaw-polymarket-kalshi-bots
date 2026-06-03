@@ -24,8 +24,8 @@ import {
   fetchTradeHistory,
   getOpenOrders,
   cancelOrder,
-  getBestBid,
   placeLimitOrder,
+  getOrderBook,
 } from "./clob.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 
@@ -342,7 +342,8 @@ app.post("/positions/close-all", async (_req, res) => {
 
   for (const pos of positions) {
     try {
-      const price = await getBestBid(pos.tokenId);
+      const book = await getOrderBook(pos.tokenId);
+      const price = book.bestBid ?? 0;
       if (!Number.isFinite(price) || price <= 0 || price >= 1) {
         skipped.push({
           tokenId: pos.tokenId,
