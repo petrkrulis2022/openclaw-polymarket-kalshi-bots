@@ -199,6 +199,11 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
       }
       const data = (await res.json()) as UserRecord;
       setUser(data);
+      if (data.botWalletAddress) {
+        depositWalletRef.current = computeDepositWalletAddress(
+          data.botWalletAddress as `0x${string}`,
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -213,6 +218,11 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
       if (!res.ok) return;
       const data = (await res.json()) as UserRecord;
       setUser(data);
+      if (data.botWalletAddress) {
+        depositWalletRef.current = computeDepositWalletAddress(
+          data.botWalletAddress as `0x${string}`,
+        );
+      }
     } catch {}
   }, [metamaskAddress]);
 

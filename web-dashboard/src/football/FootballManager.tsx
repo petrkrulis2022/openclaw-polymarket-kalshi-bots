@@ -194,7 +194,7 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
 
   const byKey = useMemo(() => {
     const slug = extractMatchSlug(polymarketInput) ?? "";
-    if (!selectedKey || !slug) return {};
+    if (!selectedKey || !slug) return {} as Record<string, HockeyFeedMatch>;
     const item: HockeyFeedMatch = {
       key: SINGLE_KEY,
       staticId: "",
