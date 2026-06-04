@@ -7,6 +7,26 @@ import { getBestAsk, getBestBid, placeLimitOrder } from "./clob.js";
 import { params } from "./runtime-config.js";
 import { getPosition } from "./inventory.js";
 import { markExecuted, markFailed, type PendingTrade } from "./pending.js";
+import { config } from "./config.js";
+
+function recordAttribution(trade: PendingTrade): void {
+  const userAddress = process.env["USER_METAMASK_ADDRESS"] ?? "";
+  if (!userAddress) return;
+  fetch(`${config.orchestratorUrl}/positions/attribute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userAddress,
+      conditionId: "",
+      outcomeIndex: 0,
+      tokenId: trade.tokenId,
+      botName: "copy-trader",
+      marketQuestion: trade.marketTitle,
+      side: trade.side,
+    }),
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {});
+}
 
 /**
  * Execute an approved trade.
@@ -58,6 +78,7 @@ export async function executeTrade(trade: PendingTrade): Promise<void> {
     );
 
     markExecuted(id, orderId, price, targetShares);
+    if (side === "BUY") recordAttribution(trade);
 
     console.log(
       `[executor] ✓ ${side} ${targetShares.toFixed(2)} shares @ ${price.toFixed(4)} (copy: ${traderLabel}) orderId=${orderId}`,

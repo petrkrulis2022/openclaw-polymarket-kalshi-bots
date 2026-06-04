@@ -1,6 +1,25 @@
 import { config } from "./config.js";
 import { params } from "./runtime-config.js";
 import { getActiveMarkets, type GammaMarket } from "./markets.js";
+
+function recordAttribution(market: GammaMarket, tokenId: string, side: string): void {
+  const userAddress = process.env["USER_METAMASK_ADDRESS"] ?? "";
+  if (!userAddress) return;
+  fetch(`${config.orchestratorUrl}/positions/attribute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userAddress,
+      conditionId: market.conditionId ?? "",
+      outcomeIndex: side === "YES" ? 0 : 1,
+      tokenId,
+      botName: "market-maker",
+      marketQuestion: market.question,
+      side,
+    }),
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {});
+}
 import {
   getOrderBook,
   placeLimitOrder,
@@ -174,6 +193,7 @@ export async function quoteMarket(
           (equityPerMarket / 2 / existing.ourBidPrice).toFixed(2),
         );
         recordFill(yesTokenId, "BUY", existing.ourBidPrice, fillSize);
+        recordAttribution(market, yesTokenId, "YES");
         console.log(
           `[paper-fill] BUY filled @ ${existing.ourBidPrice.toFixed(4)} size=${fillSize} | ${market.question.slice(0, 40)}`,
         );
@@ -241,6 +261,7 @@ export async function quoteMarket(
   ]);
 
   const openPositions = (bidResult ? 1 : 0) + (askResult ? 1 : 0);
+  if (bidResult) recordAttribution(market, yesTokenId, "YES");
 
   states.set(market.conditionId, {
     market,

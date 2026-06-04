@@ -20,6 +20,25 @@ import {
 import type { ScreenedMarket } from "./screener.js";
 import { config } from "./config.js";
 
+function recordAttribution(market: ScreenedMarket): void {
+  const userAddress = process.env["USER_METAMASK_ADDRESS"] ?? "";
+  if (!userAddress) return;
+  fetch(`${config.orchestratorUrl}/positions/attribute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userAddress,
+      conditionId: "",
+      outcomeIndex: 0,
+      tokenId: market.yesTokenId ?? market.id,
+      botName: "microstructure",
+      marketQuestion: market.question,
+      side: "YES",
+    }),
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {});
+}
+
 type TradeFill = {
   side: "BUY" | "SELL";
   size: number;
@@ -53,6 +72,7 @@ export async function refreshQuote(
         fill.size,
         { clearBidOrderId: !isBidOpen },
       );
+      recordAttribution(market);
       console.log(
         `[quoter] Reconciled bid fill ${market.id.slice(0, 8)} @ ${(fill.price > 0 ? fill.price : pos.bidPrice).toFixed(4)} size=${fill.size.toFixed(2)}`,
       );

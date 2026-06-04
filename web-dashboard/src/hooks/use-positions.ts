@@ -26,6 +26,8 @@ export interface SharePosition {
   status: "redeemable" | "pending" | "resolved";
   /** Realized or unrealized PnL in USD: (curPrice - avgPrice) * size */
   pnl: number;
+  /** Bot that opened this position, if known */
+  botName: string | null;
 }
 
 export interface PositionsSummary {
@@ -37,6 +39,7 @@ export interface PositionsSummary {
 export function usePositions(
   depositWallet: string | undefined,
   botWallet?: string | undefined,
+  userAddress?: string | undefined,
 ) {
   const [positions, setPositions] = useState<SharePosition[]>([]);
   const [summary, setSummary] = useState<PositionsSummary>({
@@ -56,10 +59,13 @@ export function usePositions(
           ? `&botWallet=${encodeURIComponent(botWallet)}`
           : "";
 
+      // Use attributed endpoint when userAddress is available — includes botName per position
+      const posUrl = userAddress
+        ? `/api/orchestrator/positions/by-user?address=${encodeURIComponent(userAddress)}&depositWallet=${encodeURIComponent(depositWallet)}`
+        : `/api/orchestrator/positions?depositWallet=${encodeURIComponent(depositWallet)}${botWalletParam}`;
+
       const [posRes, sumRes] = await Promise.all([
-        fetch(
-          `/api/orchestrator/positions?depositWallet=${encodeURIComponent(depositWallet)}${botWalletParam}`,
-        ),
+        fetch(posUrl),
         fetch(
           `/api/orchestrator/positions/summary?depositWallet=${encodeURIComponent(depositWallet)}${botWalletParam}`,
         ),
@@ -91,6 +97,7 @@ export function usePositions(
                 ? "resolved"
                 : "pending",
             pnl: Number(p["cashPnl"] ?? 0),
+            botName: p["botName"] ? String(p["botName"]) : null,
           }),
         );
         setPositions(mapped);
@@ -111,7 +118,7 @@ export function usePositions(
     } finally {
       setLoading(false);
     }
-  }, [depositWallet, botWallet]);
+  }, [depositWallet, botWallet, userAddress]);
 
   useEffect(() => {
     if (!depositWallet) return;

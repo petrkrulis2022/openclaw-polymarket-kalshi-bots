@@ -366,7 +366,9 @@ function BotDetailView({
   const positionPnl = detail?.positionPnl ?? null;
   const lockedCollateral = detail?.lockedCollateral ?? null;
   const allocatedEquity = detail?.allocatedEquity ?? null;
-  const openPositions = (inventory ?? []).filter((p) => p.netSize > 0.001).length;
+  const openPositions = (inventory ?? []).filter(
+    (p) => p.netSize > 0.001,
+  ).length;
 
   const [closingAll, setClosingAll] = useState(false);
   const [closeAllResult, setCloseAllResult] = useState<{
@@ -2160,7 +2162,7 @@ function ResolutionLagView({
     summary: sharesSummary,
     loading: sharesLoading,
     refresh: refreshShares,
-  } = usePositions(depositWallet, botProxyWalletState);
+  } = usePositions(depositWallet, botProxyWalletState, metamaskAddress);
   const { trades: tradeHistory, loading: tradesLoading } = useTradeHistory(5);
   const [redeemingId, setRedeemingId] = React.useState<string | null>(null);
   const { positions, totalRealizedPnl, opportunities, scannedAt, metrics } =
@@ -2592,6 +2594,7 @@ function ResolutionLagView({
                   >
                     {[
                       "Market",
+                      "Bot",
                       "Outcome",
                       "Shares",
                       "Avg Price",
@@ -2604,7 +2607,7 @@ function ResolutionLagView({
                         key={h}
                         style={{
                           padding: "8px 10px",
-                          textAlign: h === "Market" ? "left" : "right",
+                          textAlign: h === "Market" || h === "Bot" ? "left" : "right",
                           fontWeight: 500,
                         }}
                       >
@@ -2637,6 +2640,26 @@ function ResolutionLagView({
                           title={sp.title}
                         >
                           {sp.title}
+                        </td>
+                        <td style={{ padding: "8px 10px" }}>
+                          {sp.botName ? (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                padding: "2px 6px",
+                                borderRadius: 4,
+                                background: "var(--accent-dim, #1a2a1a)",
+                                color: "var(--accent, #4caf50)",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {sp.botName}
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+                              unknown
+                            </span>
+                          )}
                         </td>
                         <td
                           style={{
@@ -3856,7 +3879,7 @@ function PortfolioSection({
   depositWallet?: string;
 }) {
   const { portfolio, loading, error } = usePortfolio(metamaskAddress);
-  const { summary, positions: livePositions } = usePositions(depositWallet);
+  const { summary, positions: livePositions } = usePositions(depositWallet, undefined, metamaskAddress);
   const [showAnalysisForBot, setShowAnalysisForBot] = React.useState<{
     id: number;
     name: string;
@@ -4003,6 +4026,9 @@ function PortfolioSection({
                         Market
                       </th>
                       <th style={{ padding: "4px 8px", fontWeight: 500 }}>
+                        Bot
+                      </th>
+                      <th style={{ padding: "4px 8px", fontWeight: 500 }}>
                         Side
                       </th>
                       <th
@@ -4076,6 +4102,24 @@ function PortfolioSection({
                           title={pos.title}
                         >
                           {pos.title}
+                        </td>
+                        <td style={{ padding: "6px 8px" }}>
+                          {pos.botName ? (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                padding: "1px 5px",
+                                borderRadius: 4,
+                                background: "var(--accent-dim, #1a2a1a)",
+                                color: "var(--accent, #4caf50)",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {pos.botName}
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>—</span>
+                          )}
                         </td>
                         <td style={{ padding: "6px 8px" }}>
                           <span

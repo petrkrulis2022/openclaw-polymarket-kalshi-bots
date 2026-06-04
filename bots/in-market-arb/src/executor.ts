@@ -8,6 +8,31 @@ import { addPair, cancelPair, type ArbPair } from "./inventory.js";
 import type { ArbSignal } from "./orderbook.js";
 import { config } from "./config.js";
 
+function recordAttribution(
+  tokenId: string,
+  outcomeIndex: number,
+  side: string,
+  conditionId: string,
+  marketQuestion: string,
+): void {
+  const userAddress = process.env["USER_METAMASK_ADDRESS"] ?? "";
+  if (!userAddress) return;
+  fetch(`${config.orchestratorUrl}/positions/attribute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userAddress,
+      conditionId,
+      outcomeIndex,
+      tokenId,
+      botName: "in-market-arb",
+      marketQuestion,
+      side,
+    }),
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {});
+}
+
 function makeId(): string {
   return `arb-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -84,6 +109,8 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
     createdAt: new Date().toISOString(),
   };
   addPair(pair);
+  recordAttribution(signal.yesTokenId, 0, "YES", signal.marketId, signal.marketQuestion);
+  recordAttribution(signal.noTokenId, 1, "NO", signal.marketId, signal.marketQuestion);
 
   // Schedule pair timeout — cancel unpaired leg if not filled
   setTimeout(async () => {

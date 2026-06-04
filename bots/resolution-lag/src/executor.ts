@@ -7,6 +7,25 @@ import { addPosition, type LagPosition } from "./inventory.js";
 import type { ResolutionOpportunity } from "./oracle.js";
 import { config } from "./config.js";
 
+function recordAttribution(opp: ResolutionOpportunity): void {
+  const userAddress = process.env["USER_METAMASK_ADDRESS"] ?? "";
+  if (!userAddress) return;
+  fetch(`${config.orchestratorUrl}/positions/attribute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userAddress,
+      conditionId: opp.market.conditionId,
+      outcomeIndex: 0,
+      tokenId: opp.winningTokenId,
+      botName: "resolution-lag",
+      marketQuestion: opp.market.question,
+      side: opp.market.gammaOutcome ?? "YES",
+    }),
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {});
+}
+
 function makeId(): string {
   return `lag-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -51,4 +70,5 @@ export async function enterPosition(opp: ResolutionOpportunity): Promise<void> {
     openedAt: new Date().toISOString(),
   };
   addPosition(pos);
+  recordAttribution(opp);
 }
