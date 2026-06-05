@@ -41,8 +41,11 @@ function mergeBotsWithDefaults(dbBots: BotDef[]): BotDef[] {
   return Array.from(byId.values()).sort((a, b) => a.id - b.id);
 }
 
-// Latest metric row per bot
-async function latestMetrics() {
+// 30-second cache to avoid hammering Supabase on every portfolio request
+let metricsCache: { rows: Awaited<ReturnType<typeof fetchLatestMetrics>>; ts: number } | null = null;
+const METRICS_CACHE_TTL_MS = 30_000;
+
+async function fetchLatestMetrics() {
   const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from("metrics")
@@ -65,6 +68,15 @@ async function latestMetrics() {
     }
   }
   return latest;
+}
+
+async function latestMetrics() {
+  if (metricsCache && Date.now() - metricsCache.ts < METRICS_CACHE_TTL_MS) {
+    return metricsCache.rows;
+  }
+  const rows = await fetchLatestMetrics();
+  metricsCache = { rows, ts: Date.now() };
+  return rows;
 }
 
 // GET /portfolio/summary
