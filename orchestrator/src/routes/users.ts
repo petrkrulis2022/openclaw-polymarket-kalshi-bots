@@ -1461,12 +1461,20 @@ router.put("/:address/bots/:botName/trade-amount", async (req, res) => {
 
 router.put("/:address/bots/:botName/watched-games", async (req, res) => {
   const { address, botName } = req.params;
-  // Auto-register the user if they haven't completed onboarding yet.
-  let user = getUser(address) ?? upsertUser(address);
   if (!WATCHLIST_BOTS.has(botName)) {
     return res.status(400).json({
       error: `Unknown bot "${botName}" for watched games`,
     });
+  }
+  // Auto-register the user if they haven't completed onboarding yet.
+  let user = getUser(address);
+  if (!user) {
+    try {
+      user = upsertUser(address);
+    } catch (err) {
+      console.warn("[watched-games] Auto-register failed:", (err as Error).message);
+      return res.status(503).json({ error: "Service temporarily unavailable, try again" });
+    }
   }
 
   const { games } = req.body as { games?: WatchedGame[] };
@@ -1511,15 +1519,15 @@ router.put("/:address/bots/:botName/watched-games", async (req, res) => {
   // Auto-start the bot if it isn't reachable yet.
   if (readiness.unreachable && getBotDef(botName)) {
     try {
-      const enabledCount = BOT_DEFS.filter((b) => isBotEnabled(user, b.name)).length;
+      const freshUser = getUser(address) ?? user;
+      const enabledCount = BOT_DEFS.filter((b) => isBotEnabled(freshUser, b.name)).length;
       setBotAllocation(address, botName, true);
-      user = getUser(address) ?? user;
-      await ensureUserBotProcess(user, botName, Math.max(1, enabledCount));
-      const slot = userSlot(user.bot_wallet_index);
+      await ensureUserBotProcess(freshUser, botName, Math.max(1, enabledCount));
+      const slot = userSlot(freshUser.bot_wallet_index);
       await runCmd("pm2", ["start", `${botName}-u${slot}`]);
       // Give the process a moment to bind its port before re-probing.
       await new Promise((r) => setTimeout(r, 2_500));
-      readiness = await probeBotReadiness(user, botName);
+      readiness = await probeBotReadiness(freshUser, botName);
     } catch (err) {
       console.warn(
         `[watched-games] Auto-start ${botName} failed:`,
