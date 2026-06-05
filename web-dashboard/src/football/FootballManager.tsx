@@ -72,10 +72,46 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
   const [assignmentStatus, setAssignmentStatus] = useState<string | null>(null);
   const [homeTeam, setHomeTeam] = useState("Team A");
   const [awayTeam, setAwayTeam] = useState("Team B");
+  const [pollingReadiness, setPollingReadiness] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, selectedKey ? polymarketInput : "");
   }, [selectedKey, polymarketInput]);
+
+  useEffect(() => {
+    if (!pollingReadiness || !metamaskAddress) return;
+    let stopped = false;
+    const deadline = Date.now() + 30_000;
+
+    const poll = async () => {
+      if (stopped) return;
+      if (Date.now() > deadline) {
+        setAssignmentStatus("Bot failed to start — check server logs");
+        setPollingReadiness(false);
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/orchestrator/users/${metamaskAddress}/bots/${BOT_NAME}/readiness`,
+        );
+        if (!stopped && res.ok) {
+          const data = (await res.json()) as { readiness?: BotReadinessDto };
+          const r = data.readiness;
+          if (r?.ready) {
+            setAssignmentStatus("Bot ready — will trade on next goal");
+            setPollingReadiness(false);
+            return;
+          }
+        }
+      } catch {
+        // keep polling
+      }
+      if (!stopped) setTimeout(() => void poll(), 2_000);
+    };
+
+    void poll();
+    return () => { stopped = true; };
+  }, [pollingReadiness, metamaskAddress]);
 
   useEffect(() => {
     let stopped = false;
@@ -154,15 +190,14 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
       const readiness = payload.readiness;
       if (clear) {
         setAssignmentStatus("Game removed");
+        setPollingReadiness(false);
       } else if (readiness?.ready) {
-        setAssignmentStatus("Bot ready and listening to this market");
-      } else if (readiness?.unreachable) {
-        setAssignmentStatus("Bot offline: start bot to activate game");
-      } else if (readiness) {
-        const missing = (readiness.missing ?? []).join(", ") || "setup";
-        setAssignmentStatus(`Bot initializing: waiting for ${missing}`);
+        setAssignmentStatus("Bot ready — will trade on next goal");
+        setPollingReadiness(false);
       } else {
-        setAssignmentStatus("Game saved");
+        // Bot is starting or still initializing — poll until ready.
+        setAssignmentStatus("Bot starting…");
+        setPollingReadiness(true);
       }
       return true;
     } catch {
