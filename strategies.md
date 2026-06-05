@@ -68,10 +68,10 @@ The naive version **lost money** in testing: saw a 13% quoted spread, but consum
 
 ### Fees / Costs
 
-- Polymarket: taker fee on CLOB
-- Kalshi: maker/taker fee schedule
+- Polymarket: taker fee varies by market category (see Fee Structure V2) — query per market before computing net spread
+- Kalshi: maker/taker fee schedule (~1% take rate)
 - Gas: Polygon (minimal)
-- Net threshold: must clear all fees by at least 1% to enter
+- Net threshold: must clear all fees by at least 1% to enter — compute dynamically, not with a fixed threshold
 
 ### Exit
 
@@ -425,15 +425,25 @@ In illiquid prediction markets, a YES share trading at 0.1¢ (0.1% implied proba
 
 ### Why It's Deferred
 
-- Fees introduced specifically to kill naive taker bots — margin disappears unless maker-only
-- Requires co-location or very fast infrastructure
+Polymarket Fee Structure V2 (effective March 30, 2026) was introduced specifically to kill this strategy on short-duration crypto markets.
+
+Fee formula: `fee = C × feeRate × p × (1 − p)`, peaking at a 50¢ share price.
+
+- **15-min / 5-min crypto markets**: up to **3.15% taker fee** at 50¢ — wipes all arb margin
+- **Crypto general**: up to **~1.80% max** at 50¢ — marginal at best
+- Makers pay zero and receive USDC rebates — taker-only bots are structurally unprofitable
+- One wallet turned $313 → $414k before fees; this window is now closed for takers
+
+Additional blockers:
+- Requires co-location or very fast infrastructure (sub-1s latency)
 - Need maker order strategy: predict the move, pre-place the order, wait for fill
 
 ### When It Becomes Viable
 
-- When we have maker-only execution path (rebates instead of fees)
-- After validating latency < 1s from price feed to order submission
-- Entry only when BTC has **already moved significantly** (confirmed trend, not prediction)
+- When we have a **maker-only execution path** (receive rebates instead of paying fees)
+- After validating latency < 1s from CEX price feed to Polymarket order submission
+- Entry only when BTC/ETH has **already moved significantly** (confirmed trend, not prediction)
+- Consider targeting **longer-duration** BTC/ETH markets where fee drag is lower than 15-min markets
 
 ---
 

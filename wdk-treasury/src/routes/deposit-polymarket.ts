@@ -57,6 +57,7 @@ const COLLATERAL_ONRAMP = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
 const CTF_CONTRACT_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045";
 const CTF_EXCHANGE_ADDRESS = "0xE111180000d2663C0091e4f400237545B87B996B";
 const NEG_RISK_CTF_EXCHANGE = "0xe2222d279d744050d28e00520010520000310F59";
+const NEG_RISK_ADAPTER = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296";
 
 // Deposit wallet contracts (Polygon mainnet)
 // Factory: deterministic CREATE2 deployer for per-user ERC-1967 proxies
@@ -741,8 +742,10 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     const [
       pUsdAllowanceCTFExchange,
       pUsdAllowanceNegRisk,
+      pUsdAllowanceNegRiskAdapter,
       ctfApprovedExchange,
       ctfApprovedNegRisk,
+      ctfApprovedNegRiskAdapter,
     ] = await Promise.all([
       pusdRo.allowance(
         depositWalletAddress,
@@ -752,6 +755,10 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         depositWalletAddress,
         NEG_RISK_CTF_EXCHANGE,
       ) as Promise<bigint>,
+      pusdRo.allowance(
+        depositWalletAddress,
+        NEG_RISK_ADAPTER,
+      ) as Promise<bigint>,
       ctfRo.isApprovedForAll(
         depositWalletAddress,
         CTF_EXCHANGE_ADDRESS,
@@ -759,6 +766,10 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       ctfRo.isApprovedForAll(
         depositWalletAddress,
         NEG_RISK_CTF_EXCHANGE,
+      ) as Promise<boolean>,
+      ctfRo.isApprovedForAll(
+        depositWalletAddress,
+        NEG_RISK_ADAPTER,
       ) as Promise<boolean>,
     ]);
 
@@ -807,6 +818,26 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         value: "0",
         data: erc1155Iface.encodeFunctionData("setApprovalForAll", [
           NEG_RISK_CTF_EXCHANGE,
+          true,
+        ]),
+      });
+    }
+    if (pUsdAllowanceNegRiskAdapter < MaxUint256) {
+      calls.push({
+        target: PUSD_TOKEN_ADDRESS,
+        value: "0",
+        data: erc20Iface.encodeFunctionData("approve", [
+          NEG_RISK_ADAPTER,
+          MaxUint256,
+        ]),
+      });
+    }
+    if (!ctfApprovedNegRiskAdapter) {
+      calls.push({
+        target: CTF_CONTRACT_ADDRESS,
+        value: "0",
+        data: erc1155Iface.encodeFunctionData("setApprovalForAll", [
+          NEG_RISK_ADAPTER,
           true,
         ]),
       });
