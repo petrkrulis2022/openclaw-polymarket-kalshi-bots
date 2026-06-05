@@ -1303,13 +1303,14 @@ router.post("/:address/bots/:botName/manual-trigger", async (req, res) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ side, key, clientTriggeredAtMs }),
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(25_000),
     });
     const bodyText = await upstream.text();
     res.status(upstream.status);
     return res.type("application/json").send(bodyText);
   } catch (err) {
     return res.status(502).json({
+      message: err instanceof Error ? err.message : String(err),
       error: err instanceof Error ? err.message : String(err),
     });
   }

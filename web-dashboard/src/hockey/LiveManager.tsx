@@ -176,11 +176,12 @@ export function LiveManager({
       const payload = (await res.json()) as {
         message?: string;
         reason?: string;
+        error?: string;
       };
       if (!res.ok) {
         setManualStatusByKey((prev) => ({
           ...prev,
-          [key]: payload.message ?? payload.reason ?? "Manual trigger failed",
+          [key]: payload.message ?? payload.error ?? payload.reason ?? "Manual trigger failed",
         }));
         return;
       }
