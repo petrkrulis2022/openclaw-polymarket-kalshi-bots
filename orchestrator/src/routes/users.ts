@@ -170,6 +170,13 @@ const BOT_DEFS = [
     portOffset: 7,
     entrypoint: "src/index.ts",
   },
+  {
+    name: "kalshi-arb",
+    folder: "kalshi-arb",
+    botId: 2,
+    portOffset: 8,
+    entrypoint: "src/index.ts",
+  },
 ] as const;
 
 const WATCHLIST_BOTS = new Set([
