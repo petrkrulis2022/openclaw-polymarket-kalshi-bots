@@ -1,45 +1,55 @@
-# Eda's Wallet Map — OpenClaw Bots
+# Eda's Wallet Map — OpenClaw Bots (FRESH START)
+
+⚠️ **THIS DOCUMENT IS FOR THE CLEAN RESTART USING EDA ONLY.** Previous mixed setup has been retired.
 
 ## Wallets & Their Roles
 
-### 1. Eda's MetaMask — `0x8727ce9103289b7df1E55dcb3E18Afd07E12B2B6`
+### 1. Eda's MetaMask — `0x8727...B2B6`
 
 **Personal identity only.** Used to log in to openclawbot.uk and to send USDT/USDC.e to fund the bot. Does NOT hold trading funds. MetaMask wallet = your username in the system.
 
 ---
 
-### 2. Bot EOA (HD Wallet) — `0xcefFeeE55e295A09A7EFB6A8e64082BEA59Ac3E0`
+### 2. Edovo Bot EOA (HD Wallet, Index 15) — `0xcefF...c3E0`
 
-**Server-side signing wallet (index 15).** Derived deterministically from the server's HD seed when Eda's MetaMask first connected. This EOA's private key is what the bot uses to cryptographically sign every Polymarket order (POLY_1271 standard). It is NOT the Polymarket account itself — it is the *key holder* for the account below. Imported into MetaMask as "Edovo bot" for visibility only.
+**Server-side signing wallet.** Derived deterministically from the server's HD seed when Eda's MetaMask first connected. This EOA's private key is what the bot uses to cryptographically sign every Polymarket order (POLY*1271 standard). It is NOT the Polymarket account itself — it is the \_key holder* for the account below. Already imported into MetaMask as "Edovo bot" for visibility.
 
 ---
 
-### 3. WDK Deposit Wallet (POLY_1271) — `0x50f0aC2FCDfdAE8F5418e455441B4B33b2186341`
+### 3. WDK Deposit Wallet (POLY_1271) — `0x50f0aC2...6341`
 
 **The actual Polymarket trading account.** This is a WDK smart contract wallet (CREATE2-deployed). It is shown in the OpenClaw dashboard as "Deposit Wallet (Polymarket POLY_1271)". USDC.e sent here via the "Deposit USDC.e → Polymarket" dashboard button becomes the collateral the bots trade from. The bot EOA (#2) signs orders on behalf of this wallet using POLY_1271. You never need to touch this wallet directly.
 
 ---
 
-### ⚠️ STALE / MISTAKE WALLETS — DO NOT USE
+## ⚠️ RETIRED IDENTITIES — DO NOT USE ANYMORE
 
-These were created by accidentally connecting wallets directly to polymarket.com. They are NOT part of the correct OpenClaw flow:
+### Main MetaMask Identity — `0xD7CA...B1e`
 
-| Address | Created by | Status |
-|---|---|---|
-| `0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A` | Connecting edovo bot EOA (`0xcefFee...`) directly to polymarket.com | 346 past trades, check for outstanding funds |
-| `0xB3B08dbD01B7B5F1e182063B85608E70C38B82d6` | Connecting Eda MetaMask directly to polymarket.com | Likely empty |
-| `0xF823aC6EEa645265ff0101F56A4676E6E630a210` | Connecting main MetaMask directly to polymarket.com | Likely empty |
-| `0x2Ad4022395798c2Bce5cAf4462f58884703a7655` | Connecting mybot EOA directly to polymarket.com | Likely empty |
+**Status:** Disconnect from OpenClaw. Keep only for personal fund transfers if needed.
+
+### Mybot EOA — `0xAc52...Eb2`
+
+**Status:** Retired. Was associated with Main MetaMask. Do not import into MetaMask anymore.
+
+### Polymarket Direct Connection Proxies (old, from manual polymarket.com connections)
+
+| Address         | Created by                               | Historical Use                                                  | **ACTION REQUIRED**                                                                |
+| --------------- | ---------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `0xa31e...cA1A` | Edovo bot EOA directly to polymarket.com | 346 past trades — MOST RECENT ACTIVITY (check for USDC balance) | ✅ **CHECK NOW:** connect edovo bot key, check Polymarket balance, withdraw if any |
+| `0xB3B0...d6`   | Eda MetaMask directly to polymarket.com  | Minimal use                                                     | Can be ignored (likely empty)                                                      |
+| `0xF823...210`  | Main MetaMask directly to polymarket.com | Minimal use                                                     | Can be ignored (likely empty)                                                      |
+| `0x2Ad4...655`  | Mybot EOA directly to polymarket.com     | Minimal use                                                     | Can be ignored (likely empty)                                                      |
 
 ---
 
 ## Token Glossary
 
-| Token      | What it is                                        | Where it lives in correct flow |
-| ---------- | ------------------------------------------------- | ------------------------------ |
-| **USDT**   | Tether — what you send from Eda's MetaMask        | Bot EOA (#2) in transit        |
-| **USDC.e** | Bridged USDC on Polygon — what bots trade with    | WDK Deposit Wallet (#3)        |
-| **POL**    | Polygon gas token for the Bot EOA                 | Bot EOA (#2)                   |
+| Token      | What it is                                     | Where it lives in correct flow |
+| ---------- | ---------------------------------------------- | ------------------------------ |
+| **USDT**   | Tether — what you send from Eda's MetaMask     | Bot EOA (#2) in transit        |
+| **USDC.e** | Bridged USDC on Polygon — what bots trade with | WDK Deposit Wallet (#3)        |
+| **POL**    | Polygon gas token for the Bot EOA              | Bot EOA (#2)                   |
 
 ---
 
@@ -99,12 +109,14 @@ So the user MetaMask does **not** sign per-goal trades. The bot signs instantly 
 
 ## Fresh Start Checklist
 
-1. Check `0xa31e372e...` for any outstanding USDC balance or unredeemed shares (had 346 trades)
-2. Connect **Eda MetaMask** (`0x8727ce...`) to openclawbot.uk
-3. Send USDT to Bot EOA (`0xcefFee...`) via "Fund Agent"
-4. Convert USDT → USDC.e in dashboard
-5. Click "Deposit USDC.e → Polymarket" to fund the WDK wallet (`0x50f0aC2...`)
-6. Configure and start hockey-bot and football-bot
+1. ✅ **Check `0xa31e372e...` for outstanding USDC** — connect edovo bot key, check Polymarket balance, withdraw if any
+2. ✅ **Disconnect Main MetaMask from OpenClaw** — do not log in with `0xD7CA...`
+3. ✅ **Disconnect Mybot EOA** — do not import `0xAc52...` into MetaMask
+4. **Connect Eda MetaMask** (`0x8727...`) to openclawbot.uk
+5. Send USDT to Bot EOA (`0xcefF...`) via "Fund Agent"
+6. Convert USDT → USDC.e in dashboard
+7. Click "Deposit USDC.e → Polymarket" to fund the WDK wallet (`0x50f0aC2...`)
+8. Configure and start hockey-bot and football-bot
 
 ---
 
@@ -122,7 +134,7 @@ So the user MetaMask does **not** sign per-goal trades. The bot signs instantly 
 
 ### 2. Bot EOA (HD peněženka) — `0xcefFeeE55e295A09A7EFB6A8e64082BEA59Ac3E0`
 
-**Podepisovací peněženka na serveru (index 15).** Deterministicky odvozena ze seed fráze serveru při prvním připojení Edovy MetaMasky. Privátní klíč tohoto EOA bot používá k podepisování každé objednávky na Polymarketu (standard POLY_1271). Není to samotný Polymarket účet — je to *držitel klíče* pro účet níže. Importována do MetaMasku jako „Edovo bot" pouze pro přehlednost.
+**Podepisovací peněženka na serveru (index 15).** Deterministicky odvozena ze seed fráze serveru při prvním připojení Edovy MetaMasky. Privátní klíč tohoto EOA bot používá k podepisování každé objednávky na Polymarketu (standard POLY*1271). Není to samotný Polymarket účet — je to \_držitel klíče* pro účet níže. Importována do MetaMasku jako „Edovo bot" pouze pro přehlednost.
 
 ---
 
@@ -136,12 +148,12 @@ So the user MetaMask does **not** sign per-goal trades. The bot signs instantly 
 
 Vznikly omylem přímým připojením peněženek na polymarket.com. Nejsou součástí správného toku OpenClaw:
 
-| Adresa | Vzniklá připojením | Stav |
-|---|---|---|
-| `0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A` | Edovo bot EOA přímo na polymarket.com | 346 minulých obchodů, zkontrolovat zůstatek |
-| `0xB3B08dbD01B7B5F1e182063B85608E70C38B82d6` | Edova MetaMask přímo na polymarket.com | Pravděpodobně prázdná |
-| `0xF823aC6EEa645265ff0101F56A4676E6E630a210` | Hlavní MetaMask přímo na polymarket.com | Pravděpodobně prázdná |
-| `0x2Ad4022395798c2Bce5cAf4462f58884703a7655` | Mybot EOA přímo na polymarket.com | Pravděpodobně prázdná |
+| Adresa                                       | Vzniklá připojením                      | Stav                                        |
+| -------------------------------------------- | --------------------------------------- | ------------------------------------------- |
+| `0xa31e372e43C8D7d106d9a1A465C79a58e834cA1A` | Edovo bot EOA přímo na polymarket.com   | 346 minulých obchodů, zkontrolovat zůstatek |
+| `0xB3B08dbD01B7B5F1e182063B85608E70C38B82d6` | Edova MetaMask přímo na polymarket.com  | Pravděpodobně prázdná                       |
+| `0xF823aC6EEa645265ff0101F56A4676E6E630a210` | Hlavní MetaMask přímo na polymarket.com | Pravděpodobně prázdná                       |
+| `0x2Ad4022395798c2Bce5cAf4462f58884703a7655` | Mybot EOA přímo na polymarket.com       | Pravděpodobně prázdná                       |
 
 ---
 

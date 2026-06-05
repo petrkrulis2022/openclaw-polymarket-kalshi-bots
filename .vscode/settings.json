@@ -1,5 +1,7 @@
 {
   "chat.tools.terminal.autoApprove": {
     "npm install": true
-  }
+  },
+  "chat.utilityModel": "aitk-foundry/Microsoft Foundry/claude-opus-4-6",
+  "chat.utilitySmallModel": "aitk-foundry/Microsoft Foundry/claude-opus-4-6"
 }

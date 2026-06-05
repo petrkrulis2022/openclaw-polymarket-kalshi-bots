@@ -1,5 +1,11 @@
 # OpenClaw — Complete User Flow
 
+⚠️ **FRESH START — SINGLE IDENTITY ONLY**
+
+This flow uses **Eda MetaMask** (`0x8727...B2B6`) exclusively. Do NOT mix multiple MetaMask addresses or bot identities during this fresh start. If you previously used "Main MetaMask" or "Mybot", disconnect those from OpenClaw completely before starting this flow.
+
+---
+
 ## 1. Connect MetaMask
 
 Open the dashboard at `:4001`. Click **Connect Wallet** — MetaMask pops up, you approve. This is your **personal identity** on the platform. Each MetaMask address gets its own isolated trading bot.

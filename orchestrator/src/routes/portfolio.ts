@@ -43,12 +43,15 @@ function mergeBotsWithDefaults(dbBots: BotDef[]): BotDef[] {
 
 // Latest metric row per bot
 async function latestMetrics() {
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from("metrics")
     .select(
       "bot_id, equity, pnl, realized_pnl, unrealized_pnl, volatility, max_drawdown, utilization, open_positions, recorded_at",
     )
-    .order("recorded_at", { ascending: false });
+    .gte("recorded_at", oneDayAgo)
+    .order("recorded_at", { ascending: false })
+    .limit(1000);
 
   if (error) throw error;
 

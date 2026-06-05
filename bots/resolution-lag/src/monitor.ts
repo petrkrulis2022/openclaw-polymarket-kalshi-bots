@@ -86,14 +86,20 @@ function hasPassedEndDateBuffer(endDateIso: string | undefined): boolean {
 
 export async function fetchClosedUnresolvedMarkets(): Promise<ClosedMarket[]> {
   try {
-    // Fetch recently closed and inactive markets; we still re-check resolved,
-    // winner mapping and end-time safety locally.
-    const url = `${GAMMA_API}?closed=true&active=false&limit=100`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) throw new Error(`Gamma API ${res.status}`);
+    const allMarkets: GammaMarket[] = [];
+    const limit = 100;
 
-    const data = (await res.json()) as GammaMarket[];
-    const markets = Array.isArray(data) ? data : [];
+    for (let page = 0; page < 5; page++) {
+      const url = `${GAMMA_API}?closed=true&active=false&limit=${limit}&offset=${page * limit}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      if (!res.ok) throw new Error(`Gamma API ${res.status}`);
+      const data = (await res.json()) as GammaMarket[];
+      const batch = Array.isArray(data) ? data : [];
+      allMarkets.push(...batch);
+      if (batch.length < limit) break;
+    }
+
+    const markets = allMarkets;
 
     const result: ClosedMarket[] = [];
     for (const m of markets) {

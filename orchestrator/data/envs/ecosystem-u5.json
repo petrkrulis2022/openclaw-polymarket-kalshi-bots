@@ -5,6 +5,9 @@
       "script": "npx",
       "args": "tsx src/index.ts",
       "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/market-maker",
+      "max_restarts": 999999,
+      "restart_delay": 5000,
+      "min_uptime": "3s",
       "env": {
         "PORT": "4060",
         "BOT_ID": "1",
@@ -25,6 +28,9 @@
       "script": "npx",
       "args": "tsx src/index.ts",
       "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/copy-trader",
+      "max_restarts": 999999,
+      "restart_delay": 5000,
+      "min_uptime": "3s",
       "env": {
         "PORT": "4061",
         "BOT_ID": "3",
@@ -45,6 +51,9 @@
       "script": "npx",
       "args": "tsx src/index.ts",
       "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/in-market-arb",
+      "max_restarts": 999999,
+      "restart_delay": 5000,
+      "min_uptime": "3s",
       "env": {
         "PORT": "4062",
         "BOT_ID": "4",
@@ -65,6 +74,9 @@
       "script": "npx",
       "args": "tsx src/index.ts",
       "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/resolution-lag",
+      "max_restarts": 999999,
+      "restart_delay": 5000,
+      "min_uptime": "3s",
       "env": {
         "PORT": "4063",
         "BOT_ID": "5",
@@ -85,6 +97,9 @@
       "script": "npx",
       "args": "tsx src/index.ts",
       "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/microstructure",
+      "max_restarts": 999999,
+      "restart_delay": 5000,
+      "min_uptime": "3s",
       "env": {
         "PORT": "4064",
         "BOT_ID": "6",
@@ -105,6 +120,9 @@
       "script": "npx",
       "args": "tsx scripts/hockey-bot.ts",
       "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/hockey",
+      "max_restarts": 999999,
+      "restart_delay": 5000,
+      "min_uptime": "3s",
       "env": {
         "PORT": "4065",
         "BOT_ID": "10",
@@ -125,6 +143,9 @@
       "script": "npx",
       "args": "tsx scripts/football-bot.ts",
       "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/football",
+      "max_restarts": 999999,
+      "restart_delay": 5000,
+      "min_uptime": "3s",
       "env": {
         "PORT": "4066",
         "BOT_ID": "8",
@@ -145,6 +166,9 @@
       "script": "npx",
       "args": "tsx src/index.ts",
       "cwd": "/home/petrunix/openclaw-polymarket-kalshi-bots/bots/btc-lag",
+      "max_restarts": 999999,
+      "restart_delay": 5000,
+      "min_uptime": "3s",
       "env": {
         "PORT": "4067",
         "BOT_ID": "7",

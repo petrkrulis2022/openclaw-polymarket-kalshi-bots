@@ -1290,10 +1290,12 @@ router.post("/:address/bots/:botName/manual-trigger", async (req, res) => {
   }
 
   try {
+    const clientTriggeredAtMs = (req.body as { clientTriggeredAtMs?: unknown })
+      ?.clientTriggeredAtMs;
     const upstream = await fetch(`${botBaseUrl}/manual-trigger`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ side, key }),
+      body: JSON.stringify({ side, key, clientTriggeredAtMs }),
       signal: AbortSignal.timeout(5_000),
     });
     const bodyText = await upstream.text();
