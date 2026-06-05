@@ -2975,6 +2975,144 @@ function ResolutionLagView({
     </div>
   );
 }
+
+function KalshiArbView({
+  bot,
+  onBack,
+}: {
+  bot: BotSummary;
+  onBack: () => void;
+  metamaskAddress?: string;
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            color: "var(--text)",
+            cursor: "pointer",
+            padding: "6px 14px",
+            fontSize: 13,
+          }}
+        >
+          ← Back
+        </button>
+        <div style={{ fontSize: 20, fontWeight: 700 }}>{bot.name}</div>
+        <span className="badge">{bot.strategy}</span>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            background: "#ff950022",
+            color: "#ff9500",
+            border: "1px solid #ff950044",
+            borderRadius: 6,
+            padding: "2px 8px",
+          }}
+        >
+          Coming Soon
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Allocated Equity</div>
+          <div className="balance-big">${bot.equity.toFixed(2)}</div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">PnL</div>
+          <div className={`balance-big ${pnlClass(bot.pnl)}`}>
+            {bot.pnl >= 0 ? "+" : ""}${bot.pnl.toFixed(2)}
+          </div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Open Positions</div>
+          <div className="balance-big">{bot.openPositions}</div>
+        </div>
+        <div className="card" style={{ textAlign: "center" }}>
+          <div className="balance-label">Status</div>
+          <div
+            className="balance-big"
+            style={{ fontSize: 14, color: "var(--text-secondary)" }}
+          >
+            Not yet built
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ maxWidth: 680 }}>
+        <div className="section-label" style={{ marginBottom: 16 }}>
+          Strategy Overview
+        </div>
+        <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--text-secondary)" }}>
+          <p style={{ margin: "0 0 12px" }}>
+            The same binary event trades on both Kalshi and Polymarket. When the same
+            outcome is priced differently across venues, buy the cheaper side and
+            synthetically sell the expensive side. Capture the convergence.
+          </p>
+          <div
+            style={{
+              background: "var(--bg)",
+              borderRadius: 8,
+              padding: "12px 16px",
+              marginBottom: 12,
+              fontSize: 12,
+              fontFamily: "monospace",
+            }}
+          >
+            <div style={{ color: "var(--text)", fontWeight: 600, marginBottom: 6 }}>Entry logic</div>
+            <div>1. Fetch YES price on both venues for the same event</div>
+            <div>2. Walk both order books — do not use top-of-book only</div>
+            <div>3. Enter only if volume-weighted spread &gt; fees + slippage buffer</div>
+          </div>
+          <div
+            style={{
+              background: "#ff3b3011",
+              border: "1px solid #ff3b3033",
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 12,
+              color: "#ff6b6b",
+            }}
+          >
+            <strong>Warning:</strong> The naive version lost money in testing — a 13% quoted spread
+            became 0% actual spread after walking the book. Always walk the full book before entering.
+          </div>
+        </div>
+        <div
+          style={{
+            marginTop: 20,
+            paddingTop: 16,
+            borderTop: "1px solid var(--border)",
+            fontSize: 12,
+            color: "var(--text-secondary)",
+          }}
+        >
+          Requires a Kalshi account and full order-book walking implementation before going live.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MicrostructureView({
   bot,
   onBack,
@@ -4607,6 +4745,12 @@ export default function App() {
               onOpenGameManager={() => setShowFootballGameManager(true)}
             />
           )
+        ) : selectedBot.id === "2" ? (
+          <KalshiArbView
+            bot={selectedBot}
+            onBack={() => setSelectedBot(null)}
+            metamaskAddress={user?.metamaskAddress}
+          />
         ) : selectedBot.id === "3" ? (
           <CopyTraderView
             bot={selectedBot}
@@ -5277,6 +5421,7 @@ export default function App() {
                 onToggleBotEnabled={async (botId, enabled) => {
                   const botNameById: Record<string, string> = {
                     "1": "market-maker",
+                    "2": "kalshi-arb",
                     "3": "copy-trader",
                     "4": "in-market-arb",
                     "5": "resolution-lag",
@@ -5290,6 +5435,7 @@ export default function App() {
                 onStartStopBot={async (botId, start) => {
                   const botNameById: Record<string, string> = {
                     "1": "market-maker",
+                    "2": "kalshi-arb",
                     "3": "copy-trader",
                     "4": "in-market-arb",
                     "5": "resolution-lag",
@@ -5310,6 +5456,7 @@ export default function App() {
                 onCancelBotOrders={async (botId) => {
                   const botNameById: Record<string, string> = {
                     "1": "market-maker",
+                    "2": "kalshi-arb",
                     "3": "copy-trader",
                     "4": "in-market-arb",
                     "5": "resolution-lag",

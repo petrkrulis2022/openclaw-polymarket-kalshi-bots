@@ -13,7 +13,7 @@ type BotDef = {
 
 const DEFAULT_BOTS: BotDef[] = [
   { id: 1, name: "Market Maker", strategy: "Liquidity Provision" },
-  { id: 2, name: "Arb Bot", strategy: "Cross-Market Arb" },
+  { id: 2, name: "Kalshi Arb", strategy: "Kalshi ↔ Polymarket Arb" },
   { id: 3, name: "Copy Trader", strategy: "Trader Mirroring" },
   { id: 4, name: "In-Market Arb", strategy: "YES+NO Arb" },
   { id: 5, name: "Resolution Lag", strategy: "Oracle Delay" },

@@ -24,6 +24,7 @@ export interface Portfolio {
 
 const BOT_ROUTE_NAMES: Record<string, string> = {
   "1": "market-maker",
+  "2": "kalshi-arb",
   "3": "copy-trader",
   "4": "in-market-arb",
   "5": "resolution-lag",
