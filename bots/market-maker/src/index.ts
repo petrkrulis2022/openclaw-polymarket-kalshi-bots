@@ -13,7 +13,6 @@ import { getStates, runQuotingCycle } from "./quoter.js";
 import {
   getAllPositions,
   getTotalRealizedPnl,
-  initFromTrades,
   loadPersistedState,
   recordFill,
 } from "./inventory.js";
@@ -21,7 +20,6 @@ import { reportMetrics, getLastSnapshot } from "./metrics.js";
 import { getActiveMarkets } from "./markets.js";
 import {
   getCollateralBalance,
-  fetchTradeHistory,
   getOpenOrders,
   cancelOrder,
   placeLimitOrder,
@@ -32,39 +30,6 @@ import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 // ─── State ────────────────────────────────────────────────────────────────────
 let allocatedEquity = 0; // updated from treasury at startup; bots don't move funds
 let running = true;
-const seenTradeKeys = new Set<string>();
-let lastTradeReconcileAt: string | null = null;
-
-function tradeKey(t: {
-  id: string;
-  created_at: string;
-  asset_id: string;
-  side: string;
-  size: string;
-  price: string;
-}): string {
-  if (t.id) return t.id;
-  return [t.created_at, t.asset_id, t.side, t.size, t.price].join("|");
-}
-
-async function reconcileInventoryFromTrades(): Promise<void> {
-  const trades = await fetchTradeHistory();
-  for (const t of trades) {
-    if (t.status !== "CONFIRMED") continue;
-    const key = tradeKey(t);
-    if (seenTradeKeys.has(key)) continue;
-
-    seenTradeKeys.add(key);
-    const side = t.side.toUpperCase() === "SELL" ? "SELL" : "BUY";
-    const price = parseFloat(t.price);
-    const size = parseFloat(t.size);
-    if (!Number.isFinite(price) || !Number.isFinite(size) || size <= 0) {
-      continue;
-    }
-    recordFill(t.asset_id, side, price, size);
-  }
-  lastTradeReconcileAt = new Date().toISOString();
-}
 
 // ─── Treasury: read bot wallet info ──────────────────────────────────────────
 async function fetchTreasuryEquity(): Promise<number> {
@@ -123,23 +88,14 @@ async function mainLoop(): Promise<void> {
   // Pre-load markets
   await getActiveMarkets();
 
-  // Restore last known state from disk (fallback if CLOB is unavailable)
+  // Restore inventory from state file only — never from raw CLOB trade history,
+  // which would mix in trades placed by other bots sharing this wallet.
   loadPersistedState();
-
-  // Seed inventory from trade history so positions survive bot restarts
-  const tradeHistory = await fetchTradeHistory();
-  initFromTrades(tradeHistory);
-  for (const t of tradeHistory) {
-    if (t.status === "CONFIRMED") {
-      seenTradeKeys.add(tradeKey(t));
-    }
-  }
 
   // Self-rescheduling quoting loop — picks up pollIntervalMs changes immediately
   async function scheduleQuoting(): Promise<void> {
     if (!running) return;
     try {
-      await reconcileInventoryFromTrades();
       await runQuotingCycle(allocatedEquity);
     } catch (err) {
       console.error("[quoter] Cycle error:", (err as Error).message);
@@ -206,7 +162,6 @@ app.get("/diagnostics", async (_req, res) => {
     name: "market-maker",
     healthy: running,
     allocatedEquity,
-    lastTradeReconcileAt,
     metrics: getLastSnapshot(),
     reconciliation: {
       openOrders,
@@ -343,7 +298,7 @@ app.post("/positions/close-all", async (_req, res) => {
   for (const pos of positions) {
     try {
       const book = await getOrderBook(pos.tokenId);
-      const price = book.bestBid ?? 0;
+      const price = book.bids[0]?.price ?? 0;
       if (!Number.isFinite(price) || price <= 0 || price >= 1) {
         skipped.push({
           tokenId: pos.tokenId,

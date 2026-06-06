@@ -279,12 +279,59 @@ export async function quoteMarket(
   });
 }
 
+/**
+ * Unwind any markets that have left the active list while we still hold inventory.
+ * Cancels open orders then posts a sell at best available bid (or 1¢ floor).
+ * This prevents stranded inventory when markets resolve, rotate off, or go extreme.
+ */
+async function unwindRemovedMarkets(activeConditionIds: Set<string>): Promise<void> {
+  for (const [conditionId, st] of states.entries()) {
+    if (activeConditionIds.has(conditionId)) continue;
+
+    const heldYes = getPosition(st.yesTokenId).netSize;
+    const hasOrders = Boolean(st.ourBidId || st.ourAskId);
+    if (!heldYes && !hasOrders) {
+      states.delete(conditionId);
+      continue;
+    }
+
+    console.warn(
+      `[quoter] Market removed from active list — unwinding: ${st.market.question.slice(0, 50)} ` +
+        `(held=${heldYes.toFixed(2)} shares)`,
+    );
+
+    if (st.ourBidId) await cancelOrder(st.ourBidId).catch(() => {});
+    if (st.ourAskId) await cancelOrder(st.ourAskId).catch(() => {});
+
+    if (heldYes >= 1) {
+      try {
+        const book = await getOrderBook(st.yesTokenId);
+        const bestBid = book.bids[0]?.price ?? 0;
+        // Sell at best bid or 1¢ floor — accept a loss rather than hold to zero
+        const sellPrice = Math.max(0.01, bestBid);
+        await placeLimitOrder(st.yesTokenId, "SELL", sellPrice, heldYes, st.market.question);
+        console.warn(
+          `[quoter] Unwind SELL posted: ${heldYes.toFixed(2)} shares @ ${sellPrice.toFixed(4)}`,
+        );
+      } catch (err) {
+        console.error("[quoter] Unwind sell failed:", (err as Error).message);
+      }
+    }
+
+    states.delete(conditionId);
+  }
+}
+
 export async function runQuotingCycle(allocatedEquity: number): Promise<void> {
   const markets = await getActiveMarkets();
   if (markets.length === 0) {
     console.warn("[quoter] No active markets available");
     return;
   }
+
+  // Unwind any markets that are no longer in the active list
+  const activeConditionIds = new Set(markets.map((m) => m.conditionId));
+  await unwindRemovedMarkets(activeConditionIds);
 
   let freeCollateralUsd = allocatedEquity;
   let openOrdersById = new Map<

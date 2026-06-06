@@ -21,6 +21,36 @@ export interface GammaMarket {
   gammaBestBid: number;
   /** Best ask for YES token from Gamma API (may be 1 if unavailable) */
   gammaBestAsk: number;
+  /** Market category from Gamma API (e.g. "Sports", "Crypto", "Politics") */
+  category: string;
+}
+
+// Categories excluded from market-making entirely.
+// Sports: hard binary resolution + heavy adverse selection from informed bettors.
+// Crypto: taker fees of 2-3%+ make fills uneconomical.
+const EXCLUDED_CATEGORIES = new Set([
+  "sports",
+  "sport",
+  "esports",
+  "e-sports",
+  "soccer",
+  "football",
+  "tennis",
+  "basketball",
+  "baseball",
+  "hockey",
+  "cricket",
+  "rugby",
+  "golf",
+  "mma",
+  "boxing",
+  "racing",
+  "crypto",
+  "cryptocurrency",
+]);
+
+function isCategoryExcluded(category: string): boolean {
+  return EXCLUDED_CATEGORIES.has(category.toLowerCase().trim());
 }
 
 let cachedMarkets: GammaMarket[] = []; // full filtered+sorted list (not sliced)
@@ -43,22 +73,28 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
       throw new Error(`Gamma API ${res.status}: ${await res.text()}`);
 
     const raw = (await res.json()) as Array<Record<string, unknown>>;
-    const cutoff48h = new Date(Date.now() + 48 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10); // "YYYY-MM-DD"
+
+    // Require market to end at least 48h from now — compare full ISO strings
+    const cutoff48hMs = Date.now() + 48 * 60 * 60 * 1000;
 
     const markets: GammaMarket[] = [];
     for (const m of raw) {
-      // Skip markets that don't have CLOB orderbook support
       if (!m["enableOrderBook"]) continue;
       if (!m["active"] || m["closed"]) continue;
-      // end date must be at least 48h away
-      const endDate = (m["endDateIso"] as string) ?? "";
-      if (endDate < cutoff48h) continue;
-      // Volume filter
+
+      // Category exclusion — sports and crypto cause adverse selection / high fees
+      const category = String(m["category"] ?? m["tags"] ?? "").trim();
+      if (isCategoryExcluded(category)) continue;
+
+      // Robust end-date check using actual timestamp comparison
+      const endDate = String(m["endDateIso"] ?? "");
+      if (!endDate) continue;
+      const endMs = new Date(endDate).getTime();
+      if (!isFinite(endMs) || endMs < cutoff48hMs) continue;
+
       const vol24 = parseFloat(String(m["volume24hr"] ?? "0"));
       if (vol24 < params.minVolume24h) continue;
-      // Must have exactly 2 CLOB token IDs
+
       let tokenIds: string[] = [];
       try {
         tokenIds = JSON.parse(m["clobTokenIds"] as string) as string[];
@@ -67,7 +103,6 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
       }
       if (tokenIds.length !== 2) continue;
 
-      // Parse YES price from outcomePrices[0]
       let yesPrice = 0.5;
       try {
         const op = JSON.parse(m["outcomePrices"] as string) as string[];
@@ -76,8 +111,7 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
         /* keep default 0.5 */
       }
 
-      // Skip near-resolved markets: YES > 90% (too expensive to buy min order)
-      // or YES < 10% (our halfWidth would be larger than the price itself)
+      // Skip near-resolved markets — high adverse-selection risk and skewed fees
       if (yesPrice > 0.9 || yesPrice < 0.1) continue;
 
       const gammaBestBid = parseFloat(String(m["bestBid"] ?? "0")) || 0;
@@ -99,24 +133,23 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
         yesPrice,
         gammaBestBid,
         gammaBestAsk,
+        category,
       });
     }
 
-    // Sort by 24h volume descending — store full list, slice on read
     markets.sort((a, b) => b.volume24hr - a.volume24hr);
-    cachedMarkets = markets; // store all, not sliced
+    cachedMarkets = markets;
 
     const selected = markets.slice(0, params.numMarkets);
     lastFetch = now;
-    console.log(`[markets] Selected ${selected.length} markets:`);
+    console.log(`[markets] Selected ${selected.length} non-sports/non-crypto markets:`);
     selected.forEach((m) =>
       console.log(
-        `  • YES=${m.yesPrice.toFixed(3)} ${m.question.slice(0, 55)} | vol24h=$${m.volume24hr.toFixed(0)}`,
+        `  • [${m.category || "?"}] YES=${m.yesPrice.toFixed(3)} ${m.question.slice(0, 50)} | vol24h=$${m.volume24hr.toFixed(0)}`,
       ),
     );
   } catch (err) {
     console.error("[markets] Failed to fetch:", (err as Error).message);
-    // Keep stale cache on error
   }
 
   return cachedMarkets.slice(0, params.numMarkets);
