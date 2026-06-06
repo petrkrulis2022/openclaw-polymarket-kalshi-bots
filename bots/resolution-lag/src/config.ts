@@ -41,7 +41,7 @@ export const config = {
   minYieldPct: parseFloat(process.env["MIN_YIELD_PCT"] ?? "0.5"),
   // Price band for stale resolved markets. Lower floor captures high-yield lag windows;
   // CLOB winner confirmation is the safety check, not price alone.
-  minAskPrice: parseFloat(process.env["MIN_ASK_PRICE"] ?? "0.50"),
+  minAskPrice: parseFloat(process.env["MIN_ASK_PRICE"] ?? "0.01"),
   maxAskPrice: parseFloat(process.env["MAX_ASK_PRICE"] ?? "0.99"),
   // Safety buffer after market end time before considering it actionable.
   minPostEndMinutes: parseInt(process.env["MIN_POST_END_MINUTES"] ?? "45", 10),
