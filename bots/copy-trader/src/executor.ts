@@ -5,7 +5,7 @@
 
 import { getBestAsk, getBestBid, placeLimitOrder } from "./clob.js";
 import { params } from "./runtime-config.js";
-import { getPosition } from "./inventory.js";
+import { getPosition, recordFill } from "./inventory.js";
 import { markExecuted, markFailed, type PendingTrade } from "./pending.js";
 import { config } from "./config.js";
 
@@ -78,6 +78,7 @@ export async function executeTrade(trade: PendingTrade): Promise<void> {
     );
 
     markExecuted(id, orderId, price, targetShares);
+    recordFill(tokenId, traderLabel, side, price, targetShares);
     if (side === "BUY") recordAttribution(trade);
 
     console.log(

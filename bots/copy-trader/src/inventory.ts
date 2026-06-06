@@ -104,6 +104,11 @@ export function getTotalRealizedPnl(): number {
   return total;
 }
 
+export function resetInventory(): void {
+  positions.clear();
+  persistState();
+}
+
 export function initFromTrades(
   trades: Array<{
     asset_id: string;
