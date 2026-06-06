@@ -1,5 +1,7 @@
 // ── Runtime-mutable state for the copy-trader bot ──────────────────────────
 
+import fs from "fs";
+
 export interface TrackedTrader {
   /** Polymarket proxy wallet address (from profile URL, e.g. polymarket.com/profile/0x...) */
   address: string;
@@ -8,8 +10,8 @@ export interface TrackedTrader {
   /** Maximum USD allocated to copy this trader */
   allocationUsd: number;
   /**
-   * Fraction of the trader's position size to replicate.
-   * 1.0 = match fully relative to allocationUsd, 0.5 = half.
+   * Fraction of the trader's position delta to replicate.
+   * copyRatio=0.1 → for every $1 they trade, we trade $0.10.
    */
   copyRatio: number;
   /** How approvals work for this trader's signals */
@@ -53,6 +55,40 @@ export let params: CopyTradingParams = { ...DEFAULTS };
 // Ordered list of traders to copy
 export const traders: TrackedTrader[] = [];
 
+// ── Trader persistence ───────────────────────────────────────────────────────
+
+const TRADERS_FILE = process.env["TRADERS_STATE_FILE"] ?? "";
+
+function saveTraders(): void {
+  if (!TRADERS_FILE) return;
+  try {
+    fs.writeFileSync(
+      TRADERS_FILE,
+      JSON.stringify({ traders, savedAt: new Date().toISOString() }, null, 2),
+      "utf-8",
+    );
+  } catch {
+    /* non-fatal */
+  }
+}
+
+export function loadTraders(): void {
+  if (!TRADERS_FILE || !fs.existsSync(TRADERS_FILE)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(TRADERS_FILE, "utf-8")) as {
+      traders: TrackedTrader[];
+    };
+    traders.length = 0;
+    traders.push(...(raw.traders ?? []));
+    console.log(`[runtime-config] Loaded ${traders.length} trader(s) from disk.`);
+  } catch (err) {
+    console.warn(
+      "[runtime-config] Failed to load traders:",
+      (err as Error).message,
+    );
+  }
+}
+
 // ── Param helpers ────────────────────────────────────────────────────────────
 
 export function updateParams(patch: Partial<CopyTradingParams>): void {
@@ -80,12 +116,14 @@ export function addTrader(t: TrackedTrader): void {
   } else {
     traders.push(t);
   }
+  saveTraders();
 }
 
 export function removeTrader(address: string): boolean {
   const idx = traders.findIndex((x) => x.address === address);
   if (idx === -1) return false;
   traders.splice(idx, 1);
+  saveTraders();
   return true;
 }
 
@@ -96,6 +134,7 @@ export function updateTrader(
   const t = traders.find((x) => x.address === address);
   if (!t) return null;
   Object.assign(t, patch);
+  saveTraders();
   return { ...t };
 }
 

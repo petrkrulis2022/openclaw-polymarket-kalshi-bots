@@ -18,6 +18,7 @@ import {
   resetParams,
   getParams,
   getDefaults,
+  loadTraders,
   type TrackedTrader,
 } from "./runtime-config.js";
 import { pollTrader, getSnapshot, removeSnapshot } from "./tracker.js";
@@ -508,6 +509,9 @@ async function main(): Promise<void> {
   console.log(
     `[copy-trader] Starting (bot ${config.botId}, port ${config.port})`,
   );
+
+  // Restore tracked traders from disk (must be before poll loop starts)
+  loadTraders();
 
   // Restore inventory from trade history
   // First load last-known state from disk (fallback if CLOB unreachable)

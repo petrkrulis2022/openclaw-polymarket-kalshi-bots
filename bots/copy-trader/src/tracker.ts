@@ -53,6 +53,10 @@ type PositionSnapshot = Map<string, DataApiPosition>; // keyed by asset (tokenId
 // Per-trader snapshot store
 const snapshots = new Map<string, PositionSnapshot>();
 
+// Traders whose first snapshot has been recorded.
+// Signals are suppressed on the first poll to avoid copying stale positions.
+const initializedTraders = new Set<string>();
+
 // ── ID generator ─────────────────────────────────────────────────────────────
 
 function makeId(): string {
@@ -187,6 +191,21 @@ export async function pollTrader(
     return [];
   }
 
+  const newSnapshot: PositionSnapshot = new Map(
+    positions.map((p) => [p.asset, p]),
+  );
+
+  // First poll: record baseline only — don't generate signals from positions
+  // the trader already held before we started tracking them.
+  if (!initializedTraders.has(address)) {
+    initializedTraders.add(address);
+    snapshots.set(address, newSnapshot);
+    console.log(
+      `[tracker] Baseline set for ${label}: ${positions.length} existing position(s) — no signals`,
+    );
+    return [];
+  }
+
   const prev = snapshots.get(address) ?? new Map();
   const signals = diffSnapshots(
     prev,
@@ -197,12 +216,7 @@ export async function pollTrader(
     copyRatio,
   );
 
-  // Update snapshot
-  const newSnapshot: PositionSnapshot = new Map(
-    positions.map((p) => [p.asset, p]),
-  );
   snapshots.set(address, newSnapshot);
-
   return signals;
 }
 
@@ -220,4 +234,5 @@ export function getSnapshot(address: string): DataApiPosition[] {
  */
 export function removeSnapshot(address: string): void {
   snapshots.delete(address);
+  initializedTraders.delete(address);
 }

@@ -37,7 +37,8 @@
         "TREASURY_URL": "http://localhost:3001",
         "BOT_COUNT": "8",
         "PAPER_TRADING": "",
-        "POSITIONS_STATE_FILE": "/home/petrunix/openclaw-polymarket-kalshi-bots/orchestrator/data/positions/copy-trader-u9.json"
+        "POSITIONS_STATE_FILE": "/home/petrunix/openclaw-polymarket-kalshi-bots/orchestrator/data/positions/copy-trader-u9.json",
+        "TRADERS_STATE_FILE": "/home/petrunix/openclaw-polymarket-kalshi-bots/orchestrator/data/positions/copy-trader-u9-traders.json"
       }
     },
     {
