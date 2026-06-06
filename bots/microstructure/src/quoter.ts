@@ -30,10 +30,10 @@ function recordAttribution(market: ScreenedMarket): void {
       userAddress,
       conditionId: "",
       outcomeIndex: 0,
-      tokenId: market.yesTokenId ?? market.id,
+      tokenId: market.tokenId ?? market.id,
       botName: "microstructure",
       marketQuestion: market.question,
-      side: "YES",
+      side: market.outcome,
     }),
     signal: AbortSignal.timeout(3000),
   }).catch(() => {});
@@ -179,7 +179,7 @@ export async function refreshQuote(
     const askPrice = Math.min(0.99, avgEntry * 2);
     try {
       const result = await placeLimitOrder(
-        market.yesTokenId,
+        market.tokenId,
         "SELL",
         askPrice,
         currentPos.heldShares,
@@ -203,17 +203,17 @@ export async function refreshQuote(
   if (currentPos?.bidOrderId) return;
 
   // Check live ask — skip if above threshold (market moved up)
-  const liveAsk = await getBestAsk(market.yesTokenId);
+  const liveAsk = await getBestAsk(market.tokenId);
   if (liveAsk > config.maxAskPrice) return;
 
-  const bestBid = await getBestBid(market.yesTokenId);
+  const bestBid = await getBestBid(market.tokenId);
   // Bid at the current best-bid or at 1/3 of max ask price, whichever is lower
   const bidPrice = Math.max(0.001, Math.min(bestBid, config.maxAskPrice / 3));
   const bidSize = config.maxUsdPerMarket / bidPrice;
 
   try {
     const result = await placeLimitOrder(
-      market.yesTokenId,
+      market.tokenId,
       "BUY",
       bidPrice,
       bidSize,
@@ -221,7 +221,7 @@ export async function refreshQuote(
     upsertPosition(market.id, {
       marketId: market.id,
       marketQuestion: market.question,
-      yesTokenId: market.yesTokenId,
+      tokenId: market.tokenId,
       endDate: market.endDate,
       daysToExpiry: market.daysToExpiry,
       bidOrderId: result.orderId,

@@ -6,7 +6,7 @@ import fs from "fs";
 export interface MicroPosition {
   marketId: string;
   marketQuestion: string;
-  yesTokenId: string;
+  tokenId: string;
   endDate: string;
   daysToExpiry: number;
   /** Current resting bid order ID (null if not placed) */
@@ -82,7 +82,7 @@ export function upsertPosition(
   } else {
     positions.set(marketId, {
       marketQuestion: "",
-      yesTokenId: "",
+      tokenId: "",
       endDate: "",
       daysToExpiry: 0,
       bidOrderId: null,

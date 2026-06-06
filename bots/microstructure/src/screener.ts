@@ -11,7 +11,8 @@ const GAMMA_API = "https://gamma-api.polymarket.com/markets";
 export interface ScreenedMarket {
   id: string;
   question: string;
-  yesTokenId: string;
+  tokenId: string;
+  outcome: "YES" | "NO";
   endDate: string;
   daysToExpiry: number;
   bestAsk: number;
@@ -62,16 +63,30 @@ export async function runScreener(): Promise<void> {
 
       const tokens = m.tokens ?? [];
       const yes = tokens.find((t) => t.outcome?.toLowerCase() === "yes");
-      if (!yes) continue;
+      const no = tokens.find((t) => t.outcome?.toLowerCase() === "no");
 
-      candidates.push({
-        id: m.id,
-        question: m.question,
-        yesTokenId: yes.token_id,
-        endDate: m.end_date_iso,
-        daysToExpiry,
-        bestAsk: 999, // will be populated below
-      });
+      if (yes) {
+        candidates.push({
+          id: `${m.id}:YES`,
+          question: m.question,
+          tokenId: yes.token_id,
+          outcome: "YES",
+          endDate: m.end_date_iso,
+          daysToExpiry,
+          bestAsk: 999,
+        });
+      }
+      if (no) {
+        candidates.push({
+          id: `${m.id}:NO`,
+          question: m.question,
+          tokenId: no.token_id,
+          outcome: "NO",
+          endDate: m.end_date_iso,
+          daysToExpiry,
+          bestAsk: 999,
+        });
+      }
 
       if (candidates.length >= config.maxMarkets) break;
     }
@@ -82,7 +97,7 @@ export async function runScreener(): Promise<void> {
       const batch = candidates.slice(i, i + 20);
       const results = await Promise.allSettled(
         batch.map(async (c) => {
-          const ask = await getBestAsk(c.yesTokenId);
+          const ask = await getBestAsk(c.tokenId);
           return { ...c, bestAsk: ask };
         }),
       );
