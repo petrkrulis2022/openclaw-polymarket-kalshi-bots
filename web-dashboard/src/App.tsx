@@ -348,15 +348,252 @@ function BotDiagnosticsStrip({
   );
 }
 
+// ── Bot Positions Section (shared across all bot views) ──────────────────────
+function BotPositionsSection({
+  botName,
+  depositWallet,
+  botWalletIndex,
+  metamaskAddress,
+}: {
+  botName: string;
+  depositWallet?: string;
+  botWalletIndex?: number | null;
+  metamaskAddress?: string;
+}) {
+  const {
+    positions: allPositions,
+    loading: sharesLoading,
+    refresh: refreshShares,
+  } = usePositions(depositWallet, undefined, metamaskAddress);
+
+  const botPositions = allPositions.filter((p) => p.botName === botName);
+  const redeemableCount = botPositions.filter((p) => p.redeemable).length;
+  const totalValue = botPositions.reduce((s, p) => s + p.currentValue, 0);
+
+  const [redeemingId, setRedeemingId] = React.useState<string | null>(null);
+
+  const handleRedeem = async (pos: SharePosition) => {
+    const key = pos.conditionId + ":" + pos.outcomeIndex;
+    setRedeemingId(key);
+    try {
+      if (botWalletIndex == null) {
+        toast.error("Bot wallet index not available — refresh the page");
+        return;
+      }
+      const res = await fetch("/api/treasury/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          index: botWalletIndex,
+          conditionId: pos.conditionId,
+          outcomeIndex: pos.outcomeIndex,
+          negativeRisk: pos.negativeRisk,
+          tokenId: pos.tokenId,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const result = (await res.json()) as { txHash: string };
+      toast.success(
+        `Redeemed "${pos.title}" (${pos.outcome}) — tx ${result.txHash.slice(0, 10)}…`,
+      );
+      void refreshShares();
+    } catch (err) {
+      toast.error(
+        `Redeem failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setRedeemingId(null);
+    }
+  };
+
+  if (!depositWallet) return null;
+
+  return (
+    <div style={{ marginBottom: 32 }}>
+      <div
+        className="section-label"
+        style={{
+          marginBottom: 10,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        Wallet Positions
+        {sharesLoading && (
+          <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+            loading…
+          </span>
+        )}
+        {!sharesLoading && totalValue > 0 && (
+          <span style={{ color: "var(--text-secondary)", fontSize: 11, fontWeight: 400 }}>
+            total value ${totalValue.toFixed(2)}
+          </span>
+        )}
+        {redeemableCount > 1 && (
+          <button
+            className="btn-primary"
+            style={{ fontSize: 11, padding: "3px 12px" }}
+            onClick={() => {
+              for (const p of botPositions.filter((q) => q.redeemable)) {
+                void handleRedeem(p);
+              }
+            }}
+          >
+            Redeem All ({redeemableCount})
+          </button>
+        )}
+      </div>
+      {!sharesLoading && botPositions.length === 0 ? (
+        <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+          No wallet positions attributed to this bot.
+        </p>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: 12,
+              background: "var(--card)",
+              borderRadius: 10,
+              overflow: "hidden",
+            }}
+          >
+            <thead>
+              <tr
+                style={{
+                  background: "var(--background)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {["Market", "Outcome", "Shares", "Avg Price", "Cur Price", "Value", "PnL", "Action"].map(
+                  (h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: h === "Market" ? "left" : "right",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {botPositions.map((sp) => {
+                const key = sp.conditionId + ":" + sp.outcomeIndex;
+                const isRedeeming = redeemingId === key;
+                const isResolved = sp.status === "resolved";
+                return (
+                  <tr
+                    key={key}
+                    style={{
+                      borderTop: "1px solid var(--border)",
+                      opacity: isResolved ? 0.55 : 1,
+                    }}
+                  >
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        maxWidth: 240,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={sp.title}
+                    >
+                      {sp.title}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color:
+                          sp.outcome.toUpperCase() === "YES"
+                            ? "#4caf50"
+                            : sp.outcome.toUpperCase() === "NO"
+                              ? "#ff6b6b"
+                              : "var(--text)",
+                      }}
+                    >
+                      {sp.outcome}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {sp.size.toFixed(2)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {sp.avgPrice.toFixed(4)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {sp.curPrice.toFixed(4)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      ${sp.currentValue.toFixed(2)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color: sp.pnl >= 0 ? "#4caf50" : "#ff6b6b",
+                      }}
+                    >
+                      {sp.pnl >= 0 ? "+" : ""}${sp.pnl.toFixed(2)}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {sp.status === "redeemable" ? (
+                        <button
+                          className="btn-primary"
+                          style={{
+                            fontSize: 11,
+                            padding: "3px 12px",
+                            opacity: isRedeeming ? 0.6 : 1,
+                          }}
+                          disabled={isRedeeming}
+                          onClick={() => void handleRedeem(sp)}
+                        >
+                          {isRedeeming ? "…" : "Redeem"}
+                        </button>
+                      ) : sp.status === "resolved" ? (
+                        <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+                          expired
+                        </span>
+                      ) : (
+                        <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+                          pending
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Bot detail view ───────────────────────────────────────────────────────────
 function BotDetailView({
   bot,
   onBack,
   metamaskAddress,
+  depositWallet,
+  botWalletIndex,
 }: {
   bot: BotSummary;
   onBack: () => void;
   metamaskAddress?: string;
+  depositWallet?: string;
+  botWalletIndex?: number | null;
 }) {
   const { detail, loading, error, closeAll } = useBotDetail(Number(bot.id));
   const markets = detail?.markets ?? null;
@@ -523,7 +760,11 @@ function BotDetailView({
       />
 
       {loading && <p className="offline">Loading positions…</p>}
-      {error && <p className="offline">⚠ Bot offline — {error}</p>}
+      {error && (
+        <p style={{ color: "var(--text-secondary)", fontSize: 12, marginBottom: 8 }}>
+          ⚠ Bot process offline ({error}) — live inventory unavailable
+        </p>
+      )}
 
       {/* market quotes table */}
       {markets && markets.length > 0 && (
@@ -757,6 +998,13 @@ function BotDetailView({
           </p>
         )}
 
+      <BotPositionsSection
+        botName="market-maker"
+        depositWallet={depositWallet}
+        botWalletIndex={botWalletIndex}
+        metamaskAddress={metamaskAddress}
+      />
+
       {/* ── Strategy Configuration + OpenClaw Agent ── */}
       <div style={{ marginTop: 32 }}>
         {bot.id === "1" && <BotConfigPanel botId={1} />}
@@ -771,10 +1019,14 @@ function CopyTraderView({
   bot,
   onBack,
   metamaskAddress,
+  depositWallet,
+  botWalletIndex,
 }: {
   bot: BotSummary;
   onBack: () => void;
   metamaskAddress?: string;
+  depositWallet?: string;
+  botWalletIndex?: number | null;
 }) {
   const {
     traders,
@@ -1749,6 +2001,13 @@ function CopyTraderView({
         )}
       </div>
 
+      <BotPositionsSection
+        botName="copy-trader"
+        depositWallet={depositWallet}
+        botWalletIndex={botWalletIndex}
+        metamaskAddress={metamaskAddress}
+      />
+
       {/* Chat */}
       <div style={{ marginTop: 32 }}>
         <OpenClawChat botId={Number(bot.id)} />
@@ -1762,10 +2021,14 @@ function InMarketArbView({
   bot,
   onBack,
   metamaskAddress,
+  depositWallet,
+  botWalletIndex,
 }: {
   bot: BotSummary;
   onBack: () => void;
   metamaskAddress?: string;
+  depositWallet?: string;
+  botWalletIndex?: number | null;
 }) {
   const { data, loading, error } = useInMarketArb();
   const { pairs, totalRealizedPnl, signals, scannedAt, metrics } = data;
@@ -2121,6 +2384,13 @@ function InMarketArbView({
           ))}
         </div>
       </div>
+
+      <BotPositionsSection
+        botName="in-market-arb"
+        depositWallet={depositWallet}
+        botWalletIndex={botWalletIndex}
+        metamaskAddress={metamaskAddress}
+      />
 
       <div style={{ marginTop: 32 }}>
         <OpenClawChat botId={Number(bot.id)} />
@@ -3117,10 +3387,14 @@ function MicrostructureView({
   bot,
   onBack,
   metamaskAddress,
+  depositWallet,
+  botWalletIndex,
 }: {
   bot: BotSummary;
   onBack: () => void;
   metamaskAddress?: string;
+  depositWallet?: string;
+  botWalletIndex?: number | null;
 }) {
   const { data, loading, error } = useMicrostructure();
   const { positions, totalRealizedPnl, screenedMarkets, metrics } = data;
@@ -3451,6 +3725,13 @@ function MicrostructureView({
           ))}
         </div>
       </div>
+
+      <BotPositionsSection
+        botName="microstructure"
+        depositWallet={depositWallet}
+        botWalletIndex={botWalletIndex}
+        metamaskAddress={metamaskAddress}
+      />
 
       <div style={{ marginTop: 32 }}>
         <OpenClawChat botId={Number(bot.id)} />
@@ -4756,12 +5037,16 @@ export default function App() {
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
             metamaskAddress={user?.metamaskAddress}
+            depositWallet={balance?.depositWalletAddress}
+            botWalletIndex={user?.botWalletIndex}
           />
         ) : selectedBot.id === "4" ? (
           <InMarketArbView
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
             metamaskAddress={user?.metamaskAddress}
+            depositWallet={balance?.depositWalletAddress}
+            botWalletIndex={user?.botWalletIndex}
           />
         ) : selectedBot.id === "5" ? (
           <ResolutionLagView
@@ -4777,6 +5062,8 @@ export default function App() {
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
             metamaskAddress={user?.metamaskAddress}
+            depositWallet={balance?.depositWalletAddress}
+            botWalletIndex={user?.botWalletIndex}
           />
         ) : isSportsBotSummary(selectedBot) ? (
           <SportsBotView
@@ -4789,6 +5076,8 @@ export default function App() {
             bot={selectedBot}
             onBack={() => setSelectedBot(null)}
             metamaskAddress={user?.metamaskAddress}
+            depositWallet={balance?.depositWalletAddress}
+            botWalletIndex={user?.botWalletIndex}
           />
         )
       ) : (
