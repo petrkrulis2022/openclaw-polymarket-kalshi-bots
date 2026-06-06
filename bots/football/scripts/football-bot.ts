@@ -949,10 +949,17 @@ async function sellMonitorLoop(): Promise<void> {
     await sleep(config.sellPollMs);
   }
 
-  // Game over — force close any remaining position
+  // Game over — force close any remaining position (retry until sold or 10 attempts)
   if (openPosition) {
     console.log("[sell]  Game over — force-closing open position");
-    await checkAndSell(true);
+    for (let attempt = 1; openPosition && attempt <= 10; attempt++) {
+      if (attempt > 1) await sleep(config.sellPollMs);
+      console.log(`[sell]  Force-sell attempt ${attempt}/10`);
+      await checkAndSell(true);
+    }
+    if (openPosition) {
+      console.warn("[sell]  Game over: force-close failed after 10 attempts — position requires manual action via /force-sell");
+    }
   }
 }
 
@@ -1234,6 +1241,14 @@ httpApp.post("/set-trade-amount", (req, res) => {
   runtimeMaxPositionUsd = amount;
   console.log(`[config] Trade amount updated to ${runtimeMaxPositionUsd} USDC`);
   return res.json({ ok: true, maxPositionUsd: runtimeMaxPositionUsd });
+});
+
+httpApp.post("/force-sell", async (_req, res) => {
+  if (!openPosition) {
+    return res.json({ ok: true, message: "No open position" });
+  }
+  await checkAndSell(true);
+  return res.json({ ok: !openPosition, position: openPosition ?? null });
 });
 
 httpApp.listen(config.port, () => {
