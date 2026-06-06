@@ -25,21 +25,24 @@ export const config = {
   polymarket: {
     walletAddress: req("POLYMARKET_WALLET_ADDRESS"),
     signerKey: process.env["BOT_SIGNER_KEY"] ?? "",
-    // Polymarket proxy wallet (Gnosis Safe) that holds pUSD collateral
     funderAddress: process.env["POLYMARKET_FUNDER_ADDRESS"] ?? "",
     signatureType: signatureTypeFromEnv(),
     host: "https://clob.polymarket.com",
   } as const,
   orchestratorUrl: process.env["ORCHESTRATOR_URL"] ?? "http://localhost:3002",
   treasuryUrl: process.env["TREASURY_URL"] ?? "http://localhost:3001",
-  scanIntervalMs: parseInt(process.env["SCAN_INTERVAL_MS"] ?? "60000", 10),
+  // Reduced from 60s — faster reaction without websocket
+  scanIntervalMs: parseInt(process.env["SCAN_INTERVAL_MS"] ?? "15000", 10),
   maxConcurrentMarkets: parseInt(
     process.env["MAX_CONCURRENT_MARKETS"] ?? "10",
     10,
   ),
-  // Net spread after fees must exceed this to be worth entering
-  feeThreshold: parseFloat(process.env["FEE_THRESHOLD"] ?? "0.002"),
-  // Abandon unpaired leg after this many ms
+  // Minimum net profit ratio AFTER real per-market taker fees.
+  // 0.005 = must profit at least 0.5¢ per $1 of guaranteed return after fees.
+  feeThreshold: parseFloat(process.env["FEE_THRESHOLD"] ?? "0.005"),
   pairTimeoutMs: parseInt(process.env["PAIR_TIMEOUT_MS"] ?? "10000", 10),
   maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "50"),
+  // Conservative fallback fee rate (decimal) when Gamma API does not provide one.
+  // Polymarket taker fee formula: fee = feeRate × price × (1 − price) per share.
+  defaultFeeRate: parseFloat(process.env["DEFAULT_FEE_RATE"] ?? "0.02"),
 } as const;

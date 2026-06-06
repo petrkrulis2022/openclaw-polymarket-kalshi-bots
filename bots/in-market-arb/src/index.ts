@@ -1,19 +1,23 @@
 /**
  * index.ts — In-Market Arb Bot (Bot 4)
  *
- * Scans all active Polymarket binary markets every ~60s.
- * For each market, walks YES+NO ask depth to find profitable combined spread.
- * Enters both legs simultaneously when net spread > fee threshold.
+ * Scans Polymarket markets every ~15s (was 60s).
+ * Two arb types:
+ *   1. Binary   — YES ask + NO ask < $1 after per-market taker fees
+ *   2. NegRisk  — sum(all YES asks in group) < $1 after fees
+ *                 (exactly one YES wins → guaranteed $1 return)
  */
 
 import express, { type Request, type Response } from "express";
 import { config } from "./config.js";
 import { scanActiveMarkets } from "./scanner.js";
-import { computeArbSignal, type ArbSignal } from "./orderbook.js";
-import { executeArbPair } from "./executor.js";
+import { computeArbSignal, computeNegRiskArbSignal, type ArbSignal, type NegRiskArbSignal } from "./orderbook.js";
+import { executeArbPair, executeNegRiskArbPair } from "./executor.js";
 import {
   getAllPairs,
   getOpenPairs,
+  getAllNegRiskPairs,
+  getOpenNegRiskPairs,
   getTotalRealizedPnl,
   loadPersistedState,
   settlePair,
@@ -23,13 +27,13 @@ import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
 import { cancelOrder, getCollateralBalance, getOpenOrders } from "./clob.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 
-// ── Track most-recent scan results for the dashboard ──────────────────────────
+type AnySignal = ArbSignal | NegRiskArbSignal;
 
-let lastScanResults: ArbSignal[] = [];
+let lastScanSignals: AnySignal[] = [];
 let lastScanAt: string | null = null;
 let lastReconcileAt: string | null = null;
-// Track which market IDs are already in an open arb pair
 const activeMarkets = new Set<string>();
+const activeNegRiskGroups = new Set<string>();
 
 // ── Equity helper ─────────────────────────────────────────────────────────────
 
@@ -44,7 +48,7 @@ async function fetchAllocatedEquity(): Promise<number> {
       return data.allocatedUsd ?? 0;
     }
   } catch {
-    // Treasury offline — fall back to CLOB balance
+    /* Treasury offline */
   }
   try {
     const botCount = parseInt(process.env["BOT_COUNT"] ?? "1", 10);
@@ -57,28 +61,40 @@ async function fetchAllocatedEquity(): Promise<number> {
 // ── Main scan cycle ───────────────────────────────────────────────────────────
 
 async function runScanCycle(): Promise<void> {
-  const markets = await scanActiveMarkets();
+  const { binary, negRisk } = await scanActiveMarkets();
+  const signals: AnySignal[] = [];
 
-  // Filter out markets already running an open arb
-  const candidates = markets.filter((m) => !activeMarkets.has(m.id));
+  // Binary arb
+  const binaryCandidates = binary
+    .filter((m) => !activeMarkets.has(m.id))
+    .slice(0, config.maxConcurrentMarkets);
 
-  // Limit concurrency to avoid rate-limiting
-  const batch = candidates.slice(0, config.maxConcurrentMarkets);
-
-  const signals: ArbSignal[] = [];
   await Promise.allSettled(
-    batch.map(async (m) => {
+    binaryCandidates.map(async (m) => {
       const signal = await computeArbSignal(
         m.id,
         m.question,
         m.yesTokenId,
         m.noTokenId,
+        m.feeRate,
       );
       if (signal) signals.push(signal);
     }),
   );
 
-  lastScanResults = signals;
+  // NegRisk arb
+  const negRiskCandidates = negRisk.filter(
+    (g) => !activeNegRiskGroups.has(g.negRiskMarketId),
+  );
+
+  await Promise.allSettled(
+    negRiskCandidates.map(async (g) => {
+      const signal = await computeNegRiskArbSignal(g);
+      if (signal) signals.push(signal);
+    }),
+  );
+
+  lastScanSignals = signals;
   lastScanAt = new Date().toISOString();
 
   if (signals.length === 0) {
@@ -86,27 +102,43 @@ async function runScanCycle(): Promise<void> {
     return;
   }
 
-  // Sort by highest profitable volume, execute top candidates
-  signals.sort((a, b) => b.profitableVolumeUsd - a.profitableVolumeUsd);
-  for (const signal of signals) {
-    if (activeMarkets.has(signal.marketId)) continue;
-    activeMarkets.add(signal.marketId);
-    console.log(
-      `[arb] Signal: ${signal.marketQuestion} | spread=${signal.netSpread.toFixed(4)} ` +
-        `notionalUsd=${signal.profitableVolumeUsd.toFixed(4)} ` +
-        `expectedPnlUsd=${signal.expectedProfitUsd.toFixed(4)}`,
-    );
-    await executeArbPair(signal).catch((err) => {
-      console.error("[arb] executeArbPair error:", (err as Error).message);
-      activeMarkets.delete(signal.marketId);
-    });
+  signals.sort((a, b) => b.expectedProfitUsd - a.expectedProfitUsd);
 
-    // Release market lock after the pair timeout window so the market
-    // can be reconsidered on later scans.
-    setTimeout(
-      () => activeMarkets.delete(signal.marketId),
-      config.pairTimeoutMs + 1_000,
-    );
+  for (const signal of signals) {
+    if (signal.type === "binary") {
+      if (activeMarkets.has(signal.marketId)) continue;
+      activeMarkets.add(signal.marketId);
+      console.log(
+        `[arb] Binary signal: ${signal.marketQuestion} | spread=${signal.netSpread.toFixed(4)} ` +
+          `fee=${signal.feeRate} profit=$${signal.expectedProfitUsd.toFixed(4)}`,
+      );
+      await executeArbPair(signal).catch((err) => {
+        console.error("[arb] executeArbPair error:", (err as Error).message);
+        activeMarkets.delete(signal.marketId);
+      });
+      setTimeout(
+        () => activeMarkets.delete(signal.marketId),
+        config.pairTimeoutMs + 1_000,
+      );
+    } else {
+      if (activeNegRiskGroups.has(signal.negRiskMarketId)) continue;
+      activeNegRiskGroups.add(signal.negRiskMarketId);
+      console.log(
+        `[arb] NegRisk signal: ${signal.groupQuestion} | ${signal.legs.length} legs ` +
+          `spread=${signal.netSpread.toFixed(4)} profit=$${signal.expectedProfitUsd.toFixed(4)}`,
+      );
+      await executeNegRiskArbPair(signal).catch((err) => {
+        console.error(
+          "[arb] executeNegRiskArbPair error:",
+          (err as Error).message,
+        );
+        activeNegRiskGroups.delete(signal.negRiskMarketId);
+      });
+      setTimeout(
+        () => activeNegRiskGroups.delete(signal.negRiskMarketId),
+        config.pairTimeoutMs + 1_000,
+      );
+    }
   }
 }
 
@@ -147,23 +179,16 @@ async function reconcilePairs(): Promise<void> {
     if (yesOpen && noOpen) continue;
 
     if (!yesOpen && !noOpen) {
-      // Both orders are off-book; assume hedged pair is completed.
       settlePair(pair.id, estimateLockedProfitUsd(pair));
       continue;
     }
 
-    // One leg is off-book while the other remains open: cancel remaining leg
-    // and mark pair as partial so it is visible in API/metrics.
     const remainingOrderId = yesOpen ? pair.yesOrderId : pair.noOrderId;
     await cancelOrder(remainingOrderId);
     updatePair(pair.id, {
       status: "partial",
-      yesRemainingSize: yesOpen
-        ? (yesOrder?.remainingSize ?? pair.yesRemainingSize)
-        : 0,
-      noRemainingSize: noOpen
-        ? (noOrder?.remainingSize ?? pair.noRemainingSize)
-        : 0,
+      yesRemainingSize: yesOpen ? (yesOrder?.remainingSize ?? pair.yesRemainingSize) : 0,
+      noRemainingSize: noOpen ? (noOrder?.remainingSize ?? pair.noRemainingSize) : 0,
     });
   }
 
@@ -201,8 +226,9 @@ app.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true, botId: config.botId, name: "in-market-arb" });
 });
 
-app.get("/diagnostics", async (_req: Request, res) => {
+app.get("/diagnostics", async (_req: Request, res: Response) => {
   const openPairs = getOpenPairs();
+  const openNegRisk = getOpenNegRiskPairs();
   const eq = await fetchAllocatedEquity();
 
   res.json({
@@ -215,9 +241,11 @@ app.get("/diagnostics", async (_req: Request, res) => {
     lastReconcileAt,
     metrics: getLastSnapshot() ?? buildSnapshot(eq),
     reconciliation: {
-      openPairs: openPairs.length,
+      openBinaryPairs: openPairs.length,
+      openNegRiskPairs: openNegRisk.length,
       activeMarkets: activeMarkets.size,
-      lastSignals: lastScanResults.length,
+      activeNegRiskGroups: activeNegRiskGroups.size,
+      lastSignals: lastScanSignals.length,
     },
   });
 });
@@ -230,12 +258,13 @@ app.get("/metrics", async (_req: Request, res: Response) => {
 app.get("/positions", (_req: Request, res: Response) => {
   res.json({
     pairs: getAllPairs(),
+    negRiskPairs: getAllNegRiskPairs(),
     totalRealizedPnl: getTotalRealizedPnl(),
   });
 });
 
 app.get("/scan-results", (_req: Request, res: Response) => {
-  res.json({ signals: lastScanResults, scannedAt: lastScanAt });
+  res.json({ signals: lastScanSignals, scannedAt: lastScanAt });
 });
 
 app.get("/config", (_req: Request, res: Response) => {
@@ -243,11 +272,13 @@ app.get("/config", (_req: Request, res: Response) => {
     botId: config.botId,
     scanIntervalMs: config.scanIntervalMs,
     feeThreshold: config.feeThreshold,
+    defaultFeeRate: config.defaultFeeRate,
     pairTimeoutMs: config.pairTimeoutMs,
     maxPositionUsd: config.maxPositionUsd,
     maxConcurrentMarkets: config.maxConcurrentMarkets,
   });
 });
+
 app.post("/orders/cancel-all", async (_req: Request, res: Response) => {
   const orders = await getOpenOrders();
   let cancelled = 0;
@@ -262,6 +293,7 @@ app.post("/orders/cancel-all", async (_req: Request, res: Response) => {
   }
   res.json({ ok: true, cancelled, total: orders.length, errors });
 });
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(config.port, () => {

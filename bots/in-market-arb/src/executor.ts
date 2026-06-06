@@ -4,8 +4,15 @@
  */
 
 import { placeLimitOrder, cancelOrder } from "./clob.js";
-import { addPair, cancelPair, type ArbPair } from "./inventory.js";
-import type { ArbSignal } from "./orderbook.js";
+import {
+  addPair,
+  cancelPair,
+  addNegRiskPair,
+  cancelNegRiskPair,
+  type ArbPair,
+  type NegRiskPair,
+} from "./inventory.js";
+import type { ArbSignal, NegRiskArbSignal } from "./orderbook.js";
 import { config } from "./config.js";
 
 function recordAttribution(
@@ -55,17 +62,15 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
 
   const id = makeId();
   console.log(
-    `[executor] Entering arb pair ${id} — market: ${signal.marketQuestion} | ` +
+    `[executor] Binary arb ${id} — ${signal.marketQuestion} | ` +
       `YES@${signal.yesEntryPrice.toFixed(4)} NO@${signal.noEntryPrice.toFixed(4)} ` +
-      `spread=${signal.netSpread.toFixed(4)} size=${size.toFixed(2)}`,
+      `net=${signal.netSpread.toFixed(4)} fee=${signal.feeRate} size=${size.toFixed(2)}`,
   );
 
   let yesOrderId: string | null = null;
   let noOrderId: string | null = null;
 
   try {
-    // Place first leg, then second leg. If second leg fails, immediately
-    // cancel the first to avoid naked directional exposure.
     const yesResult = await placeLimitOrder(
       signal.yesTokenId,
       "BUY",
@@ -86,7 +91,6 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
       `[executor] Failed to place pair ${id}:`,
       (err as Error).message,
     );
-    // Attempt to cancel whichever leg succeeded
     if (yesOrderId) await cancelOrder(yesOrderId);
     if (noOrderId) await cancelOrder(noOrderId);
     return;
@@ -94,6 +98,7 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
 
   const pair: ArbPair = {
     id,
+    type: "binary",
     marketId: signal.marketId,
     marketQuestion: signal.marketQuestion,
     yesTokenId: signal.yesTokenId,
@@ -112,13 +117,93 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
   recordAttribution(signal.yesTokenId, 0, "YES", signal.marketId, signal.marketQuestion);
   recordAttribution(signal.noTokenId, 1, "NO", signal.marketId, signal.marketQuestion);
 
-  // Schedule pair timeout — cancel unpaired leg if not filled
   setTimeout(async () => {
     const { getPair } = await import("./inventory.js");
     const current = getPair(id);
     if (!current || current.status !== "pending") return;
     console.warn(`[executor] Pair ${id} timed out — cancelling both legs`);
-    await Promise.all([cancelOrder(yesOrderId), cancelOrder(noOrderId)]);
+    await Promise.all([cancelOrder(yesOrderId!), cancelOrder(noOrderId!)]);
     cancelPair(id);
+  }, config.pairTimeoutMs);
+}
+
+/**
+ * Execute all N YES legs of a negRisk group.
+ * If any leg fails, cancel all already-placed legs immediately.
+ * Buying all YES outcomes guarantees $1 at resolution (exactly one wins).
+ */
+export async function executeNegRiskArbPair(
+  signal: NegRiskArbSignal,
+): Promise<void> {
+  const N = signal.legs.length;
+  const totalRawCost = signal.legs.reduce((s, l) => s + l.entryPrice, 0);
+  const sizeByBudget = config.maxPositionUsd / totalRawCost;
+  const size = Math.min(sizeByBudget, signal.profitableVolumeUsd / totalRawCost);
+
+  if (size < 0.01) {
+    console.warn(
+      `[executor] NegRisk size too small (${size.toFixed(4)}) for group ${signal.negRiskMarketId}`,
+    );
+    return;
+  }
+
+  const id = makeId();
+  console.log(
+    `[executor] NegRisk arb ${id} — ${signal.groupQuestion} | ` +
+      `${N} legs net=${signal.netSpread.toFixed(4)} fee=${signal.feeRate} size=${size.toFixed(2)}`,
+  );
+
+  const placedOrderIds: string[] = [];
+
+  for (const leg of signal.legs) {
+    try {
+      const result = await placeLimitOrder(
+        leg.yesTokenId,
+        "BUY",
+        leg.entryPrice,
+        size,
+      );
+      placedOrderIds.push(result.orderId);
+    } catch (err) {
+      console.error(
+        `[executor] NegRisk pair ${id} leg failed:`,
+        (err as Error).message,
+      );
+      // Cancel all previously placed legs
+      await Promise.allSettled(placedOrderIds.map((oid) => cancelOrder(oid)));
+      return;
+    }
+  }
+
+  const pair: NegRiskPair = {
+    id,
+    type: "neg_risk",
+    negRiskMarketId: signal.negRiskMarketId,
+    groupQuestion: signal.groupQuestion,
+    legs: signal.legs.map((l, i) => ({
+      marketId: l.marketId,
+      yesTokenId: l.yesTokenId,
+      orderId: placedOrderIds[i],
+      price: l.entryPrice,
+      size,
+      remainingSize: size,
+    })),
+    totalCostUsd: size * totalRawCost,
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  };
+  addNegRiskPair(pair);
+
+  signal.legs.forEach((leg, i) => {
+    recordAttribution(leg.yesTokenId, i, "YES", leg.marketId, signal.groupQuestion);
+  });
+
+  setTimeout(async () => {
+    const { getNegRiskPair } = await import("./inventory.js");
+    const current = getNegRiskPair(id);
+    if (!current || current.status !== "pending") return;
+    console.warn(`[executor] NegRisk pair ${id} timed out — cancelling all legs`);
+    await Promise.allSettled(placedOrderIds.map((oid) => cancelOrder(oid)));
+    cancelNegRiskPair(id);
   }, config.pairTimeoutMs);
 }
