@@ -25,14 +25,14 @@ const POLL_MS = 10_000;
 
 export function useBotStatus(
   metamaskAddress: string | undefined,
-  botsRunning: boolean,
+  _botsRunning: boolean,
 ): UseBotStatusReturn {
   const [bots, setBots] = useState<BotStatus[]>([]);
   const [loading, setLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetch_ = useCallback(async () => {
-    if (!metamaskAddress || !botsRunning) return;
+    if (!metamaskAddress) return;
     setLoading(true);
     try {
       const res = await fetch(
@@ -46,10 +46,10 @@ export function useBotStatus(
     } finally {
       setLoading(false);
     }
-  }, [metamaskAddress, botsRunning]);
+  }, [metamaskAddress]);
 
   useEffect(() => {
-    if (!metamaskAddress || !botsRunning) {
+    if (!metamaskAddress) {
       setBots([]);
       if (pollRef.current) clearInterval(pollRef.current);
       return;
@@ -59,7 +59,7 @@ export function useBotStatus(
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [metamaskAddress, botsRunning, fetch_]);
+  }, [metamaskAddress, fetch_]);
 
   const startBot = useCallback(
     async (botName: string) => {

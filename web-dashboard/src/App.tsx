@@ -5602,8 +5602,8 @@ export default function App() {
               </div>
             </div>
           )}
-          {/* Bot Controls — per-bot stop/start shown when bots are running */}
-          {isConnected && user && !showOnboarding && botStatuses.length > 0 && (
+          {/* Bot Controls — per-bot stop/start, always visible when connected */}
+          {isConnected && user && !showOnboarding && (
             <div style={{ padding: "0 24px", marginBottom: 16 }}>
               <div className="card">
                 <div
@@ -5625,75 +5625,88 @@ export default function App() {
                     Refresh
                   </button>
                 </div>
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 8 }}
-                >
-                  {botStatuses.map((b) => {
-                    const isOnline = b.status === "online";
-                    return (
-                      <div
-                        key={b.name}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          background: "var(--surface)",
-                          borderRadius: 8,
-                          padding: "10px 14px",
-                        }}
-                      >
+                {botStatuses.length === 0 ? (
+                  <p
+                    style={{
+                      color: "var(--text-secondary)",
+                      fontSize: 13,
+                      margin: 0,
+                      padding: "6px 0",
+                    }}
+                  >
+                    No bots detected — click Refresh or start bots via PM2
+                  </p>
+                ) : (
+                  <div
+                    style={{ display: "flex", flexDirection: "column", gap: 8 }}
+                  >
+                    {botStatuses.map((b) => {
+                      const isOnline = b.status === "online";
+                      return (
                         <div
+                          key={b.name}
                           style={{
                             display: "flex",
                             alignItems: "center",
-                            gap: 10,
+                            justifyContent: "space-between",
+                            background: "var(--surface)",
+                            borderRadius: 8,
+                            padding: "10px 14px",
                           }}
                         >
                           <div
                             style={{
-                              width: 8,
-                              height: 8,
-                              borderRadius: "50%",
-                              background: isOnline
-                                ? "#4caf50"
-                                : b.status === "stopped"
-                                  ? "#ff3b30"
-                                  : "#ff9500",
-                              flexShrink: 0,
-                            }}
-                          />
-                          <span style={{ fontWeight: 500, fontSize: 14 }}>
-                            {b.name}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 11,
-                              color: "var(--text-secondary)",
-                              fontFamily: "monospace",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
                             }}
                           >
-                            {b.status}
-                          </span>
+                            <div
+                              style={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: "50%",
+                                background: isOnline
+                                  ? "#4caf50"
+                                  : b.status === "stopped"
+                                    ? "#ff3b30"
+                                    : "#ff9500",
+                                flexShrink: 0,
+                              }}
+                            />
+                            <span style={{ fontWeight: 500, fontSize: 14 }}>
+                              {b.name}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 11,
+                                color: "var(--text-secondary)",
+                                fontFamily: "monospace",
+                              }}
+                            >
+                              {b.status}
+                            </span>
+                          </div>
+                          <button
+                            className={isOnline ? "btn-secondary" : "btn-primary"}
+                            style={{
+                              fontSize: 12,
+                              padding: "4px 14px",
+                              background: isOnline ? undefined : "#2e7d32",
+                            }}
+                            onClick={() =>
+                              isOnline
+                                ? void stopBot(b.name)
+                                : void startBot(b.name)
+                            }
+                          >
+                            {isOnline ? "Stop" : "Start"}
+                          </button>
                         </div>
-                        <button
-                          className={isOnline ? "btn-secondary" : "btn-primary"}
-                          style={{
-                            fontSize: 12,
-                            padding: "4px 14px",
-                            background: isOnline ? undefined : "#2e7d32",
-                          }}
-                          onClick={() =>
-                            isOnline
-                              ? void stopBot(b.name)
-                              : void startBot(b.name)
-                          }
-                        >
-                          {isOnline ? "Stop" : "Start"}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}
