@@ -983,6 +983,32 @@ router.post(
   },
 );
 
+// ── GET /users/bots/identify ─────────────────────────────────────────────────
+// Reverse port lookup: given a bot's listening port, return the owning user's
+// address and bot name. Bots call this at startup to resolve their user address
+// dynamically instead of relying on a hardcoded USER_METAMASK_ADDRESS env var.
+// MUST be before /:address to avoid being shadowed by the wildcard route.
+
+router.get("/bots/identify", (req, res) => {
+  const port = parseInt(req.query.port as string, 10);
+  if (!port || Number.isNaN(port)) {
+    return res.status(400).json({ error: "port query param required" });
+  }
+  const users = getAllUsers();
+  for (const bot of BOT_DEFS) {
+    for (const user of users) {
+      if (userBasePort(user.bot_wallet_index) + bot.portOffset === port) {
+        return res.json({
+          userAddress: user.metamask_address,
+          botName: bot.name,
+          port,
+        });
+      }
+    }
+  }
+  return res.status(404).json({ error: `No user found for port ${port}` });
+});
+
 // ── GET /users/:address ───────────────────────────────────────────────────────
 // Also syncs bots_running from actual PM2 state so the flag stays accurate
 // even if bots were started/stopped outside the REST API.
@@ -1025,31 +1051,6 @@ router.get(
     }
   },
 );
-
-// ── GET /users/bots/identify ─────────────────────────────────────────────────
-// Reverse port lookup: given a bot's listening port, return the owning user's
-// address and bot name. Bots call this at startup to resolve their user address
-// dynamically instead of relying on a hardcoded USER_METAMASK_ADDRESS env var.
-
-router.get("/bots/identify", (req, res) => {
-  const port = parseInt(req.query.port as string, 10);
-  if (!port || Number.isNaN(port)) {
-    return res.status(400).json({ error: "port query param required" });
-  }
-  const users = getAllUsers();
-  for (const bot of BOT_DEFS) {
-    for (const user of users) {
-      if (userBasePort(user.bot_wallet_index) + bot.portOffset === port) {
-        return res.json({
-          userAddress: user.metamask_address,
-          botName: bot.name,
-          port,
-        });
-      }
-    }
-  }
-  return res.status(404).json({ error: `No user found for port ${port}` });
-});
 
 // ── GET /users/:address/bots/polymarket-config ───────────────────────────────
 // Returns the Polymarket signing credentials for a user's bot wallet.
