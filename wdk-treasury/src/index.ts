@@ -27,6 +27,7 @@ import withdrawRouter from "./routes/withdraw.js";
 import depositPolymarketRouter from "./routes/deposit-polymarket.js";
 import rescueSafeUsdcRouter from "./routes/rescue-safe-usdc.js";
 import redeemRouter from "./routes/redeem.js";
+import sellRouter from "./routes/sell.js";
 import withdrawDepositRouter from "./routes/withdraw-deposit.js";
 import transferUsdceRouter from "./routes/transfer-usdce.js";
 
@@ -53,6 +54,7 @@ app.use("/withdraw", withdrawRouter);
 app.use("/deposit-polymarket", depositPolymarketRouter);
 app.use("/rescue-safe-usdc", rescueSafeUsdcRouter);
 app.use("/redeem", redeemRouter);
+app.use("/sell", sellRouter);
 app.use("/withdraw-deposit", withdrawDepositRouter);
 app.use("/transfer-usdce", transferUsdceRouter);
 

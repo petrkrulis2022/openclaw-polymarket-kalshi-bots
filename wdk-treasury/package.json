@@ -11,11 +11,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@polymarket/clob-client-v2": "^1.0.6",
     "@tetherto/wdk": "latest",
     "@tetherto/wdk-wallet-evm": "latest",
     "dotenv": "^16.4.5",
     "ethers": "^6.16.0",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "viem": "^2.52.2"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

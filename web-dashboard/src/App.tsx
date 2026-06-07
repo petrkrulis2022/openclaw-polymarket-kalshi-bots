@@ -409,8 +409,39 @@ function BotPositionsSection({
     }
   };
 
-  const handleSell = async (_pos: SharePosition) => {
-    toast("Sell coming soon — use Close All in the bot dashboard for now");
+  const [sellingId, setSellingId] = React.useState<string | null>(null);
+
+  const handleSell = async (pos: SharePosition) => {
+    const key = pos.conditionId + ":" + pos.outcomeIndex;
+    if (botWalletIndex == null) {
+      toast.error("Bot wallet index not available — refresh the page");
+      return;
+    }
+    setSellingId(key);
+    try {
+      const res = await fetch("/api/treasury/sell", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          index: botWalletIndex,
+          tokenId: pos.tokenId,
+          size: pos.size,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const result = (await res.json()) as { orderId: string; price: number; size: number };
+      toast.success(
+        `Sell order placed: ${result.size} shares @ ${(result.price * 100).toFixed(1)}¢ (id: ${result.orderId.slice(0, 8)}…)`,
+      );
+      void refreshShares();
+    } catch (err) {
+      toast.error(`Sell failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSellingId(null);
+    }
   };
 
   if (!depositWallet) return null;
@@ -571,10 +602,15 @@ function BotPositionsSection({
                       ) : (
                         <button
                           className="btn-secondary"
-                          style={{ fontSize: 11, padding: "3px 12px" }}
+                          style={{
+                            fontSize: 11,
+                            padding: "3px 12px",
+                            opacity: sellingId === sp.conditionId + ":" + sp.outcomeIndex ? 0.6 : 1,
+                          }}
+                          disabled={sellingId === sp.conditionId + ":" + sp.outcomeIndex}
                           onClick={() => void handleSell(sp)}
                         >
-                          Sell
+                          {sellingId === sp.conditionId + ":" + sp.outcomeIndex ? "…" : "Sell"}
                         </button>
                       )}
                     </td>
