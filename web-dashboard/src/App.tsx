@@ -409,6 +409,10 @@ function BotPositionsSection({
     }
   };
 
+  const handleSell = async (_pos: SharePosition) => {
+    toast("Sell coming soon — use Close All in the bot dashboard for now");
+  };
+
   if (!depositWallet) return null;
 
   return (
@@ -565,9 +569,13 @@ function BotPositionsSection({
                           expired
                         </span>
                       ) : (
-                        <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
-                          pending
-                        </span>
+                        <button
+                          className="btn-secondary"
+                          style={{ fontSize: 11, padding: "3px 12px" }}
+                          onClick={() => void handleSell(sp)}
+                        >
+                          Sell
+                        </button>
                       )}
                     </td>
                   </tr>

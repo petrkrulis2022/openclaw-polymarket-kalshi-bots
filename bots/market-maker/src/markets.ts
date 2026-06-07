@@ -23,33 +23,27 @@ export interface GammaMarket {
   gammaBestAsk: number;
   /** Market category from Gamma API (e.g. "Sports", "Crypto", "Politics") */
   category: string;
+  /**
+   * Game start time from Gamma API — set on individual match markets
+   * (tennis, NBA, esports). Empty string on long-horizon markets.
+   * Used to exclude live/near-live game markets from market-making.
+   */
+  gameStartTime: string;
 }
 
-// Categories excluded from market-making entirely.
-// Sports: hard binary resolution + heavy adverse selection from informed bettors.
-// Crypto: taker fees of 2-3%+ make fills uneconomical.
+// Gamma API returns null category for all markets (as of 2026-06).
+// Use gameStartTime presence as primary sports filter — individual match
+// markets (ATP, NBA, esports) always have this field set; tournament-winner
+// and political markets leave it empty.
+// Keep category set as secondary guard in case Gamma ever populates the field.
 const EXCLUDED_CATEGORIES = new Set([
-  "sports",
-  "sport",
-  "esports",
-  "e-sports",
-  "soccer",
-  "football",
-  "tennis",
-  "basketball",
-  "baseball",
-  "hockey",
-  "cricket",
-  "rugby",
-  "golf",
-  "mma",
-  "boxing",
-  "racing",
-  "crypto",
-  "cryptocurrency",
+  "sports", "sport", "esports", "e-sports", "soccer", "football", "tennis",
+  "basketball", "baseball", "hockey", "cricket", "rugby", "golf", "mma",
+  "boxing", "racing", "crypto", "cryptocurrency",
 ]);
 
-function isCategoryExcluded(category: string): boolean {
+function isSportsMatch(category: string, gameStartTime: string): boolean {
+  if (gameStartTime && gameStartTime.trim() !== "") return true;
   return EXCLUDED_CATEGORIES.has(category.toLowerCase().trim());
 }
 
@@ -84,7 +78,8 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
 
       // Category exclusion — sports and crypto cause adverse selection / high fees
       const category = String(m["category"] ?? m["tags"] ?? "").trim();
-      if (isCategoryExcluded(category)) continue;
+      const gameStartTime = String(m["gameStartTime"] ?? "").trim();
+      if (isSportsMatch(category, gameStartTime)) continue;
 
       // Robust end-date check using actual timestamp comparison
       const endDate = String(m["endDateIso"] ?? "");
@@ -134,6 +129,7 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
         gammaBestBid,
         gammaBestAsk,
         category,
+        gameStartTime,
       });
     }
 
