@@ -299,10 +299,12 @@ async function fetchTradeAmountFromOrchestrator(): Promise<void> {
     if (res.ok) {
       const data = (await res.json()) as { amountUsd?: number };
       if (typeof data.amountUsd === "number" && data.amountUsd >= 0) {
+        if (data.amountUsd !== runtimeMaxPositionUsd) {
+          console.log(
+            `[config] Trade amount updated: ${runtimeMaxPositionUsd} → ${data.amountUsd} USDC`,
+          );
+        }
         runtimeMaxPositionUsd = data.amountUsd;
-        console.log(
-          `[config] Trade amount fetched from orchestrator: ${runtimeMaxPositionUsd} USDC`,
-        );
       }
     } else {
       console.warn(
