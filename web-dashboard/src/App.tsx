@@ -3803,7 +3803,12 @@ function SportsBotView({
   );
   const { trades, openPosition, totalPnl, gameOver, matchSlug, metrics } = data;
   const botOffline = Boolean(error);
-  const sportsBotName = Number(bot.id) === 8 ? "football-bot" : "hockey-bot";
+  const sportsBotName =
+    Number(bot.id) === 11
+      ? "tennis-bot"
+      : Number(bot.id) === 8
+        ? "football-bot"
+        : "hockey-bot";
   const [tradeAmountInput, setTradeAmountInput] = React.useState("");
   const [tradeAmountSaving, setTradeAmountSaving] = React.useState(false);
   const [tradeAmountStatus, setTradeAmountStatus] = React.useState<
@@ -3813,6 +3818,7 @@ function SportsBotView({
     amountUsd: number;
     hockeyAmountUsd: number;
     footballAmountUsd: number;
+    tennisAmountUsd: number;
     collateralUsdce: number | null;
     remainingCollateralUsd: number | null;
   } | null>(null);
@@ -3831,6 +3837,7 @@ function SportsBotView({
           amountUsd: number;
           hockeyAmountUsd: number;
           footballAmountUsd: number;
+          tennisAmountUsd: number;
           collateralUsdce: number | null;
           remainingCollateralUsd: number | null;
           collateralError?: string | null;
@@ -3840,6 +3847,7 @@ function SportsBotView({
           amountUsd: payload.amountUsd,
           hockeyAmountUsd: payload.hockeyAmountUsd,
           footballAmountUsd: payload.footballAmountUsd,
+          tennisAmountUsd: payload.tennisAmountUsd ?? 0,
           collateralUsdce: payload.collateralUsdce,
           remainingCollateralUsd: payload.remainingCollateralUsd,
         });
@@ -3885,6 +3893,7 @@ function SportsBotView({
         amountUsd?: number;
         hockeyAmountUsd?: number;
         footballAmountUsd?: number;
+        tennisAmountUsd?: number;
         collateralUsdce?: number | null;
         remainingCollateralUsd?: number | null;
         maxAllowedForThisBotUsd?: number;
@@ -3906,6 +3915,7 @@ function SportsBotView({
         amountUsd: Number(payload.amountUsd ?? amountUsd),
         hockeyAmountUsd: Number(payload.hockeyAmountUsd ?? 0),
         footballAmountUsd: Number(payload.footballAmountUsd ?? 0),
+        tennisAmountUsd: Number(payload.tennisAmountUsd ?? 0),
         collateralUsdce:
           payload.collateralUsdce == null
             ? null
@@ -4103,7 +4113,8 @@ function SportsBotView({
             >
               Collateral: {tradeAmountInfo.collateralUsdce?.toFixed(6) ?? "?"} |
               Hockey: {tradeAmountInfo.hockeyAmountUsd.toFixed(6)} | Football:{" "}
-              {tradeAmountInfo.footballAmountUsd.toFixed(6)} | Remaining:{" "}
+              {tradeAmountInfo.footballAmountUsd.toFixed(6)} | Tennis:{" "}
+              {tradeAmountInfo.tennisAmountUsd.toFixed(6)} | Remaining:{" "}
               {tradeAmountInfo.remainingCollateralUsd?.toFixed(6) ?? "?"}
             </div>
           )}
@@ -4173,7 +4184,11 @@ function SportsBotView({
               padding: 24,
             }}
           >
-            {loading ? "Loading…" : "No trades yet — waiting for a goal"}
+            {loading
+              ? "Loading…"
+              : sportsBotName === "tennis-bot"
+                ? "No trades yet — waiting for a set win"
+                : "No trades yet — waiting for a goal"}
           </div>
         ) : (
           <div className="card" style={{ overflowX: "auto" }}>

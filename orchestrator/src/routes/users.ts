@@ -1343,7 +1343,12 @@ router.get("/:address/bots/:botName/trade-amount", async (req, res) => {
   const footballAmount = Number(
     (amounts["football-bot"] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
   );
-  const totalAssigned = Number((hockeyAmount + footballAmount).toFixed(6));
+  const tennisAmount = Number(
+    (amounts["tennis-bot"] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
+  );
+  const totalAssigned = Number(
+    (hockeyAmount + footballAmount + tennisAmount).toFixed(6),
+  );
 
   let collateralUsdce: number | null = null;
   let collateralError: string | null = null;
@@ -1356,9 +1361,15 @@ router.get("/:address/bots/:botName/trade-amount", async (req, res) => {
   return res.json({
     ok: true,
     botName,
-    amountUsd: botName === "hockey-bot" ? hockeyAmount : footballAmount,
+    amountUsd:
+      botName === "hockey-bot"
+        ? hockeyAmount
+        : botName === "football-bot"
+          ? footballAmount
+          : tennisAmount,
     hockeyAmountUsd: hockeyAmount,
     footballAmountUsd: footballAmount,
+    tennisAmountUsd: tennisAmount,
     totalAssignedUsd: totalAssigned,
     collateralUsdce,
     remainingCollateralUsd:
@@ -1402,25 +1413,34 @@ router.put("/:address/bots/:botName/trade-amount", async (req, res) => {
 
     if (collateralUsdce > 0) {
       const amounts = getSportsTradeAmounts(address);
-      const otherBotName =
-        botName === "hockey-bot" ? "football-bot" : "hockey-bot";
-      const otherAmount = Number(
-        (amounts[otherBotName] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
+      const otherBotNames = (
+        ["hockey-bot", "football-bot", "tennis-bot"] as const
+      ).filter((b) => b !== botName);
+      const otherTotal = Number(
+        otherBotNames
+          .reduce(
+            (sum, name) =>
+              sum +
+              Number(
+                (amounts[name] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
+              ),
+            0,
+          )
+          .toFixed(6),
       );
-      const nextTotal = Number((normalizedAmount + otherAmount).toFixed(6));
+      const nextTotal = Number((normalizedAmount + otherTotal).toFixed(6));
 
       if (nextTotal > collateralUsdce + 1e-9) {
         return res.status(400).json({
           error:
-            "Amount higher than collateral. Combined hockey + football trade amounts must be within available collateral.",
+            "Amount higher than collateral. Combined hockey + football + tennis trade amounts must be within available collateral.",
           botName,
           requestedAmountUsd: normalizedAmount,
-          otherBotName,
-          otherAmountUsd: otherAmount,
+          otherTotal,
           combinedAmountUsd: nextTotal,
           collateralUsdce,
           maxAllowedForThisBotUsd: Number(
-            Math.max(0, collateralUsdce - otherAmount).toFixed(6),
+            Math.max(0, collateralUsdce - otherTotal).toFixed(6),
           ),
         });
       }
@@ -1445,22 +1465,26 @@ router.put("/:address/bots/:botName/trade-amount", async (req, res) => {
   }
 
   const amounts2 = getSportsTradeAmounts(address);
-  const otherBotName2 =
-    botName === "hockey-bot" ? "football-bot" : "hockey-bot";
-  const otherAmount2 = Number(
-    (amounts2[otherBotName2] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
+  const hockeyAmount2 = Number(
+    (amounts2["hockey-bot"] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
+  );
+  const footballAmount2 = Number(
+    (amounts2["football-bot"] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
+  );
+  const tennisAmount2 = Number(
+    (amounts2["tennis-bot"] ?? DEFAULT_SPORTS_TRADE_AMOUNT_USD).toFixed(6),
   );
   const combinedAmountUsd = Number(
-    (normalizedAmount + otherAmount2).toFixed(6),
+    (hockeyAmount2 + footballAmount2 + tennisAmount2).toFixed(6),
   );
 
   return res.json({
     ok: true,
     botName,
     amountUsd: normalizedAmount,
-    hockeyAmountUsd: botName === "hockey-bot" ? normalizedAmount : otherAmount2,
-    footballAmountUsd:
-      botName === "football-bot" ? normalizedAmount : otherAmount2,
+    hockeyAmountUsd: hockeyAmount2,
+    footballAmountUsd: footballAmount2,
+    tennisAmountUsd: tennisAmount2,
     combinedAmountUsd,
     note: "Saved. Bot will use new trade amount immediately if already running.",
   });
