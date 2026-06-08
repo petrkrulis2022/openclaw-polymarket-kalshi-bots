@@ -36,6 +36,7 @@ const DEFAULT_BOT_ID = 8;
 const BOT_ROUTE_NAMES: Record<number, string> = {
   8: "football-bot",
   10: "hockey-bot",
+  11: "tennis-bot",
 };
 
 export function useSportsBot(
@@ -119,5 +120,5 @@ export function useSportsBot(
     };
   }, [fetch_]);
 
-  return { data, loading, error };
+  return { data, loading, error, refresh: fetch_ };
 }

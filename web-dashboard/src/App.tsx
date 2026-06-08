@@ -3797,12 +3797,13 @@ function SportsBotView({
   metamaskAddress?: string;
   onOpenGameManager?: () => void;
 }) {
-  const { data, loading, error } = useSportsBot(
+  const { data, loading, error, refresh: refreshBot } = useSportsBot(
     Number(bot.id),
     metamaskAddress,
   );
   const { trades, openPosition, totalPnl, gameOver, matchSlug, metrics } = data;
   const botOffline = Boolean(error);
+  const [botActionPending, setBotActionPending] = React.useState(false);
   const sportsBotName =
     Number(bot.id) === 11
       ? "tennis-bot"
@@ -3994,22 +3995,54 @@ function SportsBotView({
         </div>
       </div>
 
-      {error && (
-        <div
-          style={{
-            margin: "0 24px 16px",
-            padding: "10px 14px",
-            background: "#f4433620",
-            borderRadius: 8,
-            color: "#f44336",
-            fontSize: 13,
+      <div
+        style={{
+          margin: "0 24px 16px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        {error && (
+          <div
+            style={{
+              flex: 1,
+              padding: "10px 14px",
+              background: "#f4433620",
+              borderRadius: 8,
+              color: "#f44336",
+              fontSize: 13,
+            }}
+          >
+            {error === "Bot offline"
+              ? "⚠ Bot not running"
+              : error}
+          </div>
+        )}
+        <button
+          className={botOffline ? "btn-primary" : "btn-secondary"}
+          disabled={botActionPending}
+          onClick={async () => {
+            if (!metamaskAddress) return;
+            setBotActionPending(true);
+            try {
+              await fetch(
+                `/api/orchestrator/users/${metamaskAddress}/bots/${sportsBotName}/${botOffline ? "start" : "stop"}`,
+                { method: "POST" },
+              );
+              await new Promise((r) => setTimeout(r, 1500));
+              await refreshBot();
+            } finally {
+              setBotActionPending(false);
+            }
           }}
+          style={{ whiteSpace: "nowrap" }}
         >
-          {error === "Bot offline"
-            ? "⚠ Bot not running — start it on the server"
-            : error}
-        </div>
-      )}
+          {botActionPending
+            ? botOffline ? "Starting…" : "Stopping…"
+            : botOffline ? "▶ Start Bot" : "■ Stop Bot"}
+        </button>
+      </div>
 
       {/* Status strip */}
       <div style={{ padding: "0 24px", marginBottom: 16 }}>
