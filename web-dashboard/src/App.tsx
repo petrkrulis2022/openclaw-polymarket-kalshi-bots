@@ -36,6 +36,7 @@ import { WalletsModal } from "./components/WalletsModal";
 import { AnalysisModal } from "./components/AnalysisModal";
 import { HockeyManager } from "./hockey/HockeyManager";
 import { FootballManager } from "./football/FootballManager";
+import { TennisManager } from "./tennis/TennisManager";
 import { Toaster, toast } from "sonner";
 import "./index.css";
 
@@ -4325,6 +4326,24 @@ function FootballGameManagerView({
   );
 }
 
+function TennisGameManagerView({
+  bot,
+  metamaskAddress,
+  onBack,
+}: {
+  bot: BotSummary;
+  metamaskAddress?: string;
+  onBack: () => void;
+}) {
+  return (
+    <TennisManager
+      botName={bot.name}
+      metamaskAddress={metamaskAddress}
+      onBack={onBack}
+    />
+  );
+}
+
 // ── Portfolio section ─────────────────────────────────────────────────────────
 function PortfolioSection({
   onSelectBot,
@@ -4838,6 +4857,7 @@ function NotificationPoller({
 export default function App() {
   const [selectedBot, setSelectedBot] = useState<BotSummary | null>(null);
   const [showHockeyGameManager, setShowHockeyGameManager] = useState(false);
+  const [showTennisGameManager, setShowTennisGameManager] = useState(false);
   const [showFootballGameManager, setShowFootballGameManager] = useState(false);
   // The resolution-lag bot's own proxy wallet (0xD7CA8219…) — may hold older positions.
   const [lagBotProxyWallet, setLagBotProxyWallet] = useState<
@@ -5068,6 +5088,24 @@ export default function App() {
                 setSelectedBot(null);
               }}
               onOpenGameManager={() => setShowFootballGameManager(true)}
+            />
+          )
+        ) : selectedBot.id === "11" ? (
+          showTennisGameManager ? (
+            <TennisGameManagerView
+              bot={selectedBot}
+              metamaskAddress={user?.metamaskAddress}
+              onBack={() => setShowTennisGameManager(false)}
+            />
+          ) : (
+            <SportsBotView
+              bot={selectedBot}
+              metamaskAddress={user?.metamaskAddress}
+              onBack={() => {
+                setShowTennisGameManager(false);
+                setSelectedBot(null);
+              }}
+              onOpenGameManager={() => setShowTennisGameManager(true)}
             />
           )
         ) : selectedBot.id === "2" ? (
@@ -5761,6 +5799,7 @@ export default function App() {
                 onSelectBot={(bot) => {
                   setShowHockeyGameManager(false);
                   setShowFootballGameManager(false);
+                  setShowTennisGameManager(false);
                   setSelectedBot(bot);
                 }}
                 metamaskAddress={user?.metamaskAddress}
@@ -5789,6 +5828,7 @@ export default function App() {
                     "7": "btc-lag",
                     "8": "football-bot",
                     "10": "hockey-bot",
+                    "11": "tennis-bot",
                   };
                   const botName = botNameById[botId];
                   if (!botName) return;

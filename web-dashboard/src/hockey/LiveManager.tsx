@@ -20,7 +20,7 @@ export type HockeyFeedMatch = {
 };
 
 type Props = {
-  botName: "hockey-bot" | "football-bot";
+  botName: "hockey-bot" | "football-bot" | "tennis-bot";
   selectedKeys: string[];
   baseByKey: Record<string, HockeyFeedMatch>;
   metamaskAddress?: string;
@@ -247,7 +247,9 @@ export function LiveManager({
             }}
           >
             {botReady.ready
-              ? "Bot ready — will trade on next goal"
+              ? botName === "tennis-bot"
+                ? "Bot ready — will trade on next set win"
+                : "Bot ready — will trade on next goal"
               : "Bot initializing…"}
           </span>
           <span style={{ color: "var(--text-secondary)", marginLeft: 4 }}>
@@ -296,7 +298,7 @@ export function LiveManager({
                     }}
                     disabled={manualPendingKey === m.key}
                   >
-                    Team A Scored
+                    {botName === "tennis-bot" ? "Player A Won Set" : "Team A Scored"}
                   </button>
                   <button
                     className="hky-manual-btn hky-manual-btn-right"
@@ -305,7 +307,7 @@ export function LiveManager({
                     }}
                     disabled={manualPendingKey === m.key}
                   >
-                    Team B Scored
+                    {botName === "tennis-bot" ? "Player B Won Set" : "Team B Scored"}
                   </button>
                 </div>
               ) : null}

@@ -177,6 +177,13 @@ const BOT_DEFS = [
     portOffset: 8,
     entrypoint: "src/index.ts",
   },
+  {
+    name: "tennis-bot",
+    folder: "tennis",
+    botId: 11,
+    portOffset: 9,
+    entrypoint: "scripts/tennis-bot.ts",
+  },
 ] as const;
 
 const WATCHLIST_BOTS = new Set([
@@ -184,7 +191,7 @@ const WATCHLIST_BOTS = new Set([
   "football-bot",
   "hockey-bot",
 ]);
-const SPORTS_AMOUNT_BOTS = new Set(["hockey-bot", "football-bot"]);
+const SPORTS_AMOUNT_BOTS = new Set(["hockey-bot", "football-bot", "tennis-bot"]);
 const DEFAULT_SPORTS_TRADE_AMOUNT_USD = 1;
 
 function getBotDef(botName: string) {
@@ -1282,7 +1289,7 @@ router.post("/:address/bots/:botName/manual-trigger", async (req, res) => {
   if (!user) return res.status(404).json({ error: "User not found" });
   if (!SPORTS_AMOUNT_BOTS.has(botName)) {
     return res.status(400).json({
-      error: "Manual trigger is only supported for hockey-bot and football-bot",
+      error: "Manual trigger is only supported for hockey-bot, football-bot and tennis-bot",
     });
   }
 
@@ -1325,7 +1332,7 @@ router.get("/:address/bots/:botName/trade-amount", async (req, res) => {
   if (!user) return res.status(404).json({ error: "User not found" });
   if (!SPORTS_AMOUNT_BOTS.has(botName)) {
     return res.status(400).json({
-      error: `Trade amount is only supported for hockey-bot and football-bot`,
+      error: `Trade amount is only supported for hockey-bot, football-bot and tennis-bot`,
     });
   }
 
@@ -1370,7 +1377,7 @@ router.put("/:address/bots/:botName/trade-amount", async (req, res) => {
   if (!user) return res.status(404).json({ error: "User not found" });
   if (!SPORTS_AMOUNT_BOTS.has(botName)) {
     return res.status(400).json({
-      error: `Trade amount is only supported for hockey-bot and football-bot`,
+      error: `Trade amount is only supported for hockey-bot, football-bot and tennis-bot`,
     });
   }
 
