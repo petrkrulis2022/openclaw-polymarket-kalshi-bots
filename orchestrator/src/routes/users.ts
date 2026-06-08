@@ -1878,6 +1878,100 @@ router.get(
   },
 );
 
+// ── GET /users/:address/bots/tennis-bot/watchlist-state ──────────────────────
+
+router.get(
+  "/:address/bots/tennis-bot/watchlist-state",
+  async (req, res, next) => {
+    try {
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const botBaseUrl = getUserBotBaseUrl(user, "tennis-bot");
+      if (!botBaseUrl) {
+        return res.status(500).json({
+          ok: false,
+          bot: "tennis-bot",
+          error: "Tennis bot definition not found",
+        });
+      }
+      const targetUrl = `${botBaseUrl}/watchlist-state`;
+      try {
+        const botRes = await fetch(targetUrl, {
+          signal: AbortSignal.timeout(4_000),
+        });
+        if (!botRes.ok) {
+          return res.json({
+            ok: false,
+            bot: "tennis-bot",
+            offline: true,
+            watchlist: [],
+            error: `Tennis bot watchlist-state returned ${botRes.status}`,
+          });
+        }
+        return res.json(await botRes.json());
+      } catch (err) {
+        return res.json({
+          ok: false,
+          bot: "tennis-bot",
+          offline: true,
+          watchlist: [],
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ── GET /users/:address/bots/tennis-bot/watchlist-state/:key ─────────────────
+
+router.get(
+  "/:address/bots/tennis-bot/watchlist-state/:key",
+  async (req, res, next) => {
+    try {
+      const { address, key } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const botBaseUrl = getUserBotBaseUrl(user, "tennis-bot");
+      if (!botBaseUrl) {
+        return res.status(500).json({
+          ok: false,
+          bot: "tennis-bot",
+          error: "Tennis bot definition not found",
+        });
+      }
+      const targetUrl = `${botBaseUrl}/watchlist-state/${encodeURIComponent(key ?? "")}`;
+      try {
+        const botRes = await fetch(targetUrl, {
+          signal: AbortSignal.timeout(4_000),
+        });
+        if (!botRes.ok) {
+          return res.json({
+            ok: false,
+            bot: "tennis-bot",
+            offline: true,
+            error: `Tennis bot watchlist-state returned ${botRes.status}`,
+          });
+        }
+        return res.json(await botRes.json());
+      } catch (err) {
+        return res.json({
+          ok: false,
+          bot: "tennis-bot",
+          offline: true,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
 // ── POST /users/:address/stop-bots ────────────────────────────────────────────
 
 router.post(
