@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { LiveManager, type HockeyFeedMatch } from "../hockey/LiveManager";
+import { fetchTeamsFromSlug } from "../hooks/use-gamma-teams";
 import "../hockey/styles.css";
 
 type Props = {
@@ -73,6 +74,7 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
   const [homeTeam, setHomeTeam] = useState("Team A");
   const [awayTeam, setAwayTeam] = useState("Team B");
   const [pollingReadiness, setPollingReadiness] = useState(false);
+  const [fetchingTeams, setFetchingTeams] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, selectedKey ? polymarketInput : "");
@@ -144,6 +146,28 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
       stopped = true;
     };
   }, [metamaskAddress]);
+
+  // Auto-fetch team names from Gamma when slug input changes
+  useEffect(() => {
+    const slug = extractMatchSlug(polymarketInput);
+    if (!slug) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setFetchingTeams(true);
+      const teams = await fetchTeamsFromSlug(slug);
+      if (!cancelled) {
+        setFetchingTeams(false);
+        if (teams) {
+          if (teams.home) setHomeTeam(teams.home);
+          if (teams.away) setAwayTeam(teams.away);
+        }
+      }
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [polymarketInput]);
 
   const persistSelection = async (
     slugInput: string,
@@ -290,7 +314,7 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
               htmlFor="ft-home-team"
               style={{ marginTop: 10 }}
             >
-              Team A label
+              Team A {fetchingTeams ? <span style={{ color: "#546e7a" }}>fetching…</span> : null}
             </label>
             <input
               id="ft-home-team"
@@ -304,7 +328,7 @@ export function FootballManager({ botName, metamaskAddress, onBack }: Props) {
               htmlFor="ft-away-team"
               style={{ marginTop: 10 }}
             >
-              Team B label
+              Team B {fetchingTeams ? <span style={{ color: "#546e7a" }}>fetching…</span> : null}
             </label>
             <input
               id="ft-away-team"

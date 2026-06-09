@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { LiveManager, type HockeyFeedMatch } from "../hockey/LiveManager";
+import { fetchTeamsFromSlug } from "../hooks/use-gamma-teams";
 import "../hockey/styles.css";
 
 type Props = {
@@ -73,6 +74,7 @@ export function TennisManager({ botName, metamaskAddress, onBack }: Props) {
   const [homePlayer, setHomePlayer] = useState("Player A");
   const [awayPlayer, setAwayPlayer] = useState("Player B");
   const [pollingReadiness, setPollingReadiness] = useState(false);
+  const [fetchingTeams, setFetchingTeams] = useState(false);
 
   useEffect(() => {
     if (!pollingReadiness || !metamaskAddress) return;
@@ -142,6 +144,28 @@ export function TennisManager({ botName, metamaskAddress, onBack }: Props) {
     void loadPersisted();
     return () => { stopped = true; };
   }, [metamaskAddress]);
+
+  // Auto-fetch player names from Gamma when slug input changes
+  useEffect(() => {
+    const slug = extractMatchSlug(polymarketInput);
+    if (!slug) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setFetchingTeams(true);
+      const teams = await fetchTeamsFromSlug(slug);
+      if (!cancelled) {
+        setFetchingTeams(false);
+        if (teams) {
+          if (teams.home) setHomePlayer(teams.home);
+          if (teams.away) setAwayPlayer(teams.away);
+        }
+      }
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [polymarketInput]);
 
   const persistSelection = async (
     slugInput: string,
@@ -287,7 +311,7 @@ export function TennisManager({ botName, metamaskAddress, onBack }: Props) {
               htmlFor="ten-home-player"
               style={{ marginTop: 10 }}
             >
-              Player A label (home)
+              Player A {fetchingTeams ? <span style={{ color: "#546e7a" }}>fetching…</span> : null}
             </label>
             <input
               id="ten-home-player"
@@ -302,7 +326,7 @@ export function TennisManager({ botName, metamaskAddress, onBack }: Props) {
               htmlFor="ten-away-player"
               style={{ marginTop: 10 }}
             >
-              Player B label (away)
+              Player B {fetchingTeams ? <span style={{ color: "#546e7a" }}>fetching…</span> : null}
             </label>
             <input
               id="ten-away-player"
