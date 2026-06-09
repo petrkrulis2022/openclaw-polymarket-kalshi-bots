@@ -72,6 +72,13 @@ interface UseUserReturn {
     to: string;
     amount: string;
   }>;
+  withdrawPusd: (opts?: { amountUsdce?: string }) => Promise<{
+    txHash: string;
+    from: string;
+    to: string;
+    amount: string;
+    asset: string;
+  }>;
   refresh: () => Promise<void>;
   refreshBalance: () => Promise<void>;
 }
@@ -472,6 +479,36 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     [metamaskAddress, refreshBalance],
   );
 
+  const withdrawPusd = useCallback(
+    async (opts?: { amountUsdce?: string }) => {
+      if (!metamaskAddress) throw new Error("Not connected");
+      const res = await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/withdraw-pusd`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(opts ?? {}),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string }).error ?? "pUSD withdrawal failed",
+        );
+      }
+      const result = await res.json();
+      await refreshBalance();
+      return result as {
+        txHash: string;
+        from: string;
+        to: string;
+        amount: string;
+        asset: string;
+      };
+    },
+    [metamaskAddress, refreshBalance],
+  );
+
   return {
     user,
     loading,
@@ -486,6 +523,7 @@ export function useUser(metamaskAddress: string | undefined): UseUserReturn {
     setBotEnabled,
     withdrawFunds,
     depositToPolymarket,
+    withdrawPusd,
     refresh,
     refreshBalance,
   };

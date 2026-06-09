@@ -2080,6 +2080,42 @@ router.post(
   },
 );
 
+// ── POST /users/:address/withdraw-pusd ───────────────────────────────────────
+// Withdraw pUSD from the user's Polymarket deposit wallet to their MetaMask.
+// Uses the gasless relayer — no POL needed.
+// Body: { amountUsdce?: string }  (omit to send full balance)
+
+router.post(
+  "/:address/withdraw-pusd",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address } = req.params;
+      const user = getUser(address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const { amountUsdce } = req.body as { amountUsdce?: string };
+
+      const treasuryRes = await fetch(`${WDK_TREASURY_URL}/withdraw-deposit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          index: user.bot_wallet_index,
+          toAddress: address,
+          asset: "pusd",
+          ...(amountUsdce ? { amountUsdce } : {}),
+        }),
+      });
+      const data = await treasuryRes.json();
+      if (!treasuryRes.ok) {
+        return res.status(treasuryRes.status).json(data);
+      }
+      return res.json(data);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
 // ── POST /users/:address/bots/:botName/stop ───────────────────────────────────
 // Stop a single named bot for a user (e.g. "market-maker").
 

@@ -4927,6 +4927,7 @@ export default function App() {
     refreshBalance,
     withdrawFunds,
     depositToPolymarket,
+    withdrawPusd,
   } = useUser(isConnected ? address : undefined);
 
   React.useEffect(() => {
@@ -4963,6 +4964,31 @@ export default function App() {
   const [withdrawStopBots, setWithdrawStopBots] = React.useState(true);
   const [showAdmin, setShowAdmin] = React.useState(false);
   const [showWallets, setShowWallets] = React.useState(false);
+
+  // Withdraw pUSD from Polymarket
+  const [withdrawingPusd, setWithdrawingPusd] = React.useState(false);
+  const [withdrawPusdAmount, setWithdrawPusdAmount] = React.useState("");
+  const [withdrawPusdResult, setWithdrawPusdResult] = React.useState<{
+    txHash: string;
+    amount: string;
+  } | null>(null);
+  const [withdrawPusdError, setWithdrawPusdError] = React.useState<string | null>(null);
+
+  const handleWithdrawPusd = async () => {
+    setWithdrawingPusd(true);
+    setWithdrawPusdError(null);
+    setWithdrawPusdResult(null);
+    try {
+      const result = await withdrawPusd(
+        withdrawPusdAmount ? { amountUsdce: withdrawPusdAmount } : undefined,
+      );
+      setWithdrawPusdResult({ txHash: result.txHash, amount: result.amount });
+    } catch (err) {
+      setWithdrawPusdError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setWithdrawingPusd(false);
+    }
+  };
 
   // Deposit to Polymarket
   const [depositing, setDepositing] = React.useState(false);
@@ -5617,6 +5643,83 @@ export default function App() {
                         </a>
                       </>
                     ) : null}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+          {/* Withdraw pUSD from Polymarket card */}
+          {isConnected && user && !showOnboarding && (
+            <div style={{ padding: "0 24px", marginBottom: 16 }}>
+              <div className="card">
+                <div className="section-label" style={{ marginBottom: 8 }}>
+                  Withdraw from Polymarket
+                </div>
+                <p
+                  style={{
+                    fontSize: 13,
+                    color: "var(--text-secondary)",
+                    marginBottom: 12,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Sends pUSD from your Polymarket deposit wallet directly to
+                  your MetaMask address on Polygon. Uses the gasless relayer —
+                  no POL needed.
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    marginBottom: 10,
+                  }}
+                >
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="Amount pUSD (blank = all)"
+                    value={withdrawPusdAmount}
+                    onChange={(e) => setWithdrawPusdAmount(e.target.value)}
+                    style={{
+                      flex: 1,
+                      minWidth: 180,
+                      padding: "8px 12px",
+                      borderRadius: 6,
+                      border: "1px solid var(--border)",
+                      background: "var(--surface)",
+                      color: "var(--text-primary)",
+                      fontSize: 14,
+                    }}
+                    disabled={withdrawingPusd}
+                  />
+                  <button
+                    className="btn-primary"
+                    style={{ flexShrink: 0 }}
+                    onClick={() => void handleWithdrawPusd()}
+                    disabled={withdrawingPusd || !(balance?.depositWalletPusd && parseFloat(balance.depositWalletPusd) > 0)}
+                  >
+                    {withdrawingPusd ? "Withdrawing…" : "Withdraw pUSD → MetaMask"}
+                  </button>
+                </div>
+                {withdrawPusdError && (
+                  <p style={{ color: "#ff3b30", fontSize: 12, margin: 0 }}>
+                    {withdrawPusdError}
+                  </p>
+                )}
+                {withdrawPusdResult && (
+                  <p style={{ color: "#4caf50", fontSize: 12, margin: 0 }}>
+                    ✓ Withdrew {withdrawPusdResult.amount} pUSD —{" "}
+                    <a
+                      href={`https://polygonscan.com/tx/${withdrawPusdResult.txHash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: "#4caf50" }}
+                    >
+                      View on PolygonScan ↗
+                    </a>
                   </p>
                 )}
               </div>
