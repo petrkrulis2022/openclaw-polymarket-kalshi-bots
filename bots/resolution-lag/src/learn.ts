@@ -66,7 +66,7 @@ export function isCategoryAllowed(question: string): boolean {
 // ── Core learning ─────────────────────────────────────────────────────────────
 
 export function runLearning(positions: LagPosition[]): void {
-  const MIN_SAMPLES = 5;
+  const MIN_SAMPLES = 2;
   const resolved = positions.filter(
     (p) => p.status === "resolved" && p.realizedPnl !== undefined,
   );

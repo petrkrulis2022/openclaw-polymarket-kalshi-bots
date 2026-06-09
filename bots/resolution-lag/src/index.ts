@@ -373,6 +373,8 @@ app.listen(config.port, () => {
   );
   loadPersistedState();
   loadLearned();
+  // If no learned file exists yet but resolved positions are on disk, seed immediately
+  if (!getLearningRecord()) runLearning(getAllPositions());
   loadAnalysis()
     .then(() => scheduleAnalysisRefresh())
     .catch(() => {});
