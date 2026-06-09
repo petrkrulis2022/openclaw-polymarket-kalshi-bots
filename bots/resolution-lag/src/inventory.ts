@@ -46,6 +46,7 @@ export type PositionStatus = "open" | "resolved" | "expired";
 export interface LagPosition {
   id: string;
   marketId: string;
+  conditionId?: string;
   marketQuestion: string;
   tokenId: string;
   boughtAt: number;

@@ -2765,6 +2765,23 @@ async function fetchBotDiagnostics(
   }
 }
 
+async function fetchBotLearning(
+  user: User,
+  botName: string,
+): Promise<Record<string, unknown> | null> {
+  const baseUrl = getUserBotBaseUrl(user, botName);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetch(`${baseUrl}/learning`, {
+      signal: AbortSignal.timeout(2_500),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 function extractExtra(
   botName: string,
   diag: Record<string, unknown>,
@@ -2824,6 +2841,15 @@ router.get(
             fetchUserBotMetrics(user, botName),
           ]);
 
+          const learning =
+            botName === "resolution-lag" && diag !== null
+              ? await fetchBotLearning(user, botName)
+              : null;
+
+          const baseExtra = diag ? extractExtra(botName, diag) : null;
+          const extra =
+            baseExtra && learning ? { ...baseExtra, learning } : baseExtra;
+
           const card: MonitoringBotCard = {
             botName,
             botId: def.botId,
@@ -2835,7 +2861,7 @@ router.get(
               (diag?.["lastScanAt"] as string | undefined) ??
               (diag?.["lastQuoteAt"] as string | undefined) ??
               null,
-            extra: diag ? extractExtra(botName, diag) : null,
+            extra,
             error: diag === null ? "Bot unreachable" : null,
           };
 

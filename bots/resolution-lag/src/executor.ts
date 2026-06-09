@@ -59,6 +59,7 @@ export async function enterPosition(opp: ResolutionOpportunity): Promise<void> {
   const pos: LagPosition = {
     id,
     marketId: opp.market.id,
+    conditionId: opp.market.conditionId,
     marketQuestion: opp.market.question,
     tokenId: opp.winningTokenId,
     boughtAt: opp.currentAsk,

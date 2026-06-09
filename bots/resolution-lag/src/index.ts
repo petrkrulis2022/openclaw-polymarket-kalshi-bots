@@ -25,14 +25,28 @@ import {
 import { enterPosition } from "./executor.js";
 import {
   getAllPositions,
+  getOpenPositions,
   getTotalRealizedPnl,
   hasOpenPosition,
   getOpenPositionsCount,
   loadPersistedState,
+  resolvePosition,
 } from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
-import { getCollateralBalance, cancelOrder, getOpenOrders } from "./clob.js";
+import {
+  getCollateralBalance,
+  cancelOrder,
+  getOpenOrders,
+  getResolvedWinnerTokenId,
+} from "./clob.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
+import {
+  getActiveConfig,
+  runLearning,
+  loadLearned,
+  getLearningRecord,
+  isCategoryAllowed,
+} from "./learn.js";
 
 // ── CTF redeem helpers ────────────────────────────────────────────────────────
 
@@ -90,11 +104,13 @@ async function runMonitorCycle(): Promise<void> {
   lastOpportunities = opportunities;
   lastScanAt = new Date().toISOString();
 
-  // Filter by yield threshold and no existing position
+  // Filter by yield threshold, no existing position, and non-blocked category
+  const ac = getActiveConfig();
   const actionable = opportunities.filter(
     (o) =>
-      o.expectedYield * 100 >= config.minYieldPct &&
-      !hasOpenPosition(o.market.id),
+      o.expectedYield * 100 >= ac.minYieldPct &&
+      !hasOpenPosition(o.market.id) &&
+      isCategoryAllowed(o.market.question),
   );
 
   if (actionable.length === 0) {
@@ -115,6 +131,24 @@ async function runMonitorCycle(): Promise<void> {
       console.error("[lag] enterPosition error:", (err as Error).message),
     );
   }
+
+  // Detect CLOB settlement for open positions — if CLOB marks a winner token,
+  // record the resolution and trigger a learning run.
+  for (const pos of getOpenPositions()) {
+    if (!pos.conditionId) continue;
+    try {
+      const winnerToken = await getResolvedWinnerTokenId(pos.conditionId);
+      if (winnerToken && winnerToken === pos.tokenId) {
+        console.log(
+          `[lag] CLOB settled position ${pos.id} (${pos.marketQuestion.slice(0, 60)}) — resolving at $1`,
+        );
+        resolvePosition(pos.id, 1.0);
+        runLearning(getAllPositions());
+      }
+    } catch {
+      // non-fatal: skip this position this cycle
+    }
+  }
 }
 
 // ── Self-rescheduling loops ───────────────────────────────────────────────────
@@ -125,7 +159,7 @@ async function scheduleMonitor(): Promise<void> {
   } catch (err) {
     console.error("[lag] Monitor error:", (err as Error).message);
   }
-  setTimeout(scheduleMonitor, config.monitorIntervalMs);
+  setTimeout(scheduleMonitor, getActiveConfig().monitorIntervalMs);
 }
 
 async function scheduleMetrics(): Promise<void> {
@@ -304,6 +338,18 @@ app.post("/redeem", async (req: Request, res: Response) => {
   }
 });
 
+app.get("/learning", (_req: Request, res: Response) => {
+  const record = getLearningRecord();
+  if (!record) {
+    return res.json({
+      status: "no_data",
+      message: "Not enough resolved positions yet (minimum 5 required)",
+      activeParams: getActiveConfig(),
+    });
+  }
+  res.json({ status: "ok", ...record, activeParams: getActiveConfig() });
+});
+
 app.post("/orders/cancel-all", async (_req: Request, res: Response) => {
   const orders = await getOpenOrders();
   let cancelled = 0;
@@ -326,6 +372,7 @@ app.listen(config.port, () => {
     `[lag] Resolution Lag Bot (id=${config.botId}) listening on :${config.port}`,
   );
   loadPersistedState();
+  loadLearned();
   loadAnalysis()
     .then(() => scheduleAnalysisRefresh())
     .catch(() => {});

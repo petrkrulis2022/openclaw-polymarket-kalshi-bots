@@ -53,6 +53,56 @@ function relTime(iso: string | null): string {
   return `${Math.floor(secs / 3600)}h ago`;
 }
 
+interface LearningRecord {
+  status?: string;
+  sampleSize?: number;
+  lastLearnAt?: string;
+  categoryBlocklist?: string[];
+  params?: { minYieldPct?: number };
+  notes?: string[];
+}
+
+function LearningRow({ extra }: { extra: Record<string, unknown> | null }) {
+  if (!extra?.learning) return null;
+  const lr = extra.learning as LearningRecord;
+  if (lr.status === "no_data") {
+    return (
+      <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 6 }}>
+        Learning: waiting for resolved positions (min 5)
+      </div>
+    );
+  }
+  const blocked = lr.categoryBlocklist?.length ?? 0;
+  const minYield = lr.params?.minYieldPct;
+  const lastNote = lr.notes?.length ? lr.notes[lr.notes.length - 1] : undefined;
+  return (
+    <div
+      style={{
+        fontSize: 11,
+        color: "var(--text-secondary)",
+        marginTop: 6,
+        paddingTop: 6,
+        borderTop: "1px solid var(--border)",
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        alignItems: "center",
+      }}
+    >
+      <span style={{ color: "var(--text)", fontWeight: 600 }}>Learning</span>
+      <span>{lr.sampleSize ?? 0} trades</span>
+      {minYield !== undefined && <span>minYield {minYield}%</span>}
+      {blocked > 0 && <span>{blocked} categor{blocked === 1 ? "y" : "ies"} blocked</span>}
+      {lr.lastLearnAt && <span>· {relTime(lr.lastLearnAt)}</span>}
+      {lastNote && (
+        <span style={{ fontStyle: "italic", opacity: 0.7 }} title={lastNote}>
+          {lastNote.length > 50 ? lastNote.slice(0, 50) + "…" : lastNote}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function fmtTime(iso: string | null): string {
   if (!iso) return "";
   return new Date(iso).toLocaleTimeString();
@@ -214,6 +264,8 @@ function BotCard({
           View Details
         </button>
       </div>
+
+      {card.botName === "resolution-lag" && <LearningRow extra={card.extra} />}
     </div>
   );
 }
