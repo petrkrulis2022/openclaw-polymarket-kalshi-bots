@@ -1393,36 +1393,60 @@ async function main(): Promise<void> {
   await loadWatchedGamesFromOrchestrator();
   startWatchedGamesWatcher();
 
-  console.log("═".repeat(60));
-  console.log(
-    `HOCKEY BOT — ${activeTeamHome} vs ${activeTeamAway} | Live Score Arbitrage`,
-  );
-  console.log(
-    `match=${activeMatchSlug || "(awaiting watched game slug)"} | budget=${runtimeMaxPositionUsd} USDC`,
-  );
-  console.log("═".repeat(60) + "\n");
+  while (true) {
+    // Reset per-game state so the bot cleanly handles the next game
+    gameIsOver = false;
+    openPosition = null;
+    consecutiveEndedLifecyclePolls = 0;
+    marketReady = false;
+    activeMarketBindingKey = "";
+    selectedWatchedGameKey = null;
+    lastMarketLifecycle = null;
+    lastScoreHome = NaN;
+    lastScoreAway = NaN;
+    staticId = "";
+    fixId = undefined;
+    watchlistLiveState.clear();
+    trades.length = 0;
+    totalPnl = 0;
+    activeMatchSlug = "";
+    activeTeamHome = "HOME";
+    activeTeamAway = "AWAY";
 
-  // Step 2: Resolve market and keep retrying until available.
-  await ensureMarketReady();
+    console.log("═".repeat(60));
+    console.log(
+      `HOCKEY BOT — ${activeTeamHome} vs ${activeTeamAway} | Live Score Arbitrage`,
+    );
+    console.log(
+      `match=${activeMatchSlug || "(awaiting watched game slug)"} | budget=${runtimeMaxPositionUsd} USDC`,
+    );
+    console.log("═".repeat(60) + "\n");
 
-  // Step 3: Log initial CLOB prices
-  await logPrices();
+    // Resolve market and keep retrying until available.
+    await ensureMarketReady();
 
-  // Step 4: Warm up signing client (derive API key) before game starts
-  console.log("\n[setup] Initialising CLOB signing client...");
-  await ensureSigningClientReady();
+    // Log initial CLOB prices
+    await logPrices();
 
-  // Step 5: Wait for kickoff
-  await waitForKickoff();
+    // Warm up signing client (derive API key) before game starts — skip if already ready
+    if (!signingClientReady) {
+      console.log("\n[setup] Initialising CLOB signing client...");
+      await ensureSigningClientReady();
+    }
 
-  // Step 6: Run live loops concurrently
-  console.log(
-    `[bot]  Live monitoring: Polymarket lifecycle every ${config.livePollMs / 1000}s | CLOB sell check every ${config.sellPollMs / 1000}s\n`,
-  );
-  await Promise.all([lifecycleMonitorLoop(), sellMonitorLoop()]);
+    // Wait for kickoff
+    await waitForKickoff();
 
-  // Step 7: Print final report
-  printReport();
+    // Run live loops concurrently
+    console.log(
+      `[bot]  Live monitoring: Polymarket lifecycle every ${config.livePollMs / 1000}s | CLOB sell check every ${config.sellPollMs / 1000}s\n`,
+    );
+    await Promise.all([lifecycleMonitorLoop(), sellMonitorLoop()]);
+
+    // Print final report then loop back to wait for next game
+    printReport();
+    console.log("[bot] Game ended — waiting for next game to be configured...\n");
+  }
 }
 
 main().catch((err) => {
