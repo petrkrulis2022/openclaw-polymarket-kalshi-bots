@@ -853,8 +853,12 @@ async function checkAndSell(forceSell = false): Promise<void> {
     return;
   }
 
-  const avgSellPrice =
-    sellFill.filledShares > 0 ? sellFill.filledUsdc / sellFill.filledShares : 0;
+  if (sellFill.filledShares === 0) {
+    console.error("[trade] SELL FOK returned 0 fill — keeping position, retry next tick");
+    return;
+  }
+
+  const avgSellPrice = sellFill.filledUsdc / sellFill.filledShares;
   const costBasis = openPosition.entryAsk * openPosition.size;
   const pnl = sellFill.filledUsdc - costBasis;
   totalPnl += pnl;
