@@ -34,6 +34,7 @@ import { UserOnboarding } from "./components/UserOnboarding";
 import { AdminPanel } from "./components/AdminPanel";
 import { WalletsModal } from "./components/WalletsModal";
 import { AnalysisModal } from "./components/AnalysisModal";
+import { MonitoringDashboard } from "./components/MonitoringDashboard";
 import { HockeyManager } from "./hockey/HockeyManager";
 import { FootballManager } from "./football/FootballManager";
 import { TennisManager } from "./tennis/TennisManager";
@@ -4964,6 +4965,7 @@ export default function App() {
   const [withdrawStopBots, setWithdrawStopBots] = React.useState(true);
   const [showAdmin, setShowAdmin] = React.useState(false);
   const [showWallets, setShowWallets] = React.useState(false);
+  const [showMonitoring, setShowMonitoring] = React.useState(false);
 
   // Withdraw pUSD from Polymarket
   const [withdrawingPusd, setWithdrawingPusd] = React.useState(false);
@@ -6057,6 +6059,19 @@ export default function App() {
               💼 Wallets &amp; Flow
             </button>
             <button
+              onClick={() => setShowMonitoring(true)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-secondary)",
+                fontSize: 12,
+                cursor: "pointer",
+                opacity: 0.6,
+              }}
+            >
+              📊 Monitoring
+            </button>
+            <button
               onClick={() => setShowAdmin(true)}
               style={{
                 background: "none",
@@ -6074,6 +6089,31 @@ export default function App() {
       )}
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
       {showWallets && <WalletsModal onClose={() => setShowWallets(false)} />}
+      {showMonitoring && (
+        <MonitoringDashboard
+          onBack={() => setShowMonitoring(false)}
+          metamaskAddress={user?.metamaskAddress}
+          onSelectBot={(botId, card) => {
+            const synthetic: BotSummary = {
+              id: botId,
+              name: card.botName,
+              strategy: card.botName,
+              status: card.status === "online" ? "online" : "stopped",
+              health: card.status === "online" ? "healthy" : "offline",
+              equity: card.equity ?? 0,
+              pnl: card.pnl ?? 0,
+              allocationPct: 0,
+              utilization: 0,
+              openPositions: card.openPositions ?? 0,
+              enabled: true,
+              lastDiagnosticsAt: card.lastActivityAt,
+              lastReconcileAt: null,
+            };
+            setSelectedBot(synthetic);
+            setShowMonitoring(false);
+          }}
+        />
+      )}
     </>
   );
 }

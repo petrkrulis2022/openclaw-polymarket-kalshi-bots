@@ -2726,4 +2726,166 @@ router.post(
   },
 );
 
+// ── Bot Monitoring ────────────────────────────────────────────────────────────
+
+const NON_SPORT_BOT_NAMES = [
+  "market-maker",
+  "copy-trader",
+  "in-market-arb",
+  "resolution-lag",
+  "microstructure",
+] as const;
+
+interface MonitoringBotCard {
+  botName: string;
+  botId: number;
+  status: "online" | "offline" | "stopped";
+  equity: number | null;
+  pnl: number | null;
+  openPositions: number | null;
+  lastActivityAt: string | null;
+  extra: Record<string, unknown> | null;
+  error: string | null;
+}
+
+async function fetchBotDiagnostics(
+  user: User,
+  botName: string,
+): Promise<Record<string, unknown> | null> {
+  const baseUrl = getUserBotBaseUrl(user, botName);
+  if (!baseUrl) return null;
+  try {
+    const res = await fetch(`${baseUrl}/diagnostics`, {
+      signal: AbortSignal.timeout(2_500),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function extractExtra(
+  botName: string,
+  diag: Record<string, unknown>,
+): Record<string, unknown> {
+  const rec = (diag["reconciliation"] ?? {}) as Record<string, unknown>;
+  const toN = (v: unknown) => (typeof v === "number" ? v : null);
+
+  switch (botName) {
+    case "market-maker":
+      return {
+        marketsQuoted: toN(rec["activeMarkets"]),
+        inventoryPositions: toN(rec["inventoryPositions"]),
+      };
+    case "copy-trader":
+      return {
+        tradersTracked: toN(rec["tradersTracked"]),
+        pendingApprovals: toN(rec["pendingTrades"]),
+      };
+    case "in-market-arb":
+      return {
+        activeBinaryPairs: toN(rec["openBinaryPairs"]),
+        activeNegRiskPairs: toN(rec["openNegRiskPairs"]),
+        lastSignals: toN(rec["lastSignals"]),
+      };
+    case "resolution-lag":
+      return {
+        openPositions: toN(rec["openPositions"]),
+        lastOpportunities: toN(rec["lastOpportunities"]),
+      };
+    case "microstructure":
+      return {
+        screenedMarkets: toN(rec["screenedMarkets"]),
+        openPositions: toN(rec["openPositions"]),
+      };
+    default:
+      return {};
+  }
+}
+
+router.get(
+  "/:address/monitoring",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = getUser(req.params.address);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const slot = userSlot(user.bot_wallet_index);
+
+      const [pm2Result, ...botResults] = await Promise.allSettled([
+        getPm2Processes(),
+        ...NON_SPORT_BOT_NAMES.map(async (botName) => {
+          const def = getBotDef(botName);
+          if (!def) throw new Error(`Unknown bot: ${botName}`);
+
+          const [diag, metrics] = await Promise.all([
+            fetchBotDiagnostics(user, botName),
+            fetchUserBotMetrics(user, botName),
+          ]);
+
+          const card: MonitoringBotCard = {
+            botName,
+            botId: def.botId,
+            status: diag !== null ? "online" : "offline",
+            equity: metrics?.equity ?? null,
+            pnl: metrics?.pnl ?? null,
+            openPositions: metrics?.openPositions ?? null,
+            lastActivityAt:
+              (diag?.["lastScanAt"] as string | undefined) ??
+              (diag?.["lastQuoteAt"] as string | undefined) ??
+              null,
+            extra: diag ? extractExtra(botName, diag) : null,
+            error: diag === null ? "Bot unreachable" : null,
+          };
+
+          return card;
+        }),
+      ]);
+
+      const pm2List =
+        pm2Result.status === "fulfilled" ? pm2Result.value : [];
+
+      const bots = (
+        botResults as PromiseSettledResult<MonitoringBotCard>[]
+      ).map((r, i) => {
+        const botName = NON_SPORT_BOT_NAMES[i]!;
+
+        let card: MonitoringBotCard;
+        if (r.status === "rejected") {
+          const def = getBotDef(botName);
+          card = {
+            botName,
+            botId: def?.botId ?? 0,
+            status: "offline",
+            equity: null,
+            pnl: null,
+            openPositions: null,
+            lastActivityAt: null,
+            extra: null,
+            error: String((r.reason as Error)?.message ?? r.reason),
+          };
+        } else {
+          card = r.value;
+        }
+
+        // Overlay PM2 status: stopped/errored overrides even if HTTP responded
+        const pmName = `${botName}-u${slot}`;
+        const proc = pm2List.find((p) => p.name === pmName);
+        const pm2Status = proc?.pm2_env?.status;
+        if (pm2Status === "stopped" || pm2Status === "errored") {
+          card.status = "stopped";
+          if (!card.error) card.error = `PM2 status: ${pm2Status}`;
+        }
+
+        return card;
+      });
+
+      return res.json({ fetchedAt: new Date().toISOString(), bots });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
 export default router;

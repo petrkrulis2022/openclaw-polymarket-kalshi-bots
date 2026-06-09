@@ -1,0 +1,281 @@
+import React from "react";
+import { useMonitoring, type MonitoringBotCard } from "../hooks/use-monitoring";
+
+interface Props {
+  onBack: () => void;
+  metamaskAddress?: string;
+  onSelectBot: (botId: string, card: MonitoringBotCard) => void;
+}
+
+const BOT_LABELS: Record<string, string> = {
+  "market-maker": "Market Maker",
+  "copy-trader": "Copy Trader",
+  "in-market-arb": "In-Market Arb",
+  "resolution-lag": "Resolution Lag",
+  "microstructure": "Microstructure",
+};
+
+function statusDotColor(status: MonitoringBotCard["status"]): string {
+  if (status === "online") return "#4caf50";
+  if (status === "stopped") return "#ff9500";
+  return "#ff3b30";
+}
+
+function statusLabel(status: MonitoringBotCard["status"]): string {
+  if (status === "online") return "online";
+  if (status === "stopped") return "stopped";
+  return "offline";
+}
+
+function statusBadgeColor(status: MonitoringBotCard["status"]): string {
+  if (status === "online") return "rgba(76,175,80,0.15)";
+  if (status === "stopped") return "rgba(255,149,0,0.15)";
+  return "rgba(255,59,48,0.15)";
+}
+
+function fmt$(n: number | null): string {
+  if (n === null) return "---";
+  const sign = n >= 0 ? "+" : "";
+  return `${sign}$${Math.abs(n).toFixed(2)}`;
+}
+
+function fmtNum(n: unknown): string {
+  if (n === null || n === undefined) return "---";
+  return String(n);
+}
+
+function relTime(iso: string | null): string {
+  if (!iso) return "---";
+  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 0) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  return `${Math.floor(secs / 3600)}h ago`;
+}
+
+function fmtTime(iso: string | null): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString();
+}
+
+interface ExtraCols {
+  labelA: string;
+  valA: string;
+  labelB: string;
+  valB: string;
+}
+
+function extraCols(card: MonitoringBotCard): ExtraCols {
+  const e = card.extra ?? {};
+  const n = (k: string) => fmtNum(e[k]);
+
+  switch (card.botName) {
+    case "market-maker":
+      return {
+        labelA: "Markets",
+        valA: n("marketsQuoted"),
+        labelB: "Positions",
+        valB: n("inventoryPositions"),
+      };
+    case "copy-trader":
+      return {
+        labelA: "Traders",
+        valA: n("tradersTracked"),
+        labelB: "Pending",
+        valB: n("pendingApprovals"),
+      };
+    case "in-market-arb":
+      return {
+        labelA: "Binary Pairs",
+        valA: n("activeBinaryPairs"),
+        labelB: "NegRisk Pairs",
+        valB: n("activeNegRiskPairs"),
+      };
+    case "resolution-lag":
+      return {
+        labelA: "Open Pos",
+        valA: n("openPositions"),
+        labelB: "Opportunities",
+        valB: n("lastOpportunities"),
+      };
+    case "microstructure":
+      return {
+        labelA: "Screened Mkts",
+        valA: n("screenedMarkets"),
+        labelB: "Open Pos",
+        valB: n("openPositions"),
+      };
+    default:
+      return { labelA: "—", valA: "---", labelB: "—", valB: "---" };
+  }
+}
+
+function BotCard({
+  card,
+  onSelect,
+}: {
+  card: MonitoringBotCard;
+  onSelect: (card: MonitoringBotCard) => void;
+}) {
+  const cols = extraCols(card);
+  const isOffline = card.status !== "online";
+
+  return (
+    <div
+      className="card"
+      style={{
+        marginBottom: 12,
+        opacity: isOffline ? 0.65 : 1,
+        transition: "opacity 0.3s",
+      }}
+    >
+      {/* Header row */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            className="status-dot"
+            style={{ background: statusDotColor(card.status), flexShrink: 0 }}
+          />
+          <span style={{ fontWeight: 600, fontSize: 15 }}>
+            {BOT_LABELS[card.botName] ?? card.botName}
+          </span>
+        </div>
+        <span
+          style={{
+            fontSize: 11,
+            padding: "2px 8px",
+            borderRadius: 10,
+            background: statusBadgeColor(card.status),
+            color: statusDotColor(card.status),
+            fontWeight: 600,
+            letterSpacing: 0.5,
+            textTransform: "uppercase",
+          }}
+        >
+          {statusLabel(card.status)}
+        </span>
+      </div>
+
+      {/* Metrics row */}
+      <div className="metrics-row" style={{ gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+        <div>
+          <div className="metric-val">{card.equity !== null ? `$${card.equity.toFixed(2)}` : "---"}</div>
+          <div className="metric-lbl">Equity</div>
+        </div>
+        <div>
+          <div
+            className="metric-val"
+            style={{ color: card.pnl !== null ? (card.pnl >= 0 ? "#4caf50" : "#ff3b30") : undefined }}
+          >
+            {fmt$(card.pnl)}
+          </div>
+          <div className="metric-lbl">P&L</div>
+        </div>
+        <div>
+          <div className="metric-val">{cols.valA}</div>
+          <div className="metric-lbl">{cols.labelA}</div>
+        </div>
+        <div>
+          <div className="metric-val">{cols.valB}</div>
+          <div className="metric-lbl">{cols.labelB}</div>
+        </div>
+      </div>
+
+      {/* Footer row */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginTop: 10,
+          paddingTop: 10,
+          borderTop: "1px solid var(--border)",
+        }}
+      >
+        <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+          {card.lastActivityAt
+            ? `Last active: ${relTime(card.lastActivityAt)}`
+            : card.error
+              ? card.error
+              : "No activity yet"}
+        </span>
+        <button
+          className="btn-secondary"
+          style={{ fontSize: 12, padding: "3px 10px" }}
+          onClick={() => onSelect(card)}
+        >
+          View Details
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function MonitoringDashboard({ onBack, metamaskAddress, onSelectBot }: Props) {
+  const { data, loading, error } = useMonitoring(metamaskAddress);
+
+  return (
+    <div style={{ maxWidth: 960, margin: "0 auto", padding: "0 16px 32px" }}>
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "16px 0",
+          borderBottom: "1px solid var(--border)",
+          marginBottom: 20,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "var(--bg-card)",
+            border: "1px solid var(--border)",
+            color: "var(--text)",
+            borderRadius: 6,
+            padding: "4px 12px",
+            cursor: "pointer",
+            fontSize: 13,
+          }}
+        >
+          ← Back
+        </button>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+          Bot Monitoring
+        </h2>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-secondary)" }}>
+          {loading && data.bots.length === 0
+            ? "Loading…"
+            : error
+              ? `Error: ${error}`
+              : data.fetchedAt
+                ? `Updated ${fmtTime(data.fetchedAt)}`
+                : ""}
+        </span>
+      </div>
+
+      {/* Bot cards */}
+      {data.bots.length === 0 && !loading ? (
+        <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>
+          No bot data available. Ensure bots are started.
+        </div>
+      ) : (
+        data.bots.map((card) => (
+          <BotCard
+            key={card.botName}
+            card={card}
+            onSelect={(c) => onSelectBot(String(c.botId), c)}
+          />
+        ))
+      )}
+    </div>
+  );
+}
