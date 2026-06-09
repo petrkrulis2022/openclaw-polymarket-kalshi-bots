@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useSportsBot, TriggerTiming } from "../hooks/use-sports-bot";
 
 export type HockeyFeedMatch = {
   key: string;
@@ -27,6 +28,12 @@ type Props = {
   onRemove: (key: string) => void;
 };
 
+const BOT_NAME_TO_ID: Record<string, number> = {
+  "football-bot": 8,
+  "hockey-bot": 10,
+  "tennis-bot": 11,
+};
+
 function isLiveStatus(status: string): boolean {
   const s = status.toLowerCase();
   if (!s) return false;
@@ -39,6 +46,94 @@ function isLiveStatus(status: string): boolean {
   if (s.includes("period") || s.includes("in progress") || s.includes("live"))
     return true;
   return /^\d/.test(s);
+}
+
+function fmtTime(ms: number): string {
+  return new Date(ms).toISOString().slice(11, 23); // HH:MM:SS.mmm
+}
+
+function fmtLatency(fromMs?: number, toMs?: number): string {
+  if (fromMs == null || toMs == null) return "—";
+  const diff = toMs - fromMs;
+  return diff < 0 ? "—" : `+${diff}ms`;
+}
+
+function fmtElapsed(elapsedMs: number): string {
+  const totalSeconds = Math.floor(elapsedMs / 1000);
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}′ ${String(s).padStart(2, "0")}″`;
+}
+
+function TimingPanel({ timing }: { timing: TriggerTiming }) {
+  const { clientTriggeredAtMs, serverReceivedAtMs, botDetectedAtMs, botFilledAtMs } = timing;
+  const totalMs =
+    clientTriggeredAtMs != null && botFilledAtMs != null
+      ? botFilledAtMs - clientTriggeredAtMs
+      : null;
+
+  return (
+    <div
+      style={{
+        marginTop: 8,
+        padding: "8px 10px",
+        background: "#0d1f2d",
+        border: "1px solid #1e3a5f",
+        borderRadius: 6,
+        fontSize: 11,
+      }}
+    >
+      <div style={{ fontWeight: 600, color: "#90caf9", marginBottom: 4 }}>
+        Trigger Timing{totalMs != null ? ` — total ${totalMs}ms` : ""}
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 4,
+        }}
+      >
+        {[
+          { label: "User click", ms: clientTriggeredAtMs, delta: null },
+          {
+            label: "Server recv",
+            ms: serverReceivedAtMs,
+            delta: fmtLatency(clientTriggeredAtMs, serverReceivedAtMs),
+          },
+          {
+            label: "Bot detect",
+            ms: botDetectedAtMs,
+            delta: fmtLatency(serverReceivedAtMs, botDetectedAtMs),
+          },
+          {
+            label: "Order fill",
+            ms: botFilledAtMs,
+            delta: fmtLatency(botDetectedAtMs, botFilledAtMs),
+          },
+        ].map(({ label, ms, delta }) => (
+          <div
+            key={label}
+            style={{
+              background: "#0a1520",
+              borderRadius: 4,
+              padding: "4px 6px",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ color: "#546e7a", marginBottom: 2 }}>{label}</div>
+            <div style={{ color: "#b0bec5", fontFamily: "monospace" }}>
+              {ms != null ? fmtTime(ms) : "—"}
+            </div>
+            {delta != null && (
+              <div style={{ color: "#4db6ac", fontSize: 10 }}>{delta}</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function LiveManager({
@@ -65,6 +160,30 @@ export function LiveManager({
     signingClientReady: boolean;
     lastSetupError: string | null;
   } | null>(null);
+  const [lastTimingByKey, setLastTimingByKey] = useState<
+    Record<string, TriggerTiming>
+  >({});
+  const [gameElapsedMs, setGameElapsedMs] = useState<number | null>(null);
+
+  const botId = BOT_NAME_TO_ID[botName] ?? 10;
+  const { data: botData } = useSportsBot(botId, metamaskAddress);
+
+  // Game clock — update every second while gameStartDate is available
+  useEffect(() => {
+    if (!botData.gameStartDate) {
+      setGameElapsedMs(null);
+      return;
+    }
+    const startMs = Date.parse(botData.gameStartDate);
+    if (isNaN(startMs)) {
+      setGameElapsedMs(null);
+      return;
+    }
+    const update = () => setGameElapsedMs(Date.now() - startMs);
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [botData.gameStartDate]);
 
   useEffect(() => {
     let stopped = false;
@@ -177,6 +296,7 @@ export function LiveManager({
         message?: string;
         reason?: string;
         error?: string;
+        timing?: TriggerTiming;
       };
       if (!res.ok) {
         setManualStatusByKey((prev) => ({
@@ -186,6 +306,9 @@ export function LiveManager({
         return;
       }
 
+      if (payload.timing) {
+        setLastTimingByKey((prev) => ({ ...prev, [key]: payload.timing! }));
+      }
       setManualStatusByKey((prev) => ({
         ...prev,
         [key]: payload.message ?? "Executed",
@@ -214,6 +337,9 @@ export function LiveManager({
     );
   }
 
+  const openPos = botData.openPosition;
+  const lastTrade = botData.trades[botData.trades.length - 1] ?? null;
+
   return (
     <div>
       <div className="hky-toolbar">
@@ -221,7 +347,15 @@ export function LiveManager({
           <span className="hky-dot" />
           <span>Live Poll {pollTick}</span>
         </div>
-        <div className="hky-toolbar-right">1s refresh</div>
+        <div className="hky-toolbar-right">
+          {gameElapsedMs != null ? (
+            <span style={{ color: "#4db6ac", fontWeight: 600 }}>
+              ⏱ {fmtElapsed(gameElapsedMs)}
+            </span>
+          ) : (
+            "1s refresh"
+          )}
+        </div>
       </div>
 
       {/* Bot readiness indicator */}
@@ -265,10 +399,70 @@ export function LiveManager({
         </div>
       )}
 
+      {/* Open position summary */}
+      {openPos && (
+        <div
+          style={{
+            marginBottom: 10,
+            padding: "8px 12px",
+            background: "#1a2a1a",
+            border: "1px solid #2e7d32",
+            borderRadius: 8,
+            fontSize: 12,
+          }}
+        >
+          <span style={{ color: "#81c784", fontWeight: 600 }}>
+            📈 Open:{" "}
+          </span>
+          <span style={{ color: "#e0e0e0" }}>
+            {openPos.size.toFixed(2)} {openPos.label} shares @{" "}
+            {(openPos.entryAsk * 100).toFixed(1)}¢ (
+            {(openPos.size * openPos.entryAsk).toFixed(2)} USDC)
+          </span>
+        </div>
+      )}
+
+      {/* Last closed trade */}
+      {lastTrade && !openPos && (
+        <div
+          style={{
+            marginBottom: 10,
+            padding: "8px 12px",
+            background: lastTrade.pnl >= 0 ? "#1a2a1a" : "#2a1a1a",
+            border: `1px solid ${lastTrade.pnl >= 0 ? "#2e7d32" : "#c62828"}`,
+            borderRadius: 8,
+            fontSize: 12,
+          }}
+        >
+          <span
+            style={{
+              color: lastTrade.pnl >= 0 ? "#81c784" : "#ef9a9a",
+              fontWeight: 600,
+            }}
+          >
+            {lastTrade.pnl >= 0 ? "✅" : "❌"} Closed:{" "}
+          </span>
+          <span style={{ color: "#e0e0e0" }}>
+            Sold {lastTrade.size.toFixed(2)} shares @{" "}
+            {(lastTrade.sellPrice * 100).toFixed(1)}¢ | P&amp;L:{" "}
+            <span
+              style={{ color: lastTrade.pnl >= 0 ? "#81c784" : "#ef9a9a" }}
+            >
+              {lastTrade.pnl >= 0 ? "+" : ""}
+              {lastTrade.pnl.toFixed(2)} USDC
+            </span>{" "}
+            | {lastTrade.reason}
+          </span>
+        </div>
+      )}
+
       <div className="hky-cards-grid">
         {cards.map((m) => {
           const live = isLiveStatus(m.status);
           const canManualTrigger = selectedWatchedGameKey === m.key;
+          const triggerTiming =
+            lastTimingByKey[m.key] ??
+            (selectedWatchedGameKey === m.key ? openPos?.timing : undefined);
           return (
             <div key={m.key} className="hky-card">
               <div className="hky-card-top">
@@ -316,6 +510,10 @@ export function LiveManager({
                 <div className="hky-manual-status">
                   {manualStatusByKey[m.key]}
                 </div>
+              ) : null}
+
+              {triggerTiming ? (
+                <TimingPanel timing={triggerTiming} />
               ) : null}
 
               {m.periodScores.length > 0 && (

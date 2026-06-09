@@ -46,6 +46,14 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface TriggerTiming {
+  source: "manual" | "auto";
+  clientTriggeredAtMs?: number;
+  serverReceivedAtMs?: number;
+  botDetectedAtMs?: number;
+  botFilledAtMs?: number;
+}
+
 interface OpenPosition {
   tokenId: string;
   label: string;
@@ -53,6 +61,7 @@ interface OpenPosition {
   size: number;
   orderId: string;
   boughtAtMs: number;
+  timing?: TriggerTiming;
 }
 
 interface ClosedTrade extends OpenPosition {
@@ -564,14 +573,16 @@ async function ensureSigningClientReady(): Promise<void> {
 async function onGoalDetected(
   scorer: "home" | "away",
   state: MatchState,
+  timingMeta?: Partial<TriggerTiming>,
 ): Promise<
-  | { ok: true; reason: "executed"; message: string }
+  | { ok: true; reason: "executed"; message: string; timing?: TriggerTiming }
   | {
       ok: false;
       reason: "ignored_open_position" | "rejected_market_state" | "error";
       message: string;
     }
 > {
+  const botDetectedAtMs = Date.now();
   const lifecycle = await readMarketLifecycleSnapshot();
   if (!lifecycle) {
     const message = "Lifecycle probe unavailable — skipping manual trigger";
@@ -726,13 +737,23 @@ async function onGoalDetected(
 
   const avgPrice = fill.filledUsdc / fill.filledShares;
 
+  const botFilledAtMs = Date.now();
+  const timing: TriggerTiming = {
+    source: timingMeta?.source ?? "manual",
+    clientTriggeredAtMs: timingMeta?.clientTriggeredAtMs,
+    serverReceivedAtMs: timingMeta?.serverReceivedAtMs,
+    botDetectedAtMs,
+    botFilledAtMs,
+  };
+
   openPosition = {
     tokenId,
     label,
     entryAsk: avgPrice,
     size: fill.filledShares,
     orderId: fill.orderId,
-    boughtAtMs: Date.now(),
+    boughtAtMs: botFilledAtMs,
+    timing,
   };
 
   console.log(
@@ -754,6 +775,7 @@ async function onGoalDetected(
     ok: true,
     reason: "executed",
     message: `Bought ${fill.filledShares} shares of ${label} at avg ${fmt(avgPrice)}`,
+    timing,
   };
 }
 
@@ -1139,6 +1161,7 @@ httpApp.get("/trades", (_req, res) => {
     matchSlug: activeMatchSlug,
     watchedGamesCount: watchedGames.length,
     selectedWatchedGameKey,
+    gameStartDate: lastMarketLifecycle?.gamma.startDate ?? null,
     market: market
       ? {
           yesTokenId: market.yesTokenId,
@@ -1178,8 +1201,13 @@ httpApp.get("/watchlist-state/:key", (req, res) => {
 });
 
 httpApp.post("/manual-trigger", async (req, res) => {
+  const serverReceivedAtMs = Date.now();
   const sideRaw = String((req.body as { side?: unknown })?.side ?? "").trim();
   const keyRaw = String((req.body as { key?: unknown })?.key ?? "").trim();
+  const clientTriggeredAtMs =
+    typeof (req.body as { clientTriggeredAtMs?: unknown })?.clientTriggeredAtMs === "number"
+      ? (req.body as { clientTriggeredAtMs: number }).clientTriggeredAtMs
+      : undefined;
   if (sideRaw !== "home" && sideRaw !== "away") {
     return res.status(400).json({
       ok: false,
@@ -1210,7 +1238,11 @@ httpApp.post("/manual-trigger", async (req, res) => {
     teamAway: row.awayTeam,
   };
 
-  const triggerResult = await onGoalDetected(sideRaw, manualState);
+  const triggerResult = await onGoalDetected(sideRaw, manualState, {
+    source: "manual",
+    clientTriggeredAtMs,
+    serverReceivedAtMs,
+  });
 
   if (triggerResult.ok) {
     watchlistLiveState.set(key, {
@@ -1231,6 +1263,7 @@ httpApp.post("/manual-trigger", async (req, res) => {
       scoreHome: nextScoreHome,
       scoreAway: nextScoreAway,
       message: triggerResult.message,
+      timing: triggerResult.timing,
     });
   }
 

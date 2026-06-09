@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+export interface TriggerTiming {
+  source: "manual" | "auto";
+  clientTriggeredAtMs?: number;
+  serverReceivedAtMs?: number;
+  botDetectedAtMs?: number;
+  botFilledAtMs?: number;
+}
+
 export interface SportsOpenPosition {
   tokenId: string;
   label: string;
@@ -7,6 +15,7 @@ export interface SportsOpenPosition {
   size: number;
   orderId: string;
   boughtAtMs: number;
+  timing?: TriggerTiming;
 }
 
 export interface SportsClosedTrade extends SportsOpenPosition {
@@ -28,6 +37,7 @@ export interface SportsBotData {
   totalPnl: number;
   gameOver: boolean;
   matchSlug: string;
+  gameStartDate: string | null;
   market: SportsMarketInfo | null;
   metrics: { equity: number; pnl: number; openPositions: number } | null;
 }
@@ -49,6 +59,7 @@ export function useSportsBot(
     totalPnl: 0,
     gameOver: false,
     matchSlug: "",
+    gameStartDate: null,
     market: null,
     metrics: null,
   });
@@ -85,6 +96,7 @@ export function useSportsBot(
         totalPnl: Number(t.totalPnl) || 0,
         gameOver: Boolean(t.gameOver),
         matchSlug: t.matchSlug ?? "",
+        gameStartDate: t.gameStartDate ?? null,
         market: t.market ?? null,
         metrics: m
           ? {
@@ -102,6 +114,7 @@ export function useSportsBot(
         totalPnl: 0,
         gameOver: false,
         matchSlug: "",
+        gameStartDate: null,
         market: null,
         metrics: null,
       });

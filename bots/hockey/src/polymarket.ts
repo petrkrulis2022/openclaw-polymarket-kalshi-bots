@@ -39,6 +39,7 @@ export interface EventLifecycle {
   closed: boolean;
   resolved: boolean;
   acceptingOrders: boolean;
+  startDate: string | null;
   endDate: string | null;
   rawStatus: string;
 }
@@ -214,6 +215,13 @@ export async function fetchEventLifecycle(
     asBool(event["orderBookEnabled"]) ??
     !closed;
 
+  const startDateRaw =
+    event["startDate"] ??
+    event["start_date"] ??
+    event["startTime"] ??
+    event["start_time"] ??
+    null;
+
   const endDateRaw =
     event["endDate"] ??
     event["end_date"] ??
@@ -239,6 +247,7 @@ export async function fetchEventLifecycle(
     closed,
     resolved,
     acceptingOrders,
+    startDate: startDateRaw ? String(startDateRaw) : null,
     endDate: endDateRaw ? String(endDateRaw) : null,
     rawStatus,
   };

@@ -53,6 +53,7 @@ interface OpenPosition {
   size: number;
   orderId: string;
   boughtAtMs: number;
+  timing?: TriggerTimingResult;
 }
 
 interface ClosedTrade extends OpenPosition {
@@ -826,6 +827,7 @@ async function onGoalDetected(
     size: fill.filledShares,
     orderId: fill.orderId,
     boughtAtMs: Date.now(),
+    timing: { ...timingBase, botFilledAtMs },
   };
 
   console.log(
@@ -1241,6 +1243,7 @@ httpApp.get("/trades", (_req, res) => {
     matchSlug: activeMatchSlug,
     watchedGamesCount: watchedGames.length,
     selectedWatchedGameKey,
+    gameStartDate: lastMarketLifecycle?.gamma.startDate ?? null,
     market: market
       ? {
           yesTokenId: market.yesTokenId,
