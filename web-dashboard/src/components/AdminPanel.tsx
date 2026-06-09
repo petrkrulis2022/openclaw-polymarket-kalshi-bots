@@ -127,8 +127,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/orchestrator/admin/users", {
+      const res = await fetch(`/api/orchestrator/admin/users?t=${Date.now()}`, {
         headers: { Authorization: `Bearer ${pw}` },
+        cache: "no-store",
       });
       if (res.status === 401) {
         sessionStorage.removeItem(SESSION_KEY);
