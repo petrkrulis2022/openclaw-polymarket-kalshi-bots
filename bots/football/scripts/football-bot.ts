@@ -130,6 +130,7 @@ let lastSetupError: string | null = null;
 let lastScoreHome = NaN;
 let lastScoreAway = NaN;
 let gameIsOver = false;
+let liveGameSlug = "";
 let openPosition: OpenPosition | null = null;
 let consecutiveEndedLifecyclePolls = 0;
 let lastMarketLifecycle: MarketLifecycleSnapshot | null = null;
@@ -916,6 +917,11 @@ function printReport(): void {
  */
 async function lifecycleMonitorLoop(): Promise<void> {
   while (!gameIsOver) {
+    if (activeMatchSlug !== liveGameSlug) {
+      console.log(`[bot]  Game changed (${liveGameSlug} → ${activeMatchSlug}) — restarting for new game`);
+      gameIsOver = true;
+      break;
+    }
     const lifecycle = await readMarketLifecycleSnapshot();
     if (lifecycle) {
       if (lifecycleLooksEnded(lifecycle)) {
@@ -945,6 +951,10 @@ async function lifecycleMonitorLoop(): Promise<void> {
  */
 async function sellMonitorLoop(): Promise<void> {
   while (!gameIsOver) {
+    if (activeMatchSlug !== liveGameSlug) {
+      gameIsOver = true;
+      break;
+    }
     if (openPosition) {
       await checkAndSell();
     }
@@ -1286,6 +1296,7 @@ async function main(): Promise<void> {
   while (true) {
     // Reset per-game state
     gameIsOver = false;
+    liveGameSlug = "";
     lastScoreHome = NaN;
     lastScoreAway = NaN;
     openPosition = null;
@@ -1323,6 +1334,7 @@ async function main(): Promise<void> {
     }
 
     // Step 5: Run live loops concurrently
+    liveGameSlug = activeMatchSlug;
     console.log(
       `[bot]  Live polling: Polymarket lifecycle every ${config.livePollMs / 1000}s | CLOB sell check every ${config.sellPollMs / 1000}s\n`,
     );
