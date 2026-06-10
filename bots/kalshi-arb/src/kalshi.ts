@@ -99,10 +99,18 @@ export interface KalshiOrderResult {
 interface RawMarket {
   ticker?: string;
   title?: string;
+  event_title?: string;
+  subtitle?: string;
   category?: string;
   close_time?: string;
   fee_rate?: number | string;
   status?: string;
+}
+
+// Strip Kalshi's "yes "/"no " outcome prefix so titles match Polymarket questions.
+// e.g. "yes Alex de Minaur wins Wimbledon" → "Alex de Minaur wins Wimbledon"
+function cleanTitle(raw: string): string {
+  return raw.replace(/^(yes|no)\s+/i, "").trim();
 }
 
 interface RawOrderBook {
@@ -119,26 +127,41 @@ interface RawOrderResponse {
 
 // ── Market listing ────────────────────────────────────────────────────────────
 
-export async function getKalshiMarkets(
-  status = "open",
-  limit = 200,
-): Promise<KalshiMarket[]> {
+export async function getKalshiMarkets(): Promise<KalshiMarket[]> {
+  const all: KalshiMarket[] = [];
+  let cursor: string | undefined;
+  const pageSize = 200;
+  const maxPages = 5; // up to 1000 markets total
+
   try {
-    const path = `/markets?status=${status}&limit=${limit}`;
-    const raw = await kalshiGet<{ markets?: RawMarket[] }>(path);
-    return (raw.markets ?? []).map((m) => ({
-      ticker: m.ticker ?? "",
-      title: m.title ?? "",
-      category: (m.category ?? "").toLowerCase(),
-      closeTime: m.close_time ?? "",
-      feeRate: typeof m.fee_rate === "string"
-        ? parseFloat(m.fee_rate)
-        : (m.fee_rate ?? 0.007),
-      status: m.status ?? "open",
-    }));
+    for (let page = 0; page < maxPages; page++) {
+      const qs = `status=open&limit=${pageSize}${cursor ? `&cursor=${cursor}` : ""}`;
+      const raw = await kalshiGet<{ markets?: RawMarket[]; cursor?: string }>(
+        `/markets?${qs}`,
+      );
+      const markets = raw.markets ?? [];
+
+      for (const m of markets) {
+        const rawTitle = m.title ?? m.event_title ?? "";
+        all.push({
+          ticker: m.ticker ?? "",
+          title: cleanTitle(rawTitle),
+          category: (m.category ?? "").toLowerCase(),
+          closeTime: m.close_time ?? "",
+          feeRate: typeof m.fee_rate === "string"
+            ? parseFloat(m.fee_rate)
+            : (m.fee_rate ?? 0.007),
+          status: m.status ?? "open",
+        });
+      }
+
+      cursor = raw.cursor;
+      if (!cursor || markets.length < pageSize) break;
+    }
+    return all;
   } catch (err) {
     console.error("[kalshi] getKalshiMarkets error:", (err as Error).message);
-    return [];
+    return all;
   }
 }
 
