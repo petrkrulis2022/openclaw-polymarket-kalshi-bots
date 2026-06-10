@@ -70,26 +70,32 @@ async function fetchPolyMarkets(): Promise<PolyMarket[]> {
     const raw = (await res.json()) as unknown;
     const arr = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
     console.log(`[mapper] Gamma API raw count: ${arr.length}`);
-    if (arr.length > 0) {
-      const s = arr[0];
-      console.log(`[mapper] All keys: ${Object.keys(s).join(",")}`);
-      console.log(`[mapper] outcomes: ${JSON.stringify(s["outcomes"])} | clobTokenIds: ${JSON.stringify(s["clobTokenIds"])} | tokens: ${JSON.stringify(s["tokens"])}`);
-    }
     polyCache = arr
       .map((m) => {
-        const tokens = (m["tokens"] as Array<{ token_id: string; outcome: string }>) ?? [];
-        const yesToken = tokens.find((t) => t.outcome?.toLowerCase() === "yes");
-        const noToken = tokens.find((t) => t.outcome?.toLowerCase() === "no");
-        const feeRate = parseFloat(
-          (m["fee_rate"] as string | undefined) ?? String(config.defaultPolyFeeRate),
-        );
+        // outcomes and clobTokenIds come back as JSON-encoded strings from Gamma API
+        const outcomes: string[] = (() => {
+          try { return JSON.parse(m["outcomes"] as string) as string[]; } catch { return []; }
+        })();
+        const clobTokenIds: string[] = (() => {
+          try { return JSON.parse(m["clobTokenIds"] as string) as string[]; } catch { return []; }
+        })();
+        const yesIdx = outcomes.findIndex((o) => o.toLowerCase() === "yes");
+        const noIdx = outcomes.findIndex((o) => o.toLowerCase() === "no");
+        const yesTokenId = yesIdx >= 0 ? (clobTokenIds[yesIdx] ?? "") : "";
+        const noTokenId = noIdx >= 0 ? (clobTokenIds[noIdx] ?? "") : "";
+
+        const feeRateRaw = m["feeRate"] ?? m["fee_rate"] ?? m["takerBaseFee"] ?? m["makerBaseFee"];
+        const feeRate = typeof feeRateRaw === "number" ? feeRateRaw
+          : typeof feeRateRaw === "string" ? parseFloat(feeRateRaw)
+          : config.defaultPolyFeeRate;
+
         return {
           id: String(m["id"] ?? ""),
-          conditionId: String(m["condition_id"] ?? m["conditionId"] ?? ""),
+          conditionId: String(m["conditionId"] ?? m["condition_id"] ?? ""),
           question: String(m["question"] ?? ""),
-          yesTokenId: yesToken?.token_id ?? "",
-          noTokenId: noToken?.token_id ?? "",
-          endDate: String(m["end_date_iso"] ?? m["endDate"] ?? ""),
+          yesTokenId,
+          noTokenId,
+          endDate: String(m["endDate"] ?? m["end_date_iso"] ?? ""),
           feeRate: Number.isFinite(feeRate) ? feeRate : config.defaultPolyFeeRate,
           active: Boolean(m["active"]),
           closed: Boolean(m["closed"]),
