@@ -58,17 +58,35 @@ const STATIC_OVERRIDES: Array<{
 
 // ── Polymarket fetcher ────────────────────────────────────────────────────────
 
+async function fetchPolyPage(tag?: string): Promise<Array<Record<string, unknown>>> {
+  const qs = `active=true&closed=false&limit=100${tag ? `&tag=${encodeURIComponent(tag)}` : ""}`;
+  const res = await fetch(`${GAMMA_API}?${qs}`, { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) throw new Error(`Gamma API ${res.status}`);
+  const raw = (await res.json()) as unknown;
+  return Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+}
+
 async function fetchPolyMarkets(): Promise<PolyMarket[]> {
   const now = Date.now();
   if (polyCache && now - polyCacheAt < POLY_CACHE_TTL) return polyCache;
   try {
-    const res = await fetch(
-      `${GAMMA_API}?active=true&closed=false&limit=500`,
-      { signal: AbortSignal.timeout(10_000) },
-    );
-    if (!res.ok) throw new Error(`Gamma API ${res.status}`);
-    const raw = (await res.json()) as unknown;
-    const arr = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+    // Fetch general + specific tags to cover elections/economics not in top-100 trending
+    const [general, politics, elections, economics] = await Promise.allSettled([
+      fetchPolyPage(),
+      fetchPolyPage("Politics"),
+      fetchPolyPage("Elections"),
+      fetchPolyPage("Economics"),
+    ]);
+    const seen = new Set<string>();
+    const arr: Array<Record<string, unknown>> = [];
+    for (const r of [general, politics, elections, economics]) {
+      if (r.status === "fulfilled") {
+        for (const m of r.value) {
+          const id = String(m["id"] ?? "");
+          if (id && !seen.has(id)) { seen.add(id); arr.push(m); }
+        }
+      }
+    }
     console.log(`[mapper] Gamma API raw count: ${arr.length}`);
     polyCache = arr
       .map((m) => {

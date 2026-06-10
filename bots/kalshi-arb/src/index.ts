@@ -63,6 +63,7 @@ async function runScanCycle(): Promise<void> {
     return acc;
   }, {});
   console.log(`[kalshi-arb] Kalshi: ${kalshiMarkets.length} markets — ${JSON.stringify(catCounts)}`);
+  console.log(`[kalshi-arb] Kalshi tail: ${kalshiMarkets.slice(-10).map((m) => m.title).join(" | ")}`);
 
   const pairs = await findMarketPairs(kalshiMarkets);
   scannedPairs = pairs.length;
