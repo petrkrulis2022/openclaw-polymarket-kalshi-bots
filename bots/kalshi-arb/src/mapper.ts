@@ -101,16 +101,14 @@ async function fetchPolyMarkets(): Promise<PolyMarket[]> {
         const noTokenId = tokenIds[noIdx] ?? "";
         if (!yesTokenId || !noTokenId) continue;
 
-        const feeRaw = m["takerBaseFee"] ?? m["feeRate"];
-        const feeParsed = typeof feeRaw === "number" ? feeRaw
-          : typeof feeRaw === "string" ? parseFloat(feeRaw)
-          : NaN;
-        // Gamma API sometimes returns basis points (e.g. 1000 = 10%); normalize to decimal
-        const feeRate = Number.isFinite(feeParsed) && feeParsed >= 0 && feeParsed <= 1
-          ? feeParsed
-          : Number.isFinite(feeParsed) && feeParsed > 1
-            ? feeParsed / 10000
-            : config.defaultPolyFeeRate;
+        // feeSchedule.rate is the actual per-formula rate (e.g. 0.03 for sports).
+        // takerBaseFee is a legacy field and does NOT represent the real rate.
+        // Effective fee = rate × p × (1-p); max at p=0.5 → rate × 0.25.
+        // So sports 3% → max 0.75%, politics 4% → max 1.0%, crypto 7% → max 1.75%.
+        const sched = m["feeSchedule"] as { rate?: number } | undefined;
+        const feeRate = (sched?.rate != null && Number.isFinite(sched.rate))
+          ? sched.rate
+          : 0; // geopolitics has no feeSchedule → 0% fee
 
         seen.add(conditionId);
         arr.push({
@@ -167,8 +165,10 @@ export async function findMarketPairs(
   const pairs: MarketPair[] = [];
   const usedPolyIds = new Set<string>();
 
-  // Exclude only crypto-tier fees (>2%). Politics=0%, elections=0-1% all pass.
-  const cheapPoly = polyMarkets.filter((m) => m.feeRate <= 0.02);
+  // feeRate is the Polymarket V2 formula rate (e.g. 0.03 sports, 0.04 politics).
+  // Effective fee = rate × p × (1-p), max 0.0175 for 7% crypto at p=0.5.
+  // All current categories are under 2% effective; exclude only extreme outliers.
+  const cheapPoly = polyMarkets.filter((m) => m.feeRate <= 0.08);
   console.log(`[mapper] Polymarket: ${cheapPoly.length} fee≤2% available for matching`);
 
   for (const km of kalshiMarkets) {
