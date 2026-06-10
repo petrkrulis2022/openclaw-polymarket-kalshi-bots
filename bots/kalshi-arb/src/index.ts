@@ -18,6 +18,13 @@ import { findMarketPairs } from "./mapper.js";
 import { computeArbSignals, type ArbSignal } from "./orderbook.js";
 import { executeArb } from "./executor.js";
 import { loadInventory, getOpenPairs, getAllPairs } from "./inventory.js";
+import {
+  loadWhitelist,
+  isWhitelisted,
+  addToWhitelist,
+  removeFromWhitelist,
+  getWhitelist,
+} from "./whitelist.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
 import { checkAndClosePositions } from "./closer.js";
 
@@ -105,7 +112,9 @@ async function runScanCycle(): Promise<void> {
     return;
   }
 
-  const toFire = cycleSignals.slice(0, availableSlots);
+  const toFire = cycleSignals
+    .filter((s) => isWhitelisted(s.pair.kalshiTicker))
+    .slice(0, availableSlots);
   for (const signal of toFire) {
     await executeArb(signal).catch((err) => {
       console.error("[kalshi-arb] executeArb error:", (err as Error).message);
@@ -216,6 +225,32 @@ app.post("/orders/cancel-all", async (_req: Request, res: Response) => {
   res.json({ ok: true, openPairs: open.length, message: "FOK orders self-cancel; no live orders to cancel" });
 });
 
+// ── Whitelist endpoints ────────────────────────────────────────────────────────
+
+app.get("/pairs/candidates", (_req: Request, res: Response) => {
+  res.json({ signals: lastSignals, scannedAt: lastScanAt, scannedPairs });
+});
+
+app.get("/pairs/whitelist", (_req: Request, res: Response) => {
+  res.json({ whitelist: getWhitelist() });
+});
+
+app.post("/pairs/whitelist", (req: Request, res: Response) => {
+  const { ticker } = req.body as { ticker?: string };
+  if (!ticker || typeof ticker !== "string") {
+    res.status(400).json({ error: "ticker required" });
+    return;
+  }
+  addToWhitelist(ticker);
+  res.json({ ok: true, ticker, whitelist: getWhitelist() });
+});
+
+app.delete("/pairs/whitelist/:ticker", (req: Request, res: Response) => {
+  const ticker = decodeURIComponent(req.params["ticker"] ?? "");
+  removeFromWhitelist(ticker);
+  res.json({ ok: true, ticker, whitelist: getWhitelist() });
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(config.port, () => {
@@ -223,6 +258,7 @@ app.listen(config.port, () => {
     `[kalshi-arb] Kalshi-Arb Bot (id=${config.botId}) listening on :${config.port} | dryRun=${config.dryRun}`,
   );
   loadInventory();
+  loadWhitelist();
   scheduleScan();
   scheduleCloser();
   scheduleMetrics();

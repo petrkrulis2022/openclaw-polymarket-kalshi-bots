@@ -207,12 +207,13 @@ export async function placeMarketOrder(
   tokenId: string,
   side: "BUY" | "SELL",
   amount: number, // USDC to spend (BUY) or shares to sell (SELL)
+  options?: { worstPrice?: number },
 ): Promise<{ orderId: string; filledShares: number; filledUsdc: number }> {
   const c = await getSigningClient();
 
-  // For BUY: worst acceptable price = 0.99 (CLOB max; pay any ask up to 99¢)
-  // For SELL: worst acceptable price = 0.01 (CLOB min; accept any bid down to 1¢)
-  const worstPrice = side === "BUY" ? 0.99 : 0.01;
+  // Default worst price caps: 0.99 for BUY, 0.01 for SELL. Callers pass tighter
+  // limits via options.worstPrice to avoid filling at catastrophic prices.
+  const worstPrice = options?.worstPrice ?? (side === "BUY" ? 0.99 : 0.01);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await (c as any).createAndPostMarketOrder(

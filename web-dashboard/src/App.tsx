@@ -3337,24 +3337,76 @@ function ResolutionLagView({
   );
 }
 
+interface KalshiCandidateSignal {
+  pair: {
+    kalshiTicker: string;
+    kalshiTitle: string;
+    polyQuestion: string;
+    kalshiCloseTime: string;
+  };
+  direction: string;
+  netEdgePct: number;
+  sizeUsd: number;
+}
+
 function KalshiArbView({
   bot,
   onBack,
+  metamaskAddress,
 }: {
   bot: BotSummary;
   onBack: () => void;
   metamaskAddress?: string;
 }) {
+  const [candidates, setCandidates] = React.useState<KalshiCandidateSignal[]>([]);
+  const [whitelist, setWhitelist] = React.useState<string[]>([]);
+  const [scannedAt, setScannedAt] = React.useState<string | null>(null);
+  const [tick, setTick] = React.useState(0);
+
+  const proxyBase = metamaskAddress
+    ? `/api/orchestrator/users/${metamaskAddress}/bots/kalshi-arb/proxy`
+    : null;
+
+  React.useEffect(() => {
+    if (!proxyBase) return;
+    Promise.all([
+      fetch(`${proxyBase}/pairs/candidates`).then((r) => r.json()),
+      fetch(`${proxyBase}/pairs/whitelist`).then((r) => r.json()),
+    ])
+      .then(([cands, wl]) => {
+        const c = cands as { signals?: KalshiCandidateSignal[]; scannedAt?: string };
+        const w = wl as { whitelist?: string[] };
+        setCandidates(c.signals ?? []);
+        setScannedAt(c.scannedAt ?? null);
+        setWhitelist(w.whitelist ?? []);
+      })
+      .catch(() => {});
+  }, [proxyBase, tick]);
+
+  async function approve(ticker: string) {
+    if (!proxyBase) return;
+    await fetch(`${proxyBase}/pairs/whitelist`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker }),
+    }).catch(() => {});
+    setTick((t) => t + 1);
+  }
+
+  async function removeTicker(ticker: string) {
+    if (!proxyBase) return;
+    await fetch(`${proxyBase}/pairs/whitelist/${encodeURIComponent(ticker)}`, {
+      method: "DELETE",
+    }).catch(() => {});
+    setTick((t) => t + 1);
+  }
+
+  const whitelistSet = new Set(whitelist);
+  const unappoved = candidates.filter((s) => !whitelistSet.has(s.pair.kalshiTicker));
+
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          marginBottom: 24,
-        }}
-      >
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
         <button
           onClick={onBack}
           style={{
@@ -3371,19 +3423,6 @@ function KalshiArbView({
         </button>
         <div style={{ fontSize: 20, fontWeight: 700 }}>{bot.name}</div>
         <span className="badge">{bot.strategy}</span>
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            background: "#ff950022",
-            color: "#ff9500",
-            border: "1px solid #ff950044",
-            borderRadius: 6,
-            padding: "2px 8px",
-          }}
-        >
-          Coming Soon
-        </span>
       </div>
 
       <div
@@ -3405,70 +3444,178 @@ function KalshiArbView({
           </div>
         </div>
         <div className="card" style={{ textAlign: "center" }}>
-          <div className="balance-label">Open Positions</div>
+          <div className="balance-label">Open Pairs</div>
           <div className="balance-big">{bot.openPositions}</div>
         </div>
         <div className="card" style={{ textAlign: "center" }}>
-          <div className="balance-label">Status</div>
-          <div
-            className="balance-big"
-            style={{ fontSize: 14, color: "var(--text-secondary)" }}
-          >
-            Not yet built
-          </div>
+          <div className="balance-label">Approved Pairs</div>
+          <div className="balance-big">{whitelist.length}</div>
         </div>
       </div>
 
-      <div className="card" style={{ maxWidth: 680 }}>
-        <div className="section-label" style={{ marginBottom: 16 }}>
-          Strategy Overview
+      {/* Approved pairs */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="section-label" style={{ marginBottom: 12 }}>
+          Approved Pairs ({whitelist.length})
         </div>
-        <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--text-secondary)" }}>
-          <p style={{ margin: "0 0 12px" }}>
-            The same binary event trades on both Kalshi and Polymarket. When the same
-            outcome is priced differently across venues, buy the cheaper side and
-            synthetically sell the expensive side. Capture the convergence.
-          </p>
-          <div
-            style={{
-              background: "var(--bg)",
-              borderRadius: 8,
-              padding: "12px 16px",
-              marginBottom: 12,
-              fontSize: 12,
-              fontFamily: "monospace",
-            }}
-          >
-            <div style={{ color: "var(--text)", fontWeight: 600, marginBottom: 6 }}>Entry logic</div>
-            <div>1. Fetch YES price on both venues for the same event</div>
-            <div>2. Walk both order books — do not use top-of-book only</div>
-            <div>3. Enter only if volume-weighted spread &gt; fees + slippage buffer</div>
+        {whitelist.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+            No pairs approved yet. Approve candidates below to enable trading.
           </div>
-          <div
-            style={{
-              background: "#ff3b3011",
-              border: "1px solid #ff3b3033",
-              borderRadius: 8,
-              padding: "10px 14px",
-              fontSize: 12,
-              color: "#ff6b6b",
-            }}
-          >
-            <strong>Warning:</strong> The naive version lost money in testing — a 13% quoted spread
-            became 0% actual spread after walking the book. Always walk the full book before entering.
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {whitelist.map((ticker) => {
+              const sig = candidates.find((c) => c.pair.kalshiTicker === ticker);
+              return (
+                <div
+                  key={ticker}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    background: "var(--bg)",
+                    borderRadius: 8,
+                    padding: "8px 12px",
+                    fontSize: 13,
+                  }}
+                >
+                  <div>
+                    <span style={{ fontWeight: 600, fontFamily: "monospace", fontSize: 12 }}>
+                      {ticker}
+                    </span>
+                    {sig && (
+                      <span style={{ color: "var(--text-secondary)", marginLeft: 10 }}>
+                        {sig.pair.polyQuestion.slice(0, 60)}
+                        {sig.pair.polyQuestion.length > 60 ? "…" : ""}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => void removeTicker(ticker)}
+                    style={{
+                      background: "#ff3b3011",
+                      border: "1px solid #ff3b3044",
+                      borderRadius: 6,
+                      color: "#ff6b6b",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      padding: "3px 10px",
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        )}
+      </div>
+
+      {/* Candidate signals */}
+      <div className="card">
         <div
           style={{
-            marginTop: 20,
-            paddingTop: 16,
-            borderTop: "1px solid var(--border)",
-            fontSize: 12,
-            color: "var(--text-secondary)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 12,
           }}
         >
-          Requires a Kalshi account and full order-book walking implementation before going live.
+          <div className="section-label">
+            Scan Candidates ({unappoved.length} unapproved)
+          </div>
+          {scannedAt && (
+            <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+              last scan: {new Date(scannedAt).toLocaleTimeString()}
+            </div>
+          )}
         </div>
+        {!proxyBase ? (
+          <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+            Connect wallet to manage pairs.
+          </div>
+        ) : unappoved.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+            {candidates.length === 0
+              ? "No signals in last scan — bot may be offline or scanning."
+              : "All matched pairs are already approved."}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {unappoved.map((sig) => (
+              <div
+                key={sig.pair.kalshiTicker + sig.direction}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "space-between",
+                  background: "var(--bg)",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                  gap: 12,
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span
+                      style={{
+                        fontFamily: "monospace",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "var(--text)",
+                      }}
+                    >
+                      {sig.pair.kalshiTicker}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        background: sig.netEdgePct > 0 ? "#30d15822" : "#ff3b3011",
+                        color: sig.netEdgePct > 0 ? "#30d158" : "#ff6b6b",
+                        border: `1px solid ${sig.netEdgePct > 0 ? "#30d15844" : "#ff3b3033"}`,
+                        borderRadius: 4,
+                        padding: "1px 6px",
+                      }}
+                    >
+                      {sig.netEdgePct > 0 ? "+" : ""}
+                      {sig.netEdgePct.toFixed(2)}% edge
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                      {sig.direction.replace("kalshi_", "K:").replace("_poly_", " / P:")}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "var(--text-secondary)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    Poly: {sig.pair.polyQuestion}
+                  </div>
+                </div>
+                <button
+                  onClick={() => void approve(sig.pair.kalshiTicker)}
+                  style={{
+                    background: "#30d15811",
+                    border: "1px solid #30d15844",
+                    borderRadius: 6,
+                    color: "#30d158",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    padding: "3px 10px",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                  }}
+                >
+                  Approve
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -278,8 +278,30 @@ function BotCard({
   );
 }
 
+interface FillRow {
+  ts: string;
+  botId: string;
+  side: string;
+  signalPrice: number;
+  fillPrice: number;
+  fillShares: number;
+  fillUsdc: number;
+  fillStatus: string;
+}
+
 export function MonitoringDashboard({ onBack, metamaskAddress, onSelectBot }: Props) {
   const { data, loading, error } = useMonitoring(metamaskAddress);
+  const [fills, setFills] = React.useState<FillRow[]>([]);
+
+  React.useEffect(() => {
+    fetch("/api/orchestrator/fills?limit=50")
+      .then((r) => r.json())
+      .then((d) => {
+        const rows = ((d as { fills?: FillRow[] }).fills ?? []).slice().reverse();
+        setFills(rows);
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div style={{ maxWidth: 960, margin: "0 auto", padding: "0 16px 32px" }}>
@@ -336,6 +358,101 @@ export function MonitoringDashboard({ onBack, metamaskAddress, onSelectBot }: Pr
           />
         ))
       )}
+
+      {/* Recent fills */}
+      <div
+        className="card"
+        style={{ marginTop: 24 }}
+      >
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--text-secondary)",
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+            marginBottom: 12,
+          }}
+        >
+          Recent Fills ({fills.length})
+        </div>
+        {fills.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+            No fills recorded yet. Fills appear here after bots execute live orders.
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ color: "var(--text-secondary)", textAlign: "left" }}>
+                  <th style={{ padding: "4px 8px", fontWeight: 500 }}>Time</th>
+                  <th style={{ padding: "4px 8px", fontWeight: 500 }}>Bot</th>
+                  <th style={{ padding: "4px 8px", fontWeight: 500 }}>Side</th>
+                  <th style={{ padding: "4px 8px", fontWeight: 500, textAlign: "right" }}>Signal¢</th>
+                  <th style={{ padding: "4px 8px", fontWeight: 500, textAlign: "right" }}>Fill¢</th>
+                  <th style={{ padding: "4px 8px", fontWeight: 500, textAlign: "right" }}>Slip¢</th>
+                  <th style={{ padding: "4px 8px", fontWeight: 500, textAlign: "right" }}>USDC</th>
+                  <th style={{ padding: "4px 8px", fontWeight: 500 }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fills.map((f, i) => {
+                  const slip = (f.fillPrice - f.signalPrice) * 100;
+                  const slipColor = slip > 0.5 ? "#ff6b6b" : slip < -0.5 ? "#30d158" : "var(--text-secondary)";
+                  return (
+                    <tr
+                      key={i}
+                      style={{
+                        borderTop: "1px solid var(--border)",
+                        opacity: f.fillStatus === "zero" ? 0.5 : 1,
+                      }}
+                    >
+                      <td style={{ padding: "5px 8px", color: "var(--text-secondary)" }}>
+                        {new Date(f.ts).toLocaleTimeString()}
+                      </td>
+                      <td style={{ padding: "5px 8px" }}>{f.botId}</td>
+                      <td
+                        style={{
+                          padding: "5px 8px",
+                          color: f.side === "BUY" ? "#30d158" : "#ff9500",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {f.side}
+                      </td>
+                      <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                        {(f.signalPrice * 100).toFixed(1)}
+                      </td>
+                      <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                        {(f.fillPrice * 100).toFixed(1)}
+                      </td>
+                      <td style={{ padding: "5px 8px", textAlign: "right", color: slipColor }}>
+                        {slip > 0 ? "+" : ""}{slip.toFixed(1)}
+                      </td>
+                      <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                        ${f.fillUsdc.toFixed(2)}
+                      </td>
+                      <td
+                        style={{
+                          padding: "5px 8px",
+                          color:
+                            f.fillStatus === "filled"
+                              ? "#30d158"
+                              : f.fillStatus === "zero"
+                                ? "#ff3b30"
+                                : "#ff9500",
+                        }}
+                      >
+                        {f.fillStatus}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

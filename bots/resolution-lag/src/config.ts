@@ -39,9 +39,10 @@ export const config = {
   ),
   // Minimum annualised yield (%) to enter a resolution-lag trade
   minYieldPct: parseFloat(process.env["MIN_YIELD_PCT"] ?? "0.5"),
-  // Price band for stale resolved markets. Lower floor captures high-yield lag windows;
-  // CLOB winner confirmation is the safety check, not price alone.
-  minAskPrice: parseFloat(process.env["MIN_ASK_PRICE"] ?? "0.01"),
+  // Price band for stale resolved markets. Floor at 0.85 avoids buying into disputed
+  // markets — a confirmed winner trading below 85¢ is more likely a dispute signal
+  // than a lag opportunity. Override with MIN_ASK_PRICE env var if needed.
+  minAskPrice: parseFloat(process.env["MIN_ASK_PRICE"] ?? "0.85"),
   maxAskPrice: parseFloat(process.env["MAX_ASK_PRICE"] ?? "0.99"),
   // Safety buffer after market end time before considering it actionable.
   minPostEndMinutes: parseInt(process.env["MIN_POST_END_MINUTES"] ?? "45", 10),

@@ -90,6 +90,42 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
       signal: AbortSignal.timeout(5_000),
     }).catch(() => {});
 
+    // Log fills to measurement layer (fire-and-forget)
+    const ts = new Date().toISOString();
+    const fillBase = {
+      ts,
+      botId: "kalshi-arb",
+      fillStatus: "filled" as const,
+      fillShares: 0,
+      meta: { kalshiTicker: pair.kalshiTicker, pairId, netEdgePct },
+    };
+    fetch(`${config.orchestratorUrl}/fills`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...fillBase,
+        side: (kalshiSide === "yes" ? "BUY" : "BUY") as "BUY",
+        tokenId: pair.kalshiTicker,
+        signalPrice: kalshiVwap,
+        fillPrice: kalshiVwap,
+        fillUsdc: sizeUsd,
+      }),
+      signal: AbortSignal.timeout(5_000),
+    }).catch(() => {});
+    fetch(`${config.orchestratorUrl}/fills`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...fillBase,
+        side: "BUY" as const,
+        tokenId: polyTokenId,
+        signalPrice: polyVwap,
+        fillPrice: polyVwap,
+        fillUsdc: sizeUsd,
+      }),
+      signal: AbortSignal.timeout(5_000),
+    }).catch(() => {});
+
     return { pairId, dryRun: false, kalshiOrderId, polyOrderId };
   } catch (err) {
     const msg = (err as Error).message;

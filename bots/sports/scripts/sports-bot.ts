@@ -79,6 +79,16 @@ function pnlStr(pnl: number): string {
   return `${pnl >= 0 ? "+" : ""}${fmt(pnl, 4)} USDC`;
 }
 
+function getBuyWorstPrice(bestAsk: number): number {
+  if (bestAsk <= 0) return 0.70;
+  return Math.min(0.99, bestAsk + 0.02);
+}
+
+function getSellWorstPrice(bestBid: number): number {
+  if (bestBid <= 0) return 0.01;
+  return Math.max(0.01, bestBid - 0.02);
+}
+
 // ── Trade logic ───────────────────────────────────────────────────────────────
 
 async function onGoalDetected(
@@ -107,9 +117,18 @@ async function onGoalDetected(
     `[trade] → Market BUY ${label} (${fmt(config.maxPositionUsd, 2)} USDC, FOK)`,
   );
 
+  const book = await getOrderBook(tokenId);
+  const bestAsk = book.asks[0]?.price ?? 0;
+  const worstBuyPrice = getBuyWorstPrice(bestAsk);
+  console.log(
+    `[trade] BUY cap: bestAsk=${fmt(bestAsk)} worstPrice=${fmt(worstBuyPrice)}`,
+  );
+
   let fill: Awaited<ReturnType<typeof placeMarketOrder>>;
   try {
-    fill = await placeMarketOrder(tokenId, "BUY", config.maxPositionUsd);
+    fill = await placeMarketOrder(tokenId, "BUY", config.maxPositionUsd, {
+      worstPrice: worstBuyPrice,
+    });
   } catch (err) {
     console.error("[trade] BUY market order failed:", (err as Error).message);
     return;
@@ -136,6 +155,25 @@ async function onGoalDetected(
   console.log(
     `[trade] ✅ Bought ${fill.filledShares} ${label} @ avg ${fmt(avgPrice)} = ${fmt(fill.filledUsdc, 2)} USDC`,
   );
+
+  // Log fill to measurement layer (fire-and-forget)
+  fetch(`${config.orchestratorUrl}/fills`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ts: new Date().toISOString(),
+      botId: "sports-bot",
+      side: "BUY",
+      tokenId,
+      signalPrice: worstBuyPrice,
+      fillPrice: avgPrice,
+      fillShares: fill.filledShares,
+      fillUsdc: fill.filledUsdc,
+      fillStatus: fill.filledShares > 0 ? "filled" : "zero",
+      meta: { label, scorer },
+    }),
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => {});
   console.log(
     `[trade]    Sell targets: profit bid≥${fmt(avgPrice + config.minProfitCents)} | ` +
       `stop-loss bid≤${fmt(avgPrice * config.stopLossRatio)} | ` +
@@ -182,6 +220,7 @@ async function checkAndSell(forceSell = false): Promise<void> {
       openPosition.tokenId,
       "SELL",
       openPosition.size,
+      { worstPrice: getSellWorstPrice(bestBid) },
     );
   } catch (err) {
     console.error("[trade] SELL market order failed:", (err as Error).message);

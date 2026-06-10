@@ -48,4 +48,5 @@ export const config = {
   sellPollMs: parseInt(process.env["SELL_POLL_SECONDS"] ?? "1", 10) * 1_000,
   port: parseInt(process.env["PORT"] ?? "3009", 10),
   botId: 8,
+  orchestratorUrl: process.env["ORCHESTRATOR_URL"] ?? "http://localhost:3002",
 } as const;

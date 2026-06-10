@@ -72,4 +72,23 @@ export async function enterPosition(opp: ResolutionOpportunity): Promise<void> {
   };
   addPosition(pos);
   recordAttribution(opp);
+
+  // Log fill to measurement layer (fire-and-forget)
+  fetch(`${config.orchestratorUrl}/fills`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ts: pos.openedAt,
+      botId: "resolution-lag",
+      side: "BUY",
+      tokenId: opp.winningTokenId,
+      signalPrice: opp.currentAsk,
+      fillPrice: opp.currentAsk,
+      fillShares: sizeShares,
+      fillUsdc: pos.costBasis,
+      fillStatus: "filled",
+      meta: { marketId: opp.market.id, question: opp.market.question, expectedYield: opp.expectedYield },
+    }),
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => {});
 }
