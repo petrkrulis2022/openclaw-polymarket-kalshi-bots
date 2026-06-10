@@ -197,7 +197,10 @@ export async function findMarketPairs(
       }
     }
 
-    const MIN_SCORE = 0.6;
+    const MIN_SCORE = 0.3; // lowered to catch loose matches; spread calc filters unprofitable ones
+    if (best && bestScore < MIN_SCORE && bestScore > 0.15 && /fed|cpi|fomc|rate|inflation|gdp|unemploy/i.test(km.title)) {
+      console.log(`[mapper] near-miss: "${km.title.slice(0, 50)}" ↔ "${best.question.slice(0, 50)}" score=${bestScore.toFixed(2)}`);
+    }
     if (best && bestScore >= MIN_SCORE) {
       usedPolyIds.add(best.conditionId);
       pairs.push({
