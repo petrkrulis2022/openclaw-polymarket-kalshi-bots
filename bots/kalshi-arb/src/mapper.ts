@@ -86,17 +86,7 @@ async function fetchPolyMarkets(): Promise<PolyMarket[]> {
       if (cursor === "LTE=" || markets.length === 0) break;
     }
     console.log(`[mapper] CLOB API fetched: ${arr.length} active markets`);
-    const seen = new Set<string>();
-    const arr: Array<Record<string, unknown>> = [];
-    for (const r of pages) {
-      if (r.status === "fulfilled") {
-        for (const m of r.value) {
-          const id = String(m["id"] ?? "");
-          if (id && !seen.has(id)) { seen.add(id); arr.push(m); }
-        }
-      }
-    }
-      polyCache = arr
+    polyCache = arr
       .map((m) => {
         // CLOB API returns tokens as an actual array
         const tokens = (m["tokens"] as Array<{ token_id: string; outcome: string }>) ?? [];
