@@ -3,15 +3,17 @@
  * If one leg fails, cancel the other immediately to avoid naked exposure.
  */
 
-import { placeLimitOrder, cancelOrder } from "./clob.js";
+import { placeLimitOrder, cancelOrder, getOpenOrders } from "./clob.js";
 import {
   addPair,
   cancelPair,
+  updatePair,
   addNegRiskPair,
   cancelNegRiskPair,
   type ArbPair,
   type NegRiskPair,
 } from "./inventory.js";
+import { mergeYesNo } from "./merge.js";
 import type { ArbSignal, NegRiskArbSignal } from "./orderbook.js";
 import { config } from "./config.js";
 
@@ -100,6 +102,7 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
     id,
     type: "binary",
     marketId: signal.marketId,
+    conditionId: signal.conditionId,
     marketQuestion: signal.marketQuestion,
     yesTokenId: signal.yesTokenId,
     noTokenId: signal.noTokenId,
@@ -121,9 +124,31 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
     const { getPair } = await import("./inventory.js");
     const current = getPair(id);
     if (!current || current.status !== "pending") return;
+
+    // Capture fill amounts before cancelling
+    const openOrders = await getOpenOrders().catch(() => []);
+    const openById = new Map(openOrders.map((o) => [o.id, o]));
+    const yesRemaining = openById.get(yesOrderId!)?.remainingSize ?? 0;
+    const noRemaining = openById.get(noOrderId!)?.remainingSize ?? 0;
+    const yesFilled = Math.max(0, size - yesRemaining);
+    const noFilled = Math.max(0, size - noRemaining);
+
     console.warn(`[executor] Pair ${id} timed out — cancelling both legs`);
     await Promise.all([cancelOrder(yesOrderId!), cancelOrder(noOrderId!)]);
     cancelPair(id);
+
+    const mergeAmount = Math.min(yesFilled, noFilled);
+    if (mergeAmount > 0.01 && current.conditionId) {
+      updatePair(id, { mergeAttempted: true });
+      mergeYesNo(current.conditionId, mergeAmount)
+        .then((txHash) => {
+          console.log(`[executor] Merge complete pair=${id} tx=${txHash}`);
+          updatePair(id, { mergeTxHash: txHash });
+        })
+        .catch((err: Error) =>
+          console.error(`[executor] mergeYesNo failed pair=${id}:`, err.message),
+        );
+    }
   }, config.pairTimeoutMs);
 }
 

@@ -73,6 +73,7 @@ async function runScanCycle(): Promise<void> {
     binaryCandidates.map(async (m) => {
       const signal = await computeArbSignal(
         m.id,
+        m.conditionId,
         m.question,
         m.yesTokenId,
         m.noTokenId,

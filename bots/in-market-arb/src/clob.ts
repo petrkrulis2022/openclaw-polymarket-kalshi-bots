@@ -145,6 +145,19 @@ export async function getCollateralBalance(): Promise<number> {
   }
 }
 
+export async function waitForOrderClose(
+  orderId: string,
+  timeoutMs: number,
+): Promise<"filled" | "timeout"> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2_000));
+    const open = await getOpenOrders();
+    if (!open.some((o) => o.id === orderId)) return "filled";
+  }
+  return "timeout";
+}
+
 export async function getOpenOrders(): Promise<OpenOrder[]> {
   try {
     const c = await getSigningClient();

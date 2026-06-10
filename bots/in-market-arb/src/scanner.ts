@@ -13,6 +13,7 @@ const GAMMA_API = "https://gamma-api.polymarket.com/markets";
 
 export interface BinaryMarket {
   id: string;
+  conditionId: string;
   question: string;
   yesTokenId: string;
   noTokenId: string;
@@ -47,6 +48,8 @@ interface GammaMarket {
   end_date_iso?: string;
   neg_risk?: boolean;
   neg_risk_market_id?: string;
+  conditionId?: string;
+  condition_id?: string;
   // Polymarket fee fields — various API versions use different names
   feeRate?: number;
   fee_rate?: number;
@@ -121,6 +124,7 @@ export async function scanActiveMarkets(): Promise<ScanResult> {
       } else {
         binary.push({
           id: m.id,
+          conditionId: m.conditionId ?? m.condition_id ?? "",
           question: m.question,
           yesTokenId: yes.token_id,
           noTokenId: no.token_id,

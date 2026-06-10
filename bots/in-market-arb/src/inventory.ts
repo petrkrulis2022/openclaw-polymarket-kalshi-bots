@@ -9,6 +9,7 @@ export interface ArbPair {
   id: string;
   type: "binary";
   marketId: string;
+  conditionId: string;
   marketQuestion: string;
   yesTokenId: string;
   noTokenId: string;
@@ -23,6 +24,8 @@ export interface ArbPair {
   createdAt: string;
   settledAt?: string;
   realizedPnl?: number;
+  mergeAttempted?: boolean;
+  mergeTxHash?: string;
 }
 
 export interface NegRiskPair {

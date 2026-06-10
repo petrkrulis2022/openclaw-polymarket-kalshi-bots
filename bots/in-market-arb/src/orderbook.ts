@@ -18,6 +18,7 @@ export interface ArbSignal {
   yesTokenId: string;
   noTokenId: string;
   marketId: string;
+  conditionId: string;
   marketQuestion: string;
   profitableVolumeUsd: number;
   expectedProfitUsd: number;
@@ -51,6 +52,7 @@ function effectiveCost(price: number, feeRate: number): number {
  */
 export async function computeArbSignal(
   marketId: string,
+  conditionId: string,
   question: string,
   yesTokenId: string,
   noTokenId: string,
@@ -131,6 +133,7 @@ export async function computeArbSignal(
     yesTokenId,
     noTokenId,
     marketId,
+    conditionId,
     marketQuestion: question,
     profitableVolumeUsd,
     expectedProfitUsd,
