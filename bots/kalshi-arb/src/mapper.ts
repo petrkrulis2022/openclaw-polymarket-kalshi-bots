@@ -58,20 +58,26 @@ const STATIC_OVERRIDES: Array<{
 
 // ── Polymarket fetcher ────────────────────────────────────────────────────────
 
-async function fetchPolyPage(offset: number): Promise<Array<Record<string, unknown>>> {
-  const qs = `active=true&closed=false&limit=100&offset=${offset}`;
-  const res = await fetch(`${GAMMA_API}?${qs}`, { signal: AbortSignal.timeout(10_000) });
+async function fetchPolyPage(params: string): Promise<Array<Record<string, unknown>>> {
+  const res = await fetch(`${GAMMA_API}?${params}`, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`Gamma API ${res.status}`);
   const raw = (await res.json()) as unknown;
   return Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
 }
 
+// Keywords that are likely to have cross-platform economics/politics matches
+const POLY_SEARCH_TERMS = ["federal+funds+rate", "FOMC", "CPI", "unemployment+rate", "GDP", "inflation"];
+
 async function fetchPolyMarkets(): Promise<PolyMarket[]> {
   const now = Date.now();
   if (polyCache && now - polyCacheAt < POLY_CACHE_TTL) return polyCache;
   try {
-    // Fetch 5 pages × 100 = up to 500 markets via offset pagination
-    const pages = await Promise.allSettled([0, 100, 200, 300, 400].map(fetchPolyPage));
+    // General pages + keyword searches for economics topics
+    const queries = [
+      ...([0, 100, 200, 300, 400].map((o) => `active=true&closed=false&limit=100&offset=${o}`)),
+      ...POLY_SEARCH_TERMS.map((q) => `active=true&closed=false&limit=50&question=${q}`),
+    ];
+    const pages = await Promise.allSettled(queries.map(fetchPolyPage));
     const seen = new Set<string>();
     const arr: Array<Record<string, unknown>> = [];
     for (const r of pages) {
