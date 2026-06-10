@@ -67,12 +67,14 @@ async function fetchPolyMarkets(): Promise<PolyMarket[]> {
       { signal: AbortSignal.timeout(10_000) },
     );
     if (!res.ok) throw new Error(`Gamma API ${res.status}`);
-    const raw = (await res.json()) as Array<Record<string, unknown>>;
-    polyCache = raw
+    const raw = (await res.json()) as unknown;
+    const arr = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+    console.log(`[mapper] Gamma API raw count: ${arr.length}`);
+    polyCache = arr
       .map((m) => {
         const tokens = (m["tokens"] as Array<{ token_id: string; outcome: string }>) ?? [];
-        const yesToken = tokens.find((t) => t.outcome === "Yes");
-        const noToken = tokens.find((t) => t.outcome === "No");
+        const yesToken = tokens.find((t) => t.outcome?.toLowerCase() === "yes");
+        const noToken = tokens.find((t) => t.outcome?.toLowerCase() === "no");
         const feeRate = parseFloat(
           (m["fee_rate"] as string | undefined) ?? String(config.defaultPolyFeeRate),
         );
