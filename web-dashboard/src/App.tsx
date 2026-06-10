@@ -1129,21 +1129,66 @@ function CopyTraderView({
   const [formError, setFormError] = useState("");
   const [formSubmitting, setFormSubmitting] = useState(false);
 
-  /** Accept raw 0x address OR full Polymarket profile URL */
-  function parsePolymarketAddress(raw: string): string {
+  /** Resolve any Polymarket URL or username to a lowercase 0x wallet address. */
+  async function resolvePolymarketAddress(raw: string): Promise<string> {
     const trimmed = raw.trim();
-    // e.g. https://polymarket.com/profile/0xABC... or polymarket.com/profile/0xABC...
-    const urlMatch = trimmed.match(/\/profile\/(0x[0-9a-fA-F]+)/i);
-    if (urlMatch) return urlMatch[1].toLowerCase();
-    return trimmed.toLowerCase();
+
+    // Direct 0x address
+    if (/^0x[0-9a-fA-F]{40}/i.test(trimmed)) return trimmed.toLowerCase();
+
+    // /profile/0x... URL
+    const profileMatch = trimmed.match(/\/profile\/(0x[0-9a-fA-F]+)/i);
+    if (profileMatch) return profileMatch[1].toLowerCase();
+
+    // @username or /@username URL  e.g. polymarket.com/@imjustken
+    const usernameMatch = trimmed.match(/[@/]([a-zA-Z0-9_.-]+)\/?$/);
+    if (usernameMatch) {
+      const slug = usernameMatch[1];
+      try {
+        const res = await fetch(
+          `https://data-api.polymarket.com/profiles?username=${encodeURIComponent(slug)}`,
+          { signal: AbortSignal.timeout(6_000) },
+        );
+        if (res.ok) {
+          const data: unknown = await res.json();
+          const arr = Array.isArray(data) ? data : [data];
+          const profile = arr[0] as Record<string, unknown> | undefined;
+          const addr =
+            (profile?.["proxyWallet"] as string | undefined) ??
+            (profile?.["address"] as string | undefined) ??
+            (profile?.["walletAddress"] as string | undefined);
+          if (addr && /^0x[0-9a-fA-F]{40}/i.test(addr))
+            return addr.toLowerCase();
+        }
+      } catch {
+        /* network error — fall through to helpful message */
+      }
+      throw new Error(
+        `Could not resolve @${slug} to a wallet address. Open their Polymarket profile in a browser — the URL bar should show polymarket.com/profile/0x… — and paste that address instead.`,
+      );
+    }
+
+    throw new Error(
+      "Unrecognised format. Paste a polymarket.com/@username URL, a polymarket.com/profile/0x… URL, or a raw 0x wallet address.",
+    );
   }
 
   async function handleAddTrader(e: React.FormEvent) {
     e.preventDefault();
     setFormError("");
     setFormSubmitting(true);
+
+    let resolvedAddress: string;
+    try {
+      resolvedAddress = await resolvePolymarketAddress(formAddress);
+    } catch (err) {
+      setFormError((err as Error).message);
+      setFormSubmitting(false);
+      return;
+    }
+
     const ok = await addTrader({
-      address: parsePolymarketAddress(formAddress),
+      address: resolvedAddress,
       label: formLabel.trim(),
       allocationUsd: parseFloat(formAllocation),
       copyRatio: parseFloat(formRatio),
@@ -1792,15 +1837,15 @@ function CopyTraderView({
                 Polymarket Profile URL or Wallet Address
                 <br />
                 <span style={{ fontSize: 11, opacity: 0.7 }}>
-                  Go to polymarket.com → find a trader → copy the profile URL
-                  (e.g. polymarket.com/profile/0x…) or paste just the 0x address
+                  Paste a @username URL (polymarket.com/@name), profile URL
+                  (polymarket.com/profile/0x…), or raw 0x address
                 </span>
               </label>
               <input
                 required
                 value={formAddress}
                 onChange={(e) => setFormAddress(e.target.value)}
-                placeholder="https://polymarket.com/profile/0x… or 0x…"
+                placeholder="polymarket.com/@username, /profile/0x…, or 0x…"
                 style={{
                   display: "block",
                   width: "100%",
