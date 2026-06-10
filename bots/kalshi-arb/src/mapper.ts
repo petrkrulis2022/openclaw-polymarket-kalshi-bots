@@ -159,7 +159,8 @@ export async function findMarketPairs(
 
   // Exclude only crypto-tier fees (>2%). Politics=0%, elections=0-1% all pass.
   const cheapPoly = polyMarkets.filter((m) => m.feeRate <= 0.02);
-  console.log(`[mapper] Polymarket: ${polyMarkets.length} total, ${cheapPoly.length} fee≤2% | sample: ${cheapPoly.slice(0, 3).map((m) => m.question.slice(0, 40)).join(" | ")}`);
+  const mid = Math.floor(cheapPoly.length / 2);
+  console.log(`[mapper] Polymarket: ${cheapPoly.length} fee≤2% | head: ${cheapPoly.slice(0, 2).map((m) => m.question.slice(0, 35)).join(" / ")} | mid: ${cheapPoly.slice(mid, mid + 2).map((m) => m.question.slice(0, 35)).join(" / ")} | tail: ${cheapPoly.slice(-2).map((m) => m.question.slice(0, 35)).join(" / ")}`);
   console.log(`[mapper] Kalshi sample titles: ${kalshiMarkets.slice(0, 5).map((m) => m.title).join(" | ")}`);
 
   for (const km of kalshiMarkets) {

@@ -63,7 +63,10 @@ async function runScanCycle(): Promise<void> {
     return acc;
   }, {});
   console.log(`[kalshi-arb] Kalshi: ${kalshiMarkets.length} markets — ${JSON.stringify(catCounts)}`);
-  console.log(`[kalshi-arb] Kalshi tail: ${kalshiMarkets.slice(-10).map((m) => m.title).join(" | ")}`);
+  const econMarkets = kalshiMarkets.filter((m) => m.ticker.match(/^KX(FED|CPI|UNEMPLOY|GDP|PCE|INFL)/i));
+  if (econMarkets.length > 0) {
+    console.log(`[kalshi-arb] Econ/politics markets (${econMarkets.length}): ${econMarkets.slice(0, 8).map((m) => m.title).join(" | ")}`);
+  }
 
   const pairs = await findMarketPairs(kalshiMarkets);
   scannedPairs = pairs.length;
