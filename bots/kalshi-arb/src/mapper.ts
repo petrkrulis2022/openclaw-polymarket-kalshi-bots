@@ -75,11 +75,19 @@ async function fetchPolyMarkets(): Promise<PolyMarket[]> {
       const res = await fetch(`${CLOB_API}/markets?next_cursor=${cursor}`, {
         signal: AbortSignal.timeout(10_000),
       });
-      if (!res.ok) break;
+      if (!res.ok) {
+        console.log(`[mapper] CLOB /markets ${res.status} on cursor=${cursor}`);
+        break;
+      }
       const page = (await res.json()) as ClobMarketPage;
       const markets = page.data ?? [];
+      if (arr.length === 0 && markets.length > 0) {
+        const s = markets[0];
+        console.log(`[mapper] CLOB market[0] keys: ${Object.keys(s).join(",")}`);
+        console.log(`[mapper] CLOB market[0] active=${s["active"]} closed=${s["closed"]}`);
+      }
       for (const m of markets) {
-        if (!m["active"] || m["closed"]) continue;
+        if (m["closed"] === true) continue; // skip only explicitly closed
         arr.push(m);
       }
       cursor = page.next_cursor ?? "LTE=";
