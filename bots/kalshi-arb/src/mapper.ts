@@ -70,6 +70,10 @@ async function fetchPolyMarkets(): Promise<PolyMarket[]> {
     const raw = (await res.json()) as unknown;
     const arr = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
     console.log(`[mapper] Gamma API raw count: ${arr.length}`);
+    if (arr.length > 0) {
+      const s = arr[0];
+      console.log(`[mapper] Fee fields: feeRate=${s["feeRate"]} fee_rate=${s["fee_rate"]} takerBaseFee=${s["takerBaseFee"]} makerBaseFee=${s["makerBaseFee"]}`);
+    }
     polyCache = arr
       .map((m) => {
         // outcomes and clobTokenIds come back as JSON-encoded strings from Gamma API
