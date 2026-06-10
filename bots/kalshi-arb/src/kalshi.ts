@@ -127,42 +127,66 @@ interface RawOrderResponse {
 
 // ── Market listing ────────────────────────────────────────────────────────────
 
+// Known Kalshi series tickers for economics/politics events that may match Polymarket
+const ECON_SERIES = ["KXFED", "KXCPI", "KXUNEMPLOY", "KXGDP", "KXPCE", "KXINFL"];
+
+function parseRawMarket(m: RawMarket): KalshiMarket {
+  const rawTitle = m.title ?? m.event_title ?? "";
+  return {
+    ticker: m.ticker ?? "",
+    title: cleanTitle(rawTitle),
+    category: (m.category ?? "").toLowerCase(),
+    closeTime: m.close_time ?? "",
+    feeRate: typeof m.fee_rate === "string"
+      ? parseFloat(m.fee_rate)
+      : (m.fee_rate ?? 0.007),
+    status: m.status ?? "open",
+  };
+}
+
 export async function getKalshiMarkets(): Promise<KalshiMarket[]> {
+  const seen = new Set<string>();
   const all: KalshiMarket[] = [];
-  let cursor: string | undefined;
-  const pageSize = 200;
-  const maxPages = 5; // up to 1000 markets total
 
-  try {
-    for (let page = 0; page < maxPages; page++) {
-      const qs = `status=open&limit=${pageSize}${cursor ? `&cursor=${cursor}` : ""}`;
-      const raw = await kalshiGet<{ markets?: RawMarket[]; cursor?: string }>(
-        `/markets?${qs}`,
-      );
-      const markets = raw.markets ?? [];
-
-      for (const m of markets) {
-        const rawTitle = m.title ?? m.event_title ?? "";
-        all.push({
-          ticker: m.ticker ?? "",
-          title: cleanTitle(rawTitle),
-          category: (m.category ?? "").toLowerCase(),
-          closeTime: m.close_time ?? "",
-          feeRate: typeof m.fee_rate === "string"
-            ? parseFloat(m.fee_rate)
-            : (m.fee_rate ?? 0.007),
-          status: m.status ?? "open",
-        });
+  const addMarkets = (markets: RawMarket[]) => {
+    for (const m of markets) {
+      const ticker = m.ticker ?? "";
+      if (ticker && !seen.has(ticker)) {
+        seen.add(ticker);
+        all.push(parseRawMarket(m));
       }
-
-      cursor = raw.cursor;
-      if (!cursor || markets.length < pageSize) break;
     }
-    return all;
+  };
+
+  // General pagination (top 1000 by volume)
+  try {
+    let cursor: string | undefined;
+    for (let page = 0; page < 5; page++) {
+      const qs = `status=open&limit=200${cursor ? `&cursor=${cursor}` : ""}`;
+      const raw = await kalshiGet<{ markets?: RawMarket[]; cursor?: string }>(`/markets?${qs}`);
+      addMarkets(raw.markets ?? []);
+      cursor = raw.cursor;
+      if (!cursor || (raw.markets ?? []).length < 200) break;
+    }
   } catch (err) {
-    console.error("[kalshi] getKalshiMarkets error:", (err as Error).message);
-    return all;
+    console.error("[kalshi] getKalshiMarkets general error:", (err as Error).message);
   }
+
+  // Explicit series fetches for economics/politics (low volume → not in top 1000)
+  await Promise.allSettled(
+    ECON_SERIES.map(async (series) => {
+      try {
+        const raw = await kalshiGet<{ markets?: RawMarket[] }>(
+          `/markets?status=open&limit=100&series_ticker=${series}`,
+        );
+        addMarkets(raw.markets ?? []);
+      } catch {
+        // series may not exist; ignore
+      }
+    }),
+  );
+
+  return all;
 }
 
 // ── Order book ────────────────────────────────────────────────────────────────

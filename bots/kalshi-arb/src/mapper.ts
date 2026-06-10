@@ -58,8 +58,8 @@ const STATIC_OVERRIDES: Array<{
 
 // ── Polymarket fetcher ────────────────────────────────────────────────────────
 
-async function fetchPolyPage(tag?: string): Promise<Array<Record<string, unknown>>> {
-  const qs = `active=true&closed=false&limit=100${tag ? `&tag=${encodeURIComponent(tag)}` : ""}`;
+async function fetchPolyPage(offset: number): Promise<Array<Record<string, unknown>>> {
+  const qs = `active=true&closed=false&limit=100&offset=${offset}`;
   const res = await fetch(`${GAMMA_API}?${qs}`, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`Gamma API ${res.status}`);
   const raw = (await res.json()) as unknown;
@@ -70,16 +70,11 @@ async function fetchPolyMarkets(): Promise<PolyMarket[]> {
   const now = Date.now();
   if (polyCache && now - polyCacheAt < POLY_CACHE_TTL) return polyCache;
   try {
-    // Fetch general + specific tags to cover elections/economics not in top-100 trending
-    const [general, politics, elections, economics] = await Promise.allSettled([
-      fetchPolyPage(),
-      fetchPolyPage("Politics"),
-      fetchPolyPage("Elections"),
-      fetchPolyPage("Economics"),
-    ]);
+    // Fetch 5 pages × 100 = up to 500 markets via offset pagination
+    const pages = await Promise.allSettled([0, 100, 200, 300, 400].map(fetchPolyPage));
     const seen = new Set<string>();
     const arr: Array<Record<string, unknown>> = [];
-    for (const r of [general, politics, elections, economics]) {
+    for (const r of pages) {
       if (r.status === "fulfilled") {
         for (const m of r.value) {
           const id = String(m["id"] ?? "");
@@ -88,10 +83,6 @@ async function fetchPolyMarkets(): Promise<PolyMarket[]> {
       }
     }
     console.log(`[mapper] Gamma API raw count: ${arr.length}`);
-    if (arr.length > 0) {
-      const s = arr[0];
-      console.log(`[mapper] Sample tags/groupBy: tags=${JSON.stringify(s["tags"])} groupItemTitle=${s["groupItemTitle"]} category=${s["category"]}`);
-    }
     polyCache = arr
       .map((m) => {
         // outcomes and clobTokenIds come back as JSON-encoded strings from Gamma API
