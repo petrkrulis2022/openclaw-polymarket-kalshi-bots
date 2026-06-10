@@ -172,7 +172,9 @@ export async function findMarketPairs(
   console.log(`[mapper] Polymarket: ${cheapPoly.length} fee≤2% available for matching`);
 
   for (const km of kalshiMarkets) {
-    if (km.status !== "open") continue;
+    // kalshiMarkets is already filtered to status=open by the API query;
+    // Kalshi returns "active" not "open" in the status field, so skip only settled/closed.
+    if (km.status === "settled" || km.status === "closed") continue;
 
     // Check static overrides first
     const override = STATIC_OVERRIDES.find(
