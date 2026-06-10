@@ -45,9 +45,17 @@ interface GammaMarket {
   active: boolean;
   closed: boolean;
   tokens?: GammaToken[];
+  /** JSON-encoded string array of CLOB token IDs, e.g. "[\"123...\",\"456...\"]" */
+  clobTokenIds?: string;
+  /** JSON-encoded string array of outcome names, e.g. "[\"Yes\",\"No\"]" */
+  outcomes?: string;
   end_date_iso?: string;
+  endDateIso?: string;
+  endDate?: string;
   neg_risk?: boolean;
+  negRisk?: boolean;
   neg_risk_market_id?: string;
+  negRiskMarketID?: string;
   conditionId?: string;
   condition_id?: string;
   // Polymarket fee fields — various API versions use different names
@@ -55,17 +63,46 @@ interface GammaMarket {
   fee_rate?: number;
   makerBaseFee?: number;
   takerBaseFee?: number;
+  feesEnabled?: boolean;
 }
 
 function extractFeeRate(m: GammaMarket): number {
-  // Try each known field name; all are expected to be decimals (0.02 = 2%)
+  if (m.feesEnabled === false) return 0;
   const raw =
     m.feeRate ??
     m.fee_rate ??
     m.takerBaseFee ??
     m.makerBaseFee;
-  if (typeof raw === "number" && raw >= 0 && raw <= 1) return raw;
+  if (typeof raw === "number" && raw >= 0) {
+    // Decimal form (0.02 = 2%) or basis points (1000 = 0.10 multiplier)
+    if (raw <= 1) return raw;
+    if (raw <= 10_000) return raw / 10_000;
+  }
   return config.defaultFeeRate;
+}
+
+/** Gamma /markets returns clobTokenIds + outcomes as JSON-encoded strings. */
+function extractYesNo(
+  m: GammaMarket,
+): { yesTokenId: string; noTokenId: string } | null {
+  if (m.clobTokenIds) {
+    try {
+      const ids = JSON.parse(m.clobTokenIds) as string[];
+      const outcomes = JSON.parse(m.outcomes ?? '["Yes","No"]') as string[];
+      const yi = outcomes.findIndex((o) => o?.toLowerCase() === "yes");
+      const ni = outcomes.findIndex((o) => o?.toLowerCase() === "no");
+      if (yi !== -1 && ni !== -1 && ids[yi] && ids[ni]) {
+        return { yesTokenId: ids[yi], noTokenId: ids[ni] };
+      }
+    } catch {
+      /* fall through to tokens array */
+    }
+  }
+  const tokens = m.tokens ?? [];
+  const yes = tokens.find((t) => t.outcome?.toLowerCase() === "yes");
+  const no = tokens.find((t) => t.outcome?.toLowerCase() === "no");
+  if (yes && no) return { yesTokenId: yes.token_id, noTokenId: no.token_id };
+  return null;
 }
 
 export interface ScanResult {
@@ -85,50 +122,55 @@ export async function scanActiveMarkets(): Promise<ScanResult> {
   }
 
   try {
-    const url = `${GAMMA_API}?active=true&closed=false&limit=500`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) throw new Error(`Gamma API ${res.status}`);
-
-    const data = (await res.json()) as GammaMarket[];
-    const markets = Array.isArray(data) ? data : [];
+    // Gamma caps each page at 100 — paginate to scan up to 500 markets
+    const markets: GammaMarket[] = [];
+    for (let offset = 0; offset < 500; offset += 100) {
+      const url = `${GAMMA_API}?active=true&closed=false&limit=100&offset=${offset}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      if (!res.ok) throw new Error(`Gamma API ${res.status}`);
+      const page = (await res.json()) as GammaMarket[];
+      if (!Array.isArray(page) || page.length === 0) break;
+      markets.push(...page);
+      if (page.length < 100) break;
+    }
 
     const binary: BinaryMarket[] = [];
     const negRiskMap = new Map<string, NegRiskGroup>();
 
     for (const m of markets) {
       if (!m.active || m.closed) continue;
-      const tokens = m.tokens ?? [];
-      const yes = tokens.find((t) => t.outcome?.toLowerCase() === "yes");
-      const no = tokens.find((t) => t.outcome?.toLowerCase() === "no");
-      if (!yes || !no) continue;
+      const pair = extractYesNo(m);
+      if (!pair) continue;
 
       const feeRate = extractFeeRate(m);
+      const endDate = m.endDateIso ?? m.end_date_iso ?? m.endDate ?? "";
+      const isNegRisk = m.negRisk ?? m.neg_risk ?? false;
+      const negRiskGroupId = m.negRiskMarketID ?? m.neg_risk_market_id ?? "";
 
-      if (m.neg_risk && m.neg_risk_market_id) {
-        const groupId = m.neg_risk_market_id;
-        if (!negRiskMap.has(groupId)) {
-          negRiskMap.set(groupId, {
-            negRiskMarketId: groupId,
+      if (isNegRisk && negRiskGroupId) {
+        if (!negRiskMap.has(negRiskGroupId)) {
+          negRiskMap.set(negRiskGroupId, {
+            negRiskMarketId: negRiskGroupId,
             groupQuestion: m.question,
             outcomes: [],
             feeRate,
-            endDate: m.end_date_iso ?? "",
+            endDate,
           });
         }
-        negRiskMap.get(groupId)!.outcomes.push({
+        negRiskMap.get(negRiskGroupId)!.outcomes.push({
           marketId: m.id,
           question: m.question,
-          yesTokenId: yes.token_id,
-          noTokenId: no.token_id,
+          yesTokenId: pair.yesTokenId,
+          noTokenId: pair.noTokenId,
         });
       } else {
         binary.push({
           id: m.id,
           conditionId: m.conditionId ?? m.condition_id ?? "",
           question: m.question,
-          yesTokenId: yes.token_id,
-          noTokenId: no.token_id,
-          endDate: m.end_date_iso ?? "",
+          yesTokenId: pair.yesTokenId,
+          noTokenId: pair.noTokenId,
+          endDate,
           feeRate,
         });
       }
