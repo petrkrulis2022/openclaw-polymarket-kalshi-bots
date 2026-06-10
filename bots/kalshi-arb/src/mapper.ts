@@ -88,6 +88,10 @@ async function fetchPolyMarkets(): Promise<PolyMarket[]> {
       }
     }
     console.log(`[mapper] Gamma API raw count: ${arr.length}`);
+    if (arr.length > 0) {
+      const s = arr[0];
+      console.log(`[mapper] Sample tags/groupBy: tags=${JSON.stringify(s["tags"])} groupItemTitle=${s["groupItemTitle"]} category=${s["category"]}`);
+    }
     polyCache = arr
       .map((m) => {
         // outcomes and clobTokenIds come back as JSON-encoded strings from Gamma API
