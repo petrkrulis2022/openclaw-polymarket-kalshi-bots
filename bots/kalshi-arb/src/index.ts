@@ -71,16 +71,21 @@ async function runScanCycle(): Promise<void> {
 
   const cycleSignals: ArbSignal[] = [];
 
-  await Promise.allSettled(
-    pairs.map(async (pair) => {
-      const [kalshiBook, polyBook] = await Promise.all([
-        getKalshiOrderBook(pair.kalshiTicker),
-        getPolyOrderBook(pair.polyYesTokenId),
-      ]);
-      const signals = computeArbSignals(pair, kalshiBook, polyBook);
-      cycleSignals.push(...signals);
-    }),
-  );
+  // Fetch orderbooks in batches of 5 to avoid Kalshi 429 rate limits
+  const BATCH = 5;
+  for (let i = 0; i < pairs.length; i += BATCH) {
+    await Promise.allSettled(
+      pairs.slice(i, i + BATCH).map(async (pair) => {
+        const [kalshiBook, polyBook] = await Promise.all([
+          getKalshiOrderBook(pair.kalshiTicker),
+          getPolyOrderBook(pair.polyYesTokenId),
+        ]);
+        const signals = computeArbSignals(pair, kalshiBook, polyBook);
+        cycleSignals.push(...signals);
+      }),
+    );
+    if (i + BATCH < pairs.length) await new Promise((r) => setTimeout(r, 300));
+  }
 
   cycleSignals.sort((a, b) => b.netEdgePct - a.netEdgePct);
   lastSignals = cycleSignals;

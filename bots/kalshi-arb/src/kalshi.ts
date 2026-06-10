@@ -253,7 +253,7 @@ export async function placeKalshiOrder(
     ticker,
     outcome_side: outcomeSide,
     price: price.toFixed(4),
-    count: count.toFixed(2),
+    count: Math.max(1, Math.round(count)),
     time_in_force: "fill_or_kill",
     client_order_id: clientOrderId,
   };

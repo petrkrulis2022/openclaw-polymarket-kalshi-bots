@@ -192,11 +192,11 @@ export async function findMarketPairs(
 
       let score = tokenOverlap(km.title, pm.question);
 
-      // Boost score if static override keyword matches
+      // Only boost when BOTH sides contain the keyword — prevents false matches
+      // where a Kalshi FOMC market spuriously matches unrelated Polymarket markets.
       if (
         override &&
-        (normalize(pm.question).includes(override.polyKeyword) ||
-          normalize(km.title).includes(override.kalshiKeyword))
+        normalize(pm.question).includes(override.polyKeyword)
       ) {
         score = Math.max(score, 0.7);
       }
