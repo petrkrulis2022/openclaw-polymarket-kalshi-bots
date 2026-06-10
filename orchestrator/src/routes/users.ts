@@ -22,6 +22,7 @@ import {
   updateBotWalletAddress,
   updateApiKeys,
   updateFunderAddress,
+  updateKalshiKeys,
   getBotAllocations,
   setBotAllocation,
   getSportsTradeAmounts,
@@ -1132,6 +1133,26 @@ router.put("/:address/funder-address", (req: Request, res: Response) => {
   return res.json({ ok: true });
 });
 
+// ── PUT /users/:address/kalshi-keys ──────────────────────────────────────────
+
+router.put("/:address/kalshi-keys", (req: Request, res: Response) => {
+  const { address } = req.params;
+  const { apiKeyId, privateKeyPem } = req.body as {
+    apiKeyId?: string;
+    privateKeyPem?: string;
+  };
+
+  if (!apiKeyId || !privateKeyPem) {
+    return res.status(400).json({ error: "apiKeyId and privateKeyPem are required" });
+  }
+
+  const user = getUser(address);
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  updateKalshiKeys(address, apiKeyId, privateKeyPem);
+  return res.json({ ok: true });
+});
+
 // ── POST /users/:address/start-bots ───────────────────────────────────────────
 
 router.post(
@@ -1201,6 +1222,14 @@ router.post(
             ),
             ...(getBotTradeAmountEnv(user, bot.name)
               ? { MAX_POSITION_USD: getBotTradeAmountEnv(user, bot.name) }
+              : {}),
+            ...(bot.name === "kalshi-arb"
+              ? {
+                  KALSHI_API_KEY_ID: user.kalshi_api_key_id ?? "",
+                  KALSHI_PRIVATE_KEY_PEM: user.kalshi_private_key_pem ?? "",
+                  KALSHI_HOST: "https://external-api.kalshi.com/trade-api/v2",
+                  DRY_RUN: "true",
+                }
               : {}),
           },
         };
@@ -2734,6 +2763,7 @@ const NON_SPORT_BOT_NAMES = [
   "in-market-arb",
   "resolution-lag",
   "microstructure",
+  "kalshi-arb",
 ] as const;
 
 interface MonitoringBotCard {
@@ -2815,6 +2845,12 @@ function extractExtra(
       return {
         screenedMarkets: toN(rec["screenedMarkets"]),
         openPositions: toN(rec["openPositions"]),
+      };
+    case "kalshi-arb":
+      return {
+        openPairs: toN(rec["openPairs"]),
+        lastSignals: toN(rec["lastSignals"]),
+        scannedPairs: toN(rec["scannedPairs"]),
       };
     default:
       return {};

@@ -13,6 +13,7 @@ const BOT_LABELS: Record<string, string> = {
   "in-market-arb": "In-Market Arb",
   "resolution-lag": "Resolution Lag",
   "microstructure": "Microstructure",
+  "kalshi-arb": "Kalshi Arb",
 };
 
 function statusDotColor(status: MonitoringBotCard["status"]): string {
@@ -154,6 +155,13 @@ function extraCols(card: MonitoringBotCard): ExtraCols {
         valA: n("screenedMarkets"),
         labelB: "Open Pos",
         valB: n("openPositions"),
+      };
+    case "kalshi-arb":
+      return {
+        labelA: "Open Pairs",
+        valA: n("openPairs"),
+        labelB: "Signals",
+        valB: n("lastSignals"),
       };
     default:
       return { labelA: "—", valA: "---", labelB: "—", valB: "---" };

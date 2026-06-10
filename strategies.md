@@ -48,35 +48,55 @@ Post resting limit orders on both sides of the book in liquid prediction markets
 
 ## Bot 2 — Cross-Platform Arb (Kalshi ↔ Polymarket)
 
-**Status**: Designed, not yet built (needs Kalshi account)  
-**Target**: Next week
+**Status**: Built — DRY_RUN mode, ready to enable  
+**Code**: `bots/kalshi-arb/`
 
 ### How It Works
 
-The same binary event trades on both Kalshi and Polymarket. When the same outcome is priced differently across venues, buy the cheaper side and (synthetically) sell the expensive side. Capture the convergence.
+The same binary event (elections, Fed decisions, economic data) trades on both Kalshi and Polymarket. Strategy type: `YES(PM1) + NO(PM2) < $1` (cross-platform). Buy the cheaper side on each venue; combined cost < $1 = locked profit regardless of outcome.
+
+Example: Kalshi "Karen Bass wins LA mayoral election" at 0.62 + Polymarket NO at 0.31 = $0.93 total → $0.07 locked profit per share.
 
 ### Entry Logic
 
-1. Fetch YES price on both venues for the same underlying event
-2. Compute net spread: `polymarket_yes_ask - kalshi_yes_bid` (or vice versa)
-3. Walk both order books to find the volume-weighted actual spread — **do not use top-of-book only**
-4. Enter only if volume-weighted spread > fees on both sides + slippage buffer
+1. Fetch open Kalshi markets; auto-match to Polymarket markets (title similarity ≥ 60% + end date ±24h, or static override table for Fed/CPI/GDP)
+2. Reconstruct asks from the opposite book: YES ask = 1 − best NO bid (Kalshi only returns bids)
+3. Walk **both full order books** depth-first up to `maxPositionUsd` — compute VWAP, never top-of-book only
+4. `netEdge = 1 − VWAP_kalshi_side − VWAP_poly_side − kalshiFee − polyFee`
+5. Enter only if `netEdge > minNetSpreadPct (1.0%)` after all fees
+
+Both legs fired concurrently via `Promise.all` with FOK orders. Either failure cancels both.
 
 ### Critical Warning
 
-The naive version **lost money** in testing: saw a 13% quoted spread, but consuming it filled the order and left a 0% actual spread. Always walk the full book before entering.
+**The naive version loses money.** Bot told "13% spread → buy YES+NO → profit 13%" — but consuming that spread fills orders at 0% actual edge because liquidity is thin. The bot walks the books: it calculates how many shares are available at each price level, accounting for how your buys move **both** order books. A correct signal looks like "13% quoted spread → buy 843 shares each → actual profit 10%".
+
+### Market Selection
+
+- **Included**: Elections, Fed decisions, CPI, unemployment, GDP, politics (Polymarket 0% taker fee)
+- **Excluded**: Crypto (Polymarket fee up to 3.15% wipes margin), soccer (draw outcome breaks the YES+NO hedge)
+- Auto-excluded: any Polymarket market with `feeRate > 1%`
 
 ### Fees / Costs
 
-- Polymarket: taker fee varies by market category (see Fee Structure V2) — query per market before computing net spread
-- Kalshi: maker/taker fee schedule (~1% take rate)
-- Gas: Polygon (minimal)
-- Net threshold: must clear all fees by at least 1% to enter — compute dynamically, not with a fixed threshold
+- Polymarket: taker fee per market category — queried live from Gamma API, varies 0%–3.15%
+- Kalshi: `feeRate × price × (1 − price)` — typically 0.5%–1% depending on market
+- Net threshold: 1% minimum edge after both sides' fees, computed dynamically per signal
 
-### Exit
+### Exit Strategy
 
-- Close both legs simultaneously when spread compresses to < 0.1%
-- Or hold to resolution if both sides are the same outcome
+Two paths (both implemented in `closer.ts`):
+
+**Early exit (preferred)**: Monitor open pairs every 60s. When spread compresses to < 0.25% net, sell both legs simultaneously. Frees capital in days rather than waiting for resolution.
+
+**Hold to resolution**: If spread doesn't compress, both legs resolve at $1. Profit is locked regardless of which side wins — no monitoring required.
+
+### Implementation Notes
+
+- Kalshi auth: RSA-PSS/SHA-256 (NOT PKCS1v15). Sign string = `timestamp_ms + METHOD + path_no_query`
+- Polymarket order book uses real asks directly; Kalshi reconstructs asks from opposite bids
+- Position persistence: `POSITIONS_STATE_FILE` JSON (same pattern as all other bots)
+- WebSocket: not yet implemented — REST polling at 15s interval. Adequate for political/economic spreads (last hours). Would need WS for sports/price markets (spread closes in seconds).
 
 ### Ylop Integration
 

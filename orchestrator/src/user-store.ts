@@ -114,6 +114,18 @@ if (
   );
 }
 
+// Migration: add kalshi columns to databases that predate this column
+if (
+  !db
+    .prepare(
+      "SELECT name FROM pragma_table_info('users') WHERE name = 'kalshi_api_key_id'",
+    )
+    .get()
+) {
+  db.exec("ALTER TABLE users ADD COLUMN kalshi_api_key_id TEXT");
+  db.exec("ALTER TABLE users ADD COLUMN kalshi_private_key_pem TEXT");
+}
+
 // ── Prepared statements ───────────────────────────────────────────────────────
 
 const stmtGetUser = db.prepare<[string]>(
@@ -146,6 +158,9 @@ const stmtSetBotsRunning = db.prepare<[number, string]>(
 const stmtSetAutonomousMode = db.prepare<[number, string]>(
   "UPDATE users SET autonomous_mode = ? WHERE metamask_address = ?",
 );
+const stmtUpdateKalshiKeys = db.prepare<[string, string, string]>(
+  "UPDATE users SET kalshi_api_key_id = ?, kalshi_private_key_pem = ? WHERE metamask_address = ?",
+);
 const stmtGetAllUsers = db.prepare("SELECT * FROM users");
 const stmtGetMeta = db.prepare<[string]>(
   "SELECT value FROM meta WHERE key = ?",
@@ -167,6 +182,8 @@ export interface User {
   bot_allocations_json: string | null;
   sports_trade_amounts_json: string | null;
   watched_games_json: string | null;
+  kalshi_api_key_id: string | null;
+  kalshi_private_key_pem: string | null;
   bots_running: number;
   autonomous_mode: number;
   created_at: number;
@@ -338,6 +355,14 @@ export function updateFunderAddress(
   funderAddress: string,
 ): void {
   stmtUpdateFunderAddress.run(funderAddress, metamaskAddress);
+}
+
+export function updateKalshiKeys(
+  metamaskAddress: string,
+  apiKeyId: string,
+  privateKeyPem: string,
+): void {
+  stmtUpdateKalshiKeys.run(apiKeyId, privateKeyPem, metamaskAddress);
 }
 
 export function getBotAllocations(address: string): Record<string, boolean> {
