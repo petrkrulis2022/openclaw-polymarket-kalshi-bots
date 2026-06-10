@@ -72,7 +72,8 @@ async function fetchPolyMarkets(): Promise<PolyMarket[]> {
     console.log(`[mapper] Gamma API raw count: ${arr.length}`);
     if (arr.length > 0) {
       const s = arr[0];
-      console.log(`[mapper] Sample market: ${JSON.stringify(s).slice(0, 400)}`);
+      console.log(`[mapper] All keys: ${Object.keys(s).join(",")}`);
+      console.log(`[mapper] outcomes: ${JSON.stringify(s["outcomes"])} | clobTokenIds: ${JSON.stringify(s["clobTokenIds"])} | tokens: ${JSON.stringify(s["tokens"])}`);
     }
     polyCache = arr
       .map((m) => {
