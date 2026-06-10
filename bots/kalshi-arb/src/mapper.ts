@@ -113,7 +113,7 @@ function tokenOverlap(a: string, b: string): number {
 }
 
 function dateWithinHours(a: string, b: string, hours: number): boolean {
-  if (!a || !b) return false;
+  if (!a || !b) return true; // allow match when either side has no close date
   const diff = Math.abs(new Date(a).getTime() - new Date(b).getTime());
   return diff <= hours * 3_600_000;
 }
@@ -127,8 +127,10 @@ export async function findMarketPairs(
   const pairs: MarketPair[] = [];
   const usedPolyIds = new Set<string>();
 
-  // Only consider Polymarket markets with fee ≤ 1% (excludes crypto @ 3%+)
-  const cheapPoly = polyMarkets.filter((m) => m.feeRate <= 0.01);
+  // Exclude only crypto-tier fees (>2%). Politics=0%, elections=0-1% all pass.
+  const cheapPoly = polyMarkets.filter((m) => m.feeRate <= 0.02);
+  console.log(`[mapper] Polymarket: ${polyMarkets.length} total, ${cheapPoly.length} fee≤2% | sample: ${cheapPoly.slice(0, 3).map((m) => m.question.slice(0, 40)).join(" | ")}`);
+  console.log(`[mapper] Kalshi sample titles: ${kalshiMarkets.slice(0, 5).map((m) => m.title).join(" | ")}`);
 
   for (const km of kalshiMarkets) {
     if (km.status !== "open") continue;
@@ -145,7 +147,7 @@ export async function findMarketPairs(
 
     for (const pm of cheapPoly) {
       if (usedPolyIds.has(pm.conditionId)) continue;
-      if (!dateWithinHours(km.closeTime, pm.endDate, 24)) continue;
+      if (!dateWithinHours(km.closeTime, pm.endDate, 168)) continue;
 
       let score = tokenOverlap(km.title, pm.question);
 
