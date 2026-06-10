@@ -11,12 +11,16 @@ import { config } from "./config.js";
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
+// Kalshi signing path = full URL path after hostname (includes /trade-api/v2 prefix)
+const _hostPathPrefix = new URL(config.kalshi.host).pathname; // "/trade-api/v2"
+
 function kalshiHeaders(
   method: string,
   path: string,
 ): Record<string, string> {
   const ts = String(Date.now());
-  const msg = Buffer.from(ts + method.toUpperCase() + path.split("?")[0]);
+  const fullPath = _hostPathPrefix + path.split("?")[0];
+  const msg = Buffer.from(ts + method.toUpperCase() + fullPath);
   const sig = crypto.sign("sha256", msg, {
     key: config.kalshi.privateKeyPem,
     padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
