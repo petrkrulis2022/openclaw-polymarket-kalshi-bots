@@ -58,6 +58,11 @@ async function runScanCycle(): Promise<void> {
   }
 
   const kalshiMarkets = await getKalshiMarkets();
+  console.log(`[kalshi-arb] Kalshi returned ${kalshiMarkets.length} open markets`);
+  if (kalshiMarkets.length > 0) {
+    console.log(`[kalshi-arb] Sample titles: ${kalshiMarkets.slice(0, 3).map(m => m.title).join(" | ")}`);
+  }
+
   const pairs = await findMarketPairs(kalshiMarkets);
   scannedPairs = pairs.length;
 
