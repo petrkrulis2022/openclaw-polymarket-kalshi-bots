@@ -70,6 +70,12 @@ async function fetchPolyMarkets(): Promise<PolyMarket[]> {
     const raw = (await res.json()) as unknown;
     const arr = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
     console.log(`[mapper] Gamma API raw count: ${arr.length}`);
+    if (arr.length > 0) {
+      const s = arr[0];
+      console.log(`[mapper] Sample market keys: ${Object.keys(s).slice(0, 12).join(",")}`);
+      const toks = s["tokens"] as unknown[] | undefined;
+      console.log(`[mapper] Sample tokens[0]: ${JSON.stringify(toks?.[0])}`);
+    }
     polyCache = arr
       .map((m) => {
         const tokens = (m["tokens"] as Array<{ token_id: string; outcome: string }>) ?? [];
