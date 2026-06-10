@@ -11,7 +11,7 @@
 import { config } from "./config.js";
 import type { KalshiMarket } from "./kalshi.js";
 
-const GAMMA_API = "https://gamma-api.polymarket.com/markets";
+const CLOB_API = "https://clob.polymarket.com";
 // Cache Polymarket market list for 60s to avoid hammering
 let polyCache: PolyMarket[] | null = null;
 let polyCacheAt = 0;
@@ -58,26 +58,34 @@ const STATIC_OVERRIDES: Array<{
 
 // ── Polymarket fetcher ────────────────────────────────────────────────────────
 
-async function fetchPolyPage(params: string): Promise<Array<Record<string, unknown>>> {
-  const res = await fetch(`${GAMMA_API}?${params}`, { signal: AbortSignal.timeout(10_000) });
-  if (!res.ok) throw new Error(`Gamma API ${res.status}`);
-  const raw = (await res.json()) as unknown;
-  return Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+interface ClobMarketPage {
+  data?: Array<Record<string, unknown>>;
+  next_cursor?: string;
 }
-
-// Keywords that are likely to have cross-platform economics/politics matches
-const POLY_SEARCH_TERMS = ["federal+funds+rate", "FOMC", "CPI", "unemployment+rate", "GDP", "inflation"];
 
 async function fetchPolyMarkets(): Promise<PolyMarket[]> {
   const now = Date.now();
   if (polyCache && now - polyCacheAt < POLY_CACHE_TTL) return polyCache;
   try {
-    // General pages + keyword searches for economics topics
-    const queries = [
-      ...([0, 100, 200, 300, 400].map((o) => `active=true&closed=false&limit=100&offset=${o}`)),
-      ...POLY_SEARCH_TERMS.map((q) => `active=true&closed=false&limit=50&question=${q}`),
-    ];
-    const pages = await Promise.allSettled(queries.map(fetchPolyPage));
+    // Paginate CLOB API through up to 20 pages (2000 markets) to reach FOMC/CPI markets
+    const arr: Array<Record<string, unknown>> = [];
+    let cursor = "MA=="; // base64("0") = initial cursor
+    const maxPages = 20;
+    for (let i = 0; i < maxPages; i++) {
+      const res = await fetch(`${CLOB_API}/markets?next_cursor=${cursor}`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) break;
+      const page = (await res.json()) as ClobMarketPage;
+      const markets = page.data ?? [];
+      for (const m of markets) {
+        if (!m["active"] || m["closed"]) continue;
+        arr.push(m);
+      }
+      cursor = page.next_cursor ?? "LTE=";
+      if (cursor === "LTE=" || markets.length === 0) break;
+    }
+    console.log(`[mapper] CLOB API fetched: ${arr.length} active markets`);
     const seen = new Set<string>();
     const arr: Array<Record<string, unknown>> = [];
     for (const r of pages) {
@@ -88,37 +96,28 @@ async function fetchPolyMarkets(): Promise<PolyMarket[]> {
         }
       }
     }
-    console.log(`[mapper] Gamma API raw count: ${arr.length}`);
-    polyCache = arr
+      polyCache = arr
       .map((m) => {
-        // outcomes and clobTokenIds come back as JSON-encoded strings from Gamma API
-        const outcomes: string[] = (() => {
-          try { return JSON.parse(m["outcomes"] as string) as string[]; } catch { return []; }
-        })();
-        const clobTokenIds: string[] = (() => {
-          try { return JSON.parse(m["clobTokenIds"] as string) as string[]; } catch { return []; }
-        })();
-        const yesIdx = outcomes.findIndex((o) => o.toLowerCase() === "yes");
-        const noIdx = outcomes.findIndex((o) => o.toLowerCase() === "no");
-        const yesTokenId = yesIdx >= 0 ? (clobTokenIds[yesIdx] ?? "") : "";
-        const noTokenId = noIdx >= 0 ? (clobTokenIds[noIdx] ?? "") : "";
+        // CLOB API returns tokens as an actual array
+        const tokens = (m["tokens"] as Array<{ token_id: string; outcome: string }>) ?? [];
+        const yesToken = tokens.find((t) => t.outcome?.toLowerCase() === "yes");
+        const noToken = tokens.find((t) => t.outcome?.toLowerCase() === "no");
 
         const feeRateRaw = m["feeRate"] ?? m["fee_rate"] ?? m["takerBaseFee"] ?? m["makerBaseFee"];
         const feeRateParsed = typeof feeRateRaw === "number" ? feeRateRaw
           : typeof feeRateRaw === "string" ? parseFloat(feeRateRaw)
           : NaN;
-        // Valid decimal fee rates are 0–1; values >1 are in basis points or other units
         const feeRate = Number.isFinite(feeRateParsed) && feeRateParsed >= 0 && feeRateParsed <= 1
           ? feeRateParsed
           : config.defaultPolyFeeRate;
 
         return {
           id: String(m["id"] ?? ""),
-          conditionId: String(m["conditionId"] ?? m["condition_id"] ?? ""),
+          conditionId: String(m["condition_id"] ?? m["conditionId"] ?? ""),
           question: String(m["question"] ?? ""),
-          yesTokenId,
-          noTokenId,
-          endDate: String(m["endDate"] ?? m["end_date_iso"] ?? ""),
+          yesTokenId: yesToken?.token_id ?? "",
+          noTokenId: noToken?.token_id ?? "",
+          endDate: String(m["end_date_iso"] ?? m["endDate"] ?? ""),
           feeRate: Number.isFinite(feeRate) ? feeRate : config.defaultPolyFeeRate,
           active: Boolean(m["active"]),
           closed: Boolean(m["closed"]),
