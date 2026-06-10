@@ -58,15 +58,7 @@ async function runScanCycle(): Promise<void> {
   }
 
   const kalshiMarkets = await getKalshiMarkets();
-  const catCounts = kalshiMarkets.reduce<Record<string, number>>((acc, m) => {
-    acc[m.category || "unknown"] = (acc[m.category || "unknown"] ?? 0) + 1;
-    return acc;
-  }, {});
-  console.log(`[kalshi-arb] Kalshi: ${kalshiMarkets.length} markets — ${JSON.stringify(catCounts)}`);
-  const econMarkets = kalshiMarkets.filter((m) => m.ticker.match(/^KX(FED|CPI|UNEMPLOY|GDP|PCE|INFL)/i));
-  if (econMarkets.length > 0) {
-    console.log(`[kalshi-arb] Econ/politics markets (${econMarkets.length}): ${econMarkets.slice(0, 8).map((m) => m.title).join(" | ")}`);
-  }
+  console.log(`[kalshi-arb] Kalshi: ${kalshiMarkets.length} markets`);
 
   const pairs = await findMarketPairs(kalshiMarkets);
   scannedPairs = pairs.length;

@@ -3,19 +3,19 @@
  *
  * Two-layer approach:
  *   1. Static overrides: hardcoded known pairs (Fed rate decisions, etc.)
- *   2. Auto-match: normalize titles, token overlap ≥ 60%, end dates within ±24h
+ *   2. Auto-match: normalize titles, token overlap ≥ 30%, end dates within ±168h
  *
- * Only pairs where Polymarket fee rate ≤ 1% are returned (excludes crypto).
+ * Polymarket data: Gamma API, 15 parallel pages × 100 = up to 1500 markets.
+ * Only pairs where Polymarket fee rate ≤ 2% are returned (excludes crypto).
  */
 
 import { config } from "./config.js";
 import type { KalshiMarket } from "./kalshi.js";
 
-const CLOB_API = "https://clob.polymarket.com";
-// Cache Polymarket market list for 60s to avoid hammering
+const GAMMA_API = "https://gamma-api.polymarket.com";
 let polyCache: PolyMarket[] | null = null;
 let polyCacheAt = 0;
-const POLY_CACHE_TTL = 60_000;
+const POLY_CACHE_TTL = 300_000; // 5 min — 15 parallel fetches is heavier
 
 export interface PolyMarket {
   id: string;
@@ -43,8 +43,6 @@ export interface MarketPair {
 }
 
 // ── Static override table ─────────────────────────────────────────────────────
-// Map Kalshi ticker prefix → Polymarket question keyword for known event types.
-// Add entries here as you discover recurring matched pairs.
 const STATIC_OVERRIDES: Array<{
   kalshiKeyword: string;
   polyKeyword: string;
@@ -56,67 +54,81 @@ const STATIC_OVERRIDES: Array<{
   { kalshiKeyword: "gdp", polyKeyword: "gdp" },
 ];
 
-// ── Polymarket fetcher ────────────────────────────────────────────────────────
+// ── Polymarket fetcher (Gamma API) ────────────────────────────────────────────
 
-interface ClobMarketPage {
-  data?: Array<Record<string, unknown>>;
-  next_cursor?: string;
+async function fetchOnePage(offset: number): Promise<Array<Record<string, unknown>>> {
+  const url = `${GAMMA_API}/markets?active=true&closed=false&limit=100&offset=${offset}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
 }
 
 async function fetchPolyMarkets(): Promise<PolyMarket[]> {
   const now = Date.now();
   if (polyCache && now - polyCacheAt < POLY_CACHE_TTL) return polyCache;
+
   try {
-    // Paginate CLOB API through up to 20 pages (2000 markets) to reach FOMC/CPI markets
-    const arr: Array<Record<string, unknown>> = [];
-    let cursor = "MA=="; // base64("0") = initial cursor
-    const maxPages = 20;
-    for (let i = 0; i < maxPages; i++) {
-      const res = await fetch(`${CLOB_API}/markets?next_cursor=${cursor}&active=true&closed=false`, {
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!res.ok) {
-        console.log(`[mapper] CLOB /markets ${res.status} on cursor=${cursor}`);
-        break;
-      }
-      const page = (await res.json()) as ClobMarketPage;
-      const markets = page.data ?? [];
-      for (const m of markets) {
-        if (!m["active"] || m["closed"]) continue;
-        arr.push(m);
-      }
-      cursor = page.next_cursor ?? "LTE=";
-      if (cursor === "LTE=" || markets.length === 0) break;
-    }
-    console.log(`[mapper] CLOB API fetched: ${arr.length} active markets`);
-    polyCache = arr
-      .map((m) => {
-        // CLOB API returns tokens as an actual array
-        const tokens = (m["tokens"] as Array<{ token_id: string; outcome: string }>) ?? [];
-        const yesToken = tokens.find((t) => t.outcome?.toLowerCase() === "yes");
-        const noToken = tokens.find((t) => t.outcome?.toLowerCase() === "no");
+    // 15 pages × 100 = up to 1500 current active markets, fetched in parallel
+    const pages = await Promise.allSettled(
+      Array.from({ length: 15 }, (_, i) => fetchOnePage(i * 100)),
+    );
 
-        const feeRateRaw = m["feeRate"] ?? m["fee_rate"] ?? m["takerBaseFee"] ?? m["makerBaseFee"];
-        const feeRateParsed = typeof feeRateRaw === "number" ? feeRateRaw
-          : typeof feeRateRaw === "string" ? parseFloat(feeRateRaw)
+    const seen = new Set<string>();
+    const arr: PolyMarket[] = [];
+
+    for (const page of pages) {
+      if (page.status !== "fulfilled") continue;
+      for (const m of page.value) {
+        const conditionId = String(m["conditionId"] ?? "");
+        if (!conditionId || seen.has(conditionId)) continue;
+
+        // outcomes and clobTokenIds are JSON-encoded strings in Gamma API
+        let outcomes: string[] = [];
+        let tokenIds: string[] = [];
+        try {
+          outcomes = JSON.parse(m["outcomes"] as string ?? "[]");
+          tokenIds = JSON.parse(m["clobTokenIds"] as string ?? "[]");
+        } catch {
+          continue;
+        }
+
+        const yesIdx = outcomes.findIndex((o) => o.toLowerCase() === "yes");
+        const noIdx = outcomes.findIndex((o) => o.toLowerCase() === "no");
+        if (yesIdx === -1 || noIdx === -1) continue;
+
+        const yesTokenId = tokenIds[yesIdx] ?? "";
+        const noTokenId = tokenIds[noIdx] ?? "";
+        if (!yesTokenId || !noTokenId) continue;
+
+        const feeRaw = m["takerBaseFee"] ?? m["feeRate"];
+        const feeParsed = typeof feeRaw === "number" ? feeRaw
+          : typeof feeRaw === "string" ? parseFloat(feeRaw)
           : NaN;
-        const feeRate = Number.isFinite(feeRateParsed) && feeRateParsed >= 0 && feeRateParsed <= 1
-          ? feeRateParsed
-          : config.defaultPolyFeeRate;
+        // Gamma API sometimes returns basis points (e.g. 1000 = 10%); normalize to decimal
+        const feeRate = Number.isFinite(feeParsed) && feeParsed >= 0 && feeParsed <= 1
+          ? feeParsed
+          : Number.isFinite(feeParsed) && feeParsed > 1
+            ? feeParsed / 10000
+            : config.defaultPolyFeeRate;
 
-        return {
+        seen.add(conditionId);
+        arr.push({
           id: String(m["id"] ?? ""),
-          conditionId: String(m["condition_id"] ?? m["conditionId"] ?? ""),
+          conditionId,
           question: String(m["question"] ?? ""),
-          yesTokenId: yesToken?.token_id ?? "",
-          noTokenId: noToken?.token_id ?? "",
-          endDate: String(m["end_date_iso"] ?? m["endDate"] ?? ""),
-          feeRate: Number.isFinite(feeRate) ? feeRate : config.defaultPolyFeeRate,
+          yesTokenId,
+          noTokenId,
+          endDate: String(m["endDate"] ?? ""),
+          feeRate,
           active: Boolean(m["active"]),
           closed: Boolean(m["closed"]),
-        } as PolyMarket;
-      })
-      .filter((m) => m.conditionId && m.yesTokenId && m.noTokenId);
+        });
+      }
+    }
+
+    console.log(`[mapper] Polymarket: ${arr.length} total via Gamma API`);
+    polyCache = arr;
     polyCacheAt = now;
     return polyCache;
   } catch (err) {
@@ -157,9 +169,7 @@ export async function findMarketPairs(
 
   // Exclude only crypto-tier fees (>2%). Politics=0%, elections=0-1% all pass.
   const cheapPoly = polyMarkets.filter((m) => m.feeRate <= 0.02);
-  const mid = Math.floor(cheapPoly.length / 2);
-  console.log(`[mapper] Polymarket: ${cheapPoly.length} fee≤2% | head: ${cheapPoly.slice(0, 2).map((m) => m.question.slice(0, 35)).join(" / ")} | mid: ${cheapPoly.slice(mid, mid + 2).map((m) => m.question.slice(0, 35)).join(" / ")} | tail: ${cheapPoly.slice(-2).map((m) => m.question.slice(0, 35)).join(" / ")}`);
-  console.log(`[mapper] Kalshi sample titles: ${kalshiMarkets.slice(0, 5).map((m) => m.title).join(" | ")}`);
+  console.log(`[mapper] Polymarket: ${cheapPoly.length} fee≤2% available for matching`);
 
   for (const km of kalshiMarkets) {
     if (km.status !== "open") continue;
@@ -195,10 +205,7 @@ export async function findMarketPairs(
       }
     }
 
-    const MIN_SCORE = 0.3; // lowered to catch loose matches; spread calc filters unprofitable ones
-    if (best && bestScore < MIN_SCORE && bestScore > 0.15 && /fed|cpi|fomc|rate|inflation|gdp|unemploy/i.test(km.title)) {
-      console.log(`[mapper] near-miss: "${km.title.slice(0, 50)}" ↔ "${best.question.slice(0, 50)}" score=${bestScore.toFixed(2)}`);
-    }
+    const MIN_SCORE = 0.3;
     if (best && bestScore >= MIN_SCORE) {
       usedPolyIds.add(best.conditionId);
       pairs.push({
