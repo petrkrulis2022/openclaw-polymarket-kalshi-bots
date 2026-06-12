@@ -304,6 +304,15 @@ export function MonitoringDashboard({ onBack, metamaskAddress, onSelectBot }: Pr
   }, []);
 
   return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        overflowY: "auto",
+        background: "var(--bg, #111)",
+      }}
+    >
     <div style={{ maxWidth: 960, margin: "0 auto", padding: "0 16px 32px" }}>
       {/* Header */}
       <div
@@ -453,6 +462,7 @@ export function MonitoringDashboard({ onBack, metamaskAddress, onSelectBot }: Pr
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }
