@@ -245,12 +245,14 @@ export async function placeKalshiOrder(
   price: number,
   sizeUsd: number,
   clientOrderId: string,
+  action: "buy" | "sell" = "buy",
 ): Promise<KalshiOrderResult> {
   // Kalshi count = number of contracts. Each contract pays $1 on win.
   // At price P, cost per contract = P dollars. Count = sizeUsd / price.
   const count = sizeUsd / price;
   const body = {
     ticker,
+    action,
     outcome_side: outcomeSide,
     price: price.toFixed(4),
     count: Math.max(1, Math.round(count)),
@@ -273,6 +275,34 @@ export async function cancelKalshiOrder(orderId: string): Promise<void> {
       `[kalshi] cancelKalshiOrder(${orderId}) error:`,
       (err as Error).message,
     );
+  }
+}
+
+// ── Positions ─────────────────────────────────────────────────────────────────
+
+interface RawPositionsResponse {
+  market_positions?: Array<{ ticker?: string; position?: number }>;
+}
+
+/**
+ * Net contracts held for one side of a market.
+ * Kalshi reports `position` signed: positive = yes contracts, negative = no.
+ * Returns null when the API call fails (unknown ≠ zero — callers must retry).
+ */
+export async function getKalshiPosition(
+  ticker: string,
+  side: "yes" | "no",
+): Promise<number | null> {
+  try {
+    const raw = await kalshiGet<RawPositionsResponse>(
+      `/portfolio/positions?ticker=${encodeURIComponent(ticker)}`,
+    );
+    const entry = (raw.market_positions ?? []).find((p) => p.ticker === ticker);
+    const signed = entry?.position ?? 0;
+    return side === "yes" ? Math.max(0, signed) : Math.max(0, -signed);
+  } catch (err) {
+    console.warn(`[kalshi] getKalshiPosition(${ticker}) error:`, (err as Error).message);
+    return null;
   }
 }
 

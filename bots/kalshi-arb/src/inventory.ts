@@ -15,10 +15,15 @@ export interface KalshiPolyPair {
   polyEntryVwap: number;
   entryEdgePct: number;
   sizeUsd: number;
-  status: "pending" | "filled" | "closed" | "cancelled";
+  status: "pending" | "filled" | "closed" | "cancelled" | "unwinding" | "unwound";
   openedAt: string;
   closedAt?: string;
   realizedPnl?: number;
+  unwindInfo?: {
+    leg: "kalshi" | "poly";
+    attempts: number;
+    lossUsd?: number;
+  };
 }
 
 const STATE_FILE =

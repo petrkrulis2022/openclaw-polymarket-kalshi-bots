@@ -287,8 +287,12 @@ function describeActivity(e: ActivityEntry): string {
       return `Trade skipped (${d.reason})`;
     case "trade_failed":
       return `Trade FAILED: ${dStr(d.message, 70)}`;
+    case "leg_naked":
+      return `NAKED LEG (${d.leg}) — unwinding`;
     case "leg_unwound":
-      return `Naked leg unwound (${d.leg})`;
+      return `Naked leg unwound (${d.leg}) — loss $${dNum(d.lossUsd, 4)}`;
+    case "unwind_retry":
+      return `Unwind retry #${d.attempts} (${d.leg} leg still naked)`;
     default:
       return `${e.event} ${JSON.stringify(e.detail ?? {})}`.slice(0, 100);
   }

@@ -18,7 +18,8 @@
 import { config } from "./config.js";
 import { getKalshiOrderBook, placeKalshiOrder } from "./kalshi.js";
 import { getPolyOrderBook, placeLimitOrder } from "./clob.js";
-import { getOpenPairs, updatePair } from "./inventory.js";
+import { getAllPairs, getOpenPairs, updatePair } from "./inventory.js";
+import { attemptUnwind } from "./unwind.js";
 import { logActivity } from "./activity.js";
 
 // Exit when the remaining spread (cost to close) is within 0.25% of breakeven.
@@ -26,6 +27,19 @@ import { logActivity } from "./activity.js";
 const CLOSE_THRESHOLD = 0.0025;
 
 export async function checkAndClosePositions(): Promise<void> {
+  // Retry any pairs stuck mid-unwind (naked leg from a legging failure).
+  const unwinding = getAllPairs().filter((p) => p.status === "unwinding");
+  for (const pair of unwinding) {
+    logActivity(
+      "unwind_retry",
+      { pairId: pair.id, leg: pair.unwindInfo?.leg, attempts: pair.unwindInfo?.attempts ?? 0 },
+      "error",
+    );
+    await attemptUnwind(pair).catch((err) =>
+      console.error(`[closer] unwind retry failed for ${pair.id}:`, (err as Error).message),
+    );
+  }
+
   const openPairs = getOpenPairs().filter((p) => p.status === "filled");
   if (openPairs.length === 0) return;
 
@@ -91,6 +105,7 @@ export async function checkAndClosePositions(): Promise<void> {
             kalshiBestBid,
             sizePerLeg,
             `close-${pair.id.slice(0, 8)}`,
+            "sell",
           ),
           placeLimitOrder(
             pair.polySide === "yes" ? pair.polyYesTokenId : pair.polyNoTokenId,

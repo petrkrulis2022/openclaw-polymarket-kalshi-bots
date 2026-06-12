@@ -105,6 +105,27 @@ export async function placeLimitOrder(
   return { orderId };
 }
 
+/**
+ * Shares actually filled on an order (size_matched).
+ * Returns null when the lookup fails (unknown ≠ zero — callers must retry).
+ */
+export async function getPolyOrderSizeMatched(
+  orderId: string,
+): Promise<number | null> {
+  try {
+    const c = await getSigningClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = (await (c as any).getOrder(orderId)) as Record<string, unknown>;
+    const matched = parseFloat(
+      String(raw?.["size_matched"] ?? raw?.["sizeMatched"] ?? "0"),
+    );
+    return Number.isFinite(matched) ? matched : 0;
+  } catch (err) {
+    console.warn("[clob] getPolyOrderSizeMatched error:", (err as Error).message);
+    return null;
+  }
+}
+
 export async function cancelPolyOrder(orderId: string): Promise<void> {
   try {
     const c = await getSigningClient();

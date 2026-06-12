@@ -43,6 +43,8 @@ export const config = {
   maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "200"),
   maxOpenPairs: parseInt(process.env["MAX_OPEN_PAIRS"] ?? "5", 10),
   pairTimeoutMs: parseInt(process.env["PAIR_TIMEOUT_MS"] ?? "10000", 10),
+  maxUnhedgedMs: parseInt(process.env["MAX_UNHEDGED_MS"] ?? "10000", 10),
+  unwindMaxRetries: parseInt(process.env["UNWIND_MAX_RETRIES"] ?? "3", 10),
   // true = scan and log signals but never place real orders
   dryRun: (process.env["DRY_RUN"] ?? "true") === "true",
   // Fallback Polymarket fee rate when market data doesn't provide one

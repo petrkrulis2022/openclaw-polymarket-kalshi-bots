@@ -10,7 +10,8 @@ import { randomUUID } from "crypto";
 import { config } from "./config.js";
 import { placeKalshiOrder, cancelKalshiOrder } from "./kalshi.js";
 import { placeLimitOrder, cancelPolyOrder } from "./clob.js";
-import { addPair, updatePair } from "./inventory.js";
+import { addPair, updatePair, getAllPairs } from "./inventory.js";
+import { startUnwind } from "./unwind.js";
 import { logActivity } from "./activity.js";
 import type { ArbSignal } from "./orderbook.js";
 
@@ -68,13 +69,49 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
     openedAt: new Date().toISOString(),
   });
 
+  const [kSettled, pSettled] = await Promise.allSettled([
+    placeKalshiOrder(pair.kalshiTicker, kalshiSide, kalshiVwap, sizeUsd, clientOrderId),
+    placeLimitOrder(polyTokenId, "BUY", polyVwap, sizeUsd / polyVwap),
+  ]);
+
+  // ── Legging failure handling ──────────────────────────────────────────────
+  if (kSettled.status === "rejected" || pSettled.status === "rejected") {
+    const kMsg = kSettled.status === "rejected" ? (kSettled.reason as Error).message : null;
+    const pMsg = pSettled.status === "rejected" ? (pSettled.reason as Error).message : null;
+    console.error(
+      `[executor] pair ${pairId} legging failure: kalshi=${kMsg ?? "ok"} poly=${pMsg ?? "ok"}`,
+    );
+
+    if (kSettled.status === "rejected" && pSettled.status === "rejected") {
+      // Both legs failed — nothing held, plain cancel.
+      logActivity("pair_failed", { pairId, message: `${kMsg} | ${pMsg}` }, "error");
+      updatePair(pairId, { status: "cancelled", closedAt: new Date().toISOString() });
+      return { pairId, dryRun: false, error: `${kMsg} | ${pMsg}` };
+    }
+
+    // Exactly one leg succeeded — we may hold a naked position.
+    if (kSettled.status === "fulfilled") {
+      kalshiOrderId = kSettled.value.orderId;
+      updatePair(pairId, { kalshiOrderId });
+      // FOK either filled or self-cancelled; cancel is a harmless no-op if filled.
+      await cancelKalshiOrder(kalshiOrderId);
+      const naked = getAllPairs().find((p) => p.id === pairId);
+      if (naked) await startUnwind(naked, "kalshi");
+      return { pairId, dryRun: false, kalshiOrderId, error: pMsg ?? undefined };
+    }
+
+    polyOrderId = (pSettled as PromiseFulfilledResult<{ orderId: string }>).value.orderId;
+    updatePair(pairId, { polyOrderId });
+    // Limit order may be resting unfilled — cancel first, then unwind any fill.
+    await cancelPolyOrder(polyOrderId);
+    const naked = getAllPairs().find((p) => p.id === pairId);
+    if (naked) await startUnwind(naked, "poly");
+    return { pairId, dryRun: false, polyOrderId, error: kMsg ?? undefined };
+  }
+
   try {
-    const [kResult, pResult] = await Promise.all([
-      placeKalshiOrder(pair.kalshiTicker, kalshiSide, kalshiVwap, sizeUsd, clientOrderId),
-      placeLimitOrder(polyTokenId, "BUY", polyVwap, sizeUsd / polyVwap),
-    ]);
-    kalshiOrderId = kResult.orderId;
-    polyOrderId = pResult.orderId;
+    kalshiOrderId = kSettled.value.orderId;
+    polyOrderId = pSettled.value.orderId;
 
     updatePair(pairId, {
       kalshiOrderId,
@@ -137,17 +174,11 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
 
     return { pairId, dryRun: false, kalshiOrderId, polyOrderId };
   } catch (err) {
+    // Both orders were placed; this catch only covers post-placement work
+    // (attribution/fills reporting) — the pair itself is live and hedged.
     const msg = (err as Error).message;
-    console.error(`[executor] pair ${pairId} failed: ${msg}`);
-    logActivity("pair_failed", { pairId, message: msg }, "error");
-
-    // Cancel whichever leg(s) landed
-    const cancels: Promise<void>[] = [];
-    if (kalshiOrderId) cancels.push(cancelKalshiOrder(kalshiOrderId));
-    if (polyOrderId) cancels.push(cancelPolyOrder(polyOrderId));
-    if (cancels.length) await Promise.allSettled(cancels);
-
-    updatePair(pairId, { status: "cancelled", closedAt: new Date().toISOString() });
-    return { pairId, dryRun: false, error: msg };
+    console.error(`[executor] pair ${pairId} post-placement error: ${msg}`);
+    logActivity("pair_failed", { pairId, message: msg }, "warn");
+    return { pairId, dryRun: false, kalshiOrderId, polyOrderId, error: msg };
   }
 }
