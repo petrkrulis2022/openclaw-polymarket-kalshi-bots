@@ -4593,6 +4593,7 @@ function PortfolioSection({
   onStartStopBot,
   onCancelBotOrders,
   depositWallet,
+  botWalletIndex,
 }: {
   onSelectBot: (bot: BotSummary) => void;
   metamaskAddress?: string;
@@ -4600,13 +4601,89 @@ function PortfolioSection({
   onStartStopBot: (botId: string, start: boolean) => void;
   onCancelBotOrders: (botId: string) => Promise<void>;
   depositWallet?: string;
+  botWalletIndex?: number | null;
 }) {
   const { portfolio, loading, error } = usePortfolio(metamaskAddress);
-  const { summary, positions: livePositions } = usePositions(depositWallet, undefined, metamaskAddress);
+  const { summary, positions: livePositions, refresh: refreshPositions } = usePositions(depositWallet, undefined, metamaskAddress);
   const [showAnalysisForBot, setShowAnalysisForBot] = React.useState<{
     id: number;
     name: string;
   } | null>(null);
+
+  const [actingId, setActingId] = React.useState<string | null>(null);
+
+  const handlePortfolioRedeem = async (pos: SharePosition) => {
+    if (botWalletIndex == null) {
+      toast.error("Bot wallet index not available — refresh the page");
+      return;
+    }
+    const key = pos.conditionId + ":" + pos.outcomeIndex;
+    setActingId(key);
+    try {
+      const res = await fetch("/api/treasury/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          index: botWalletIndex,
+          conditionId: pos.conditionId,
+          outcomeIndex: pos.outcomeIndex,
+          negativeRisk: pos.negativeRisk,
+          tokenId: pos.tokenId,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const result = (await res.json()) as { txHash: string };
+      toast.success(
+        `Redeemed "${pos.title}" (${pos.outcome}) — tx ${result.txHash.slice(0, 10)}…`,
+      );
+      void refreshPositions();
+    } catch (err) {
+      toast.error(
+        `Redeem failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const handlePortfolioSell = async (pos: SharePosition) => {
+    if (botWalletIndex == null) {
+      toast.error("Bot wallet index not available — refresh the page");
+      return;
+    }
+    if (!window.confirm(`Sell ${pos.size.toFixed(2)} "${pos.outcome}" shares of "${pos.title}" at best bid?`)) {
+      return;
+    }
+    const key = pos.conditionId + ":" + pos.outcomeIndex;
+    setActingId(key);
+    try {
+      const res = await fetch("/api/treasury/sell", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          index: botWalletIndex,
+          tokenId: pos.tokenId,
+          size: pos.size,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const result = (await res.json()) as { orderId: string; price: number; size: number };
+      toast.success(
+        `Sell order placed: ${result.size} shares @ ${(result.price * 100).toFixed(1)}¢ (id: ${result.orderId.slice(0, 8)}…)`,
+      );
+      void refreshPositions();
+    } catch (err) {
+      toast.error(`Sell failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setActingId(null);
+    }
+  };
 
   return (
     <div>
@@ -4912,30 +4989,63 @@ function PortfolioSection({
                         >
                           {pos.cashPnl >= 0 ? "+" : ""}${pos.cashPnl.toFixed(2)}
                         </td>
-                        <td style={{ padding: "6px 8px" }}>
-                          {pos.redeemable ? (
-                            <span
-                              style={{
-                                background: "#ff9500",
-                                color: "#000",
-                                borderRadius: 4,
-                                padding: "1px 6px",
-                                fontSize: 10,
-                                fontWeight: 700,
-                              }}
-                            >
-                              REDEEM
-                            </span>
-                          ) : (
-                            <span
-                              style={{
-                                color: "var(--text-secondary)",
-                                fontSize: 10,
-                              }}
-                            >
-                              open
-                            </span>
-                          )}
+                        <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
+                          {(() => {
+                            const key = pos.conditionId + ":" + pos.outcomeIndex;
+                            const busy = actingId === key;
+                            if (pos.redeemable) {
+                              return (
+                                <button
+                                  onClick={() => void handlePortfolioRedeem(pos)}
+                                  disabled={busy || actingId !== null}
+                                  style={{
+                                    background: "#ff9500",
+                                    color: "#000",
+                                    border: "none",
+                                    borderRadius: 4,
+                                    padding: "2px 8px",
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    cursor: busy ? "wait" : "pointer",
+                                    opacity: actingId !== null && !busy ? 0.5 : 1,
+                                  }}
+                                >
+                                  {busy ? "…" : "REDEEM"}
+                                </button>
+                              );
+                            }
+                            if (pos.size >= 0.01 && pos.curPrice > 0) {
+                              return (
+                                <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                                  <span style={{ color: "var(--text-secondary)", fontSize: 10 }}>
+                                    open
+                                  </span>
+                                  <button
+                                    onClick={() => void handlePortfolioSell(pos)}
+                                    disabled={busy || actingId !== null}
+                                    style={{
+                                      background: "var(--bg-card)",
+                                      color: "var(--text)",
+                                      border: "1px solid var(--border)",
+                                      borderRadius: 4,
+                                      padding: "2px 8px",
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      cursor: busy ? "wait" : "pointer",
+                                      opacity: actingId !== null && !busy ? 0.5 : 1,
+                                    }}
+                                  >
+                                    {busy ? "…" : "Sell"}
+                                  </button>
+                                </span>
+                              );
+                            }
+                            return (
+                              <span style={{ color: "var(--text-secondary)", fontSize: 10 }}>
+                                open
+                              </span>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}
@@ -6218,6 +6328,7 @@ export default function App() {
                   }
                 }}
                 depositWallet={balance?.depositWalletAddress}
+                botWalletIndex={user?.botWalletIndex}
               />
               <div style={{ padding: "0 24px 24px" }}>
                 <OpenClawChat />
