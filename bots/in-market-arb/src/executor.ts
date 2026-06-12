@@ -14,6 +14,7 @@ import {
   type NegRiskPair,
 } from "./inventory.js";
 import { mergeYesNo } from "./merge.js";
+import { logActivity } from "./activity.js";
 import type { ArbSignal, NegRiskArbSignal } from "./orderbook.js";
 import { config } from "./config.js";
 
@@ -93,6 +94,11 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
       `[executor] Failed to place pair ${id}:`,
       (err as Error).message,
     );
+    logActivity(
+      "pair_place_failed",
+      { pairId: id, message: (err as Error).message },
+      "error",
+    );
     if (yesOrderId) await cancelOrder(yesOrderId);
     if (noOrderId) await cancelOrder(noOrderId);
     return;
@@ -117,6 +123,13 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
     createdAt: new Date().toISOString(),
   };
   addPair(pair);
+  logActivity("pair_placed", {
+    pairId: id,
+    market: signal.marketQuestion,
+    yesPrice: signal.yesEntryPrice,
+    noPrice: signal.noEntryPrice,
+    size,
+  });
   recordAttribution(signal.yesTokenId, 0, "YES", signal.marketId, signal.marketQuestion);
   recordAttribution(signal.noTokenId, 1, "NO", signal.marketId, signal.marketQuestion);
 
@@ -134,20 +147,32 @@ export async function executeArbPair(signal: ArbSignal): Promise<void> {
     const noFilled = Math.max(0, size - noRemaining);
 
     console.warn(`[executor] Pair ${id} timed out — cancelling both legs`);
+    logActivity(
+      "pair_timeout_cancelled",
+      { pairId: id, yesFilled, noFilled },
+      "warn",
+    );
     await Promise.all([cancelOrder(yesOrderId!), cancelOrder(noOrderId!)]);
     cancelPair(id);
 
     const mergeAmount = Math.min(yesFilled, noFilled);
     if (mergeAmount > 0.01 && current.conditionId) {
       updatePair(id, { mergeAttempted: true });
+      logActivity("merge_attempted", { pairId: id, amount: mergeAmount });
       mergeYesNo(current.conditionId, mergeAmount)
         .then((txHash) => {
           console.log(`[executor] Merge complete pair=${id} tx=${txHash}`);
+          logActivity("merge_complete", { pairId: id, txHash });
           updatePair(id, { mergeTxHash: txHash });
         })
-        .catch((err: Error) =>
-          console.error(`[executor] mergeYesNo failed pair=${id}:`, err.message),
-        );
+        .catch((err: Error) => {
+          console.error(`[executor] mergeYesNo failed pair=${id}:`, err.message);
+          logActivity(
+            "merge_failed",
+            { pairId: id, message: err.message },
+            "error",
+          );
+        });
     }
   }, config.pairTimeoutMs);
 }
@@ -194,6 +219,11 @@ export async function executeNegRiskArbPair(
         `[executor] NegRisk pair ${id} leg failed:`,
         (err as Error).message,
       );
+      logActivity(
+        "negrisk_leg_failed",
+        { pairId: id, message: (err as Error).message },
+        "error",
+      );
       // Cancel all previously placed legs
       await Promise.allSettled(placedOrderIds.map((oid) => cancelOrder(oid)));
       return;
@@ -218,6 +248,12 @@ export async function executeNegRiskArbPair(
     createdAt: new Date().toISOString(),
   };
   addNegRiskPair(pair);
+  logActivity("negrisk_placed", {
+    pairId: id,
+    group: signal.groupQuestion,
+    legs: signal.legs.length,
+    totalCostUsd: pair.totalCostUsd,
+  });
 
   signal.legs.forEach((leg, i) => {
     recordAttribution(leg.yesTokenId, i, "YES", leg.marketId, signal.groupQuestion);
@@ -228,6 +264,7 @@ export async function executeNegRiskArbPair(
     const current = getNegRiskPair(id);
     if (!current || current.status !== "pending") return;
     console.warn(`[executor] NegRisk pair ${id} timed out — cancelling all legs`);
+    logActivity("negrisk_timeout_cancelled", { pairId: id }, "warn");
     await Promise.allSettled(placedOrderIds.map((oid) => cancelOrder(oid)));
     cancelNegRiskPair(id);
   }, config.pairTimeoutMs);

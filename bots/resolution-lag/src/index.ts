@@ -40,6 +40,7 @@ import {
   getResolvedWinnerTokenId,
 } from "./clob.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
+import { logActivity, getActivity } from "./activity.js";
 import {
   getActiveConfig,
   runLearning,
@@ -95,6 +96,7 @@ async function fetchAllocatedEquity(): Promise<number> {
 async function runMonitorCycle(): Promise<void> {
   if (getOpenPositionsCount() >= config.maxOpenPositions) {
     console.log("[lag] Max open positions reached — skipping scan");
+    logActivity("scan_skipped", { reason: "max_open_positions" });
     return;
   }
 
@@ -113,6 +115,12 @@ async function runMonitorCycle(): Promise<void> {
       isCategoryAllowed(o.market.question),
   );
 
+  logActivity("scan_complete", {
+    closedMarkets: closedMarkets.length,
+    opportunities: opportunities.length,
+    actionable: actionable.length,
+  });
+
   if (actionable.length === 0) {
     console.log("[lag] No actionable resolution-lag opportunities");
     return;
@@ -127,9 +135,19 @@ async function runMonitorCycle(): Promise<void> {
       `[lag] Opportunity: ${opp.market.question} | ` +
         `ask=${opp.currentAsk.toFixed(4)} yield=${(opp.expectedYield * 100).toFixed(2)}%`,
     );
-    await enterPosition(opp).catch((err) =>
-      console.error("[lag] enterPosition error:", (err as Error).message),
-    );
+    logActivity("opportunity_found", {
+      market: opp.market.question,
+      ask: opp.currentAsk,
+      yieldPct: opp.expectedYield * 100,
+    });
+    await enterPosition(opp).catch((err) => {
+      console.error("[lag] enterPosition error:", (err as Error).message);
+      logActivity(
+        "enter_error",
+        { market: opp.market.question, message: (err as Error).message },
+        "error",
+      );
+    });
   }
 
   // Detect CLOB settlement for open positions — if CLOB marks a winner token,
@@ -143,6 +161,10 @@ async function runMonitorCycle(): Promise<void> {
           `[lag] CLOB settled position ${pos.id} (${pos.marketQuestion.slice(0, 60)}) — resolving at $1`,
         );
         resolvePosition(pos.id, 1.0);
+        logActivity("position_resolved", {
+          positionId: pos.id,
+          market: pos.marketQuestion,
+        });
         runLearning(getAllPositions());
       }
     } catch {
@@ -158,6 +180,7 @@ async function scheduleMonitor(): Promise<void> {
     await runMonitorCycle();
   } catch (err) {
     console.error("[lag] Monitor error:", (err as Error).message);
+    logActivity("scan_error", { message: (err as Error).message }, "error");
   }
   setTimeout(scheduleMonitor, getActiveConfig().monitorIntervalMs);
 }
@@ -215,6 +238,17 @@ app.get("/positions", (_req: Request, res: Response) => {
 
 app.get("/opportunities", (_req: Request, res: Response) => {
   res.json({ opportunities: lastOpportunities, scannedAt: lastScanAt });
+});
+
+app.get("/activity", (req: Request, res: Response) => {
+  const limit = Number(req.query["limit"] ?? 100);
+  const afterSeq = Number(req.query["afterSeq"] ?? 0);
+  res.json({
+    entries: getActivity(
+      Number.isFinite(limit) ? limit : 100,
+      Number.isFinite(afterSeq) ? afterSeq : 0,
+    ),
+  });
 });
 
 app.get("/config", (_req: Request, res: Response) => {

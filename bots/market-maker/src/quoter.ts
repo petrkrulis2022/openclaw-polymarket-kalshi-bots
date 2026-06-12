@@ -28,6 +28,7 @@ import {
   getOpenOrders,
 } from "./clob.js";
 import { getSkew, recordFill, getPosition } from "./inventory.js";
+import { logActivity } from "./activity.js";
 
 export interface MarketState {
   market: GammaMarket;
@@ -197,6 +198,12 @@ export async function quoteMarket(
         console.log(
           `[paper-fill] BUY filled @ ${existing.ourBidPrice.toFixed(4)} size=${fillSize} | ${market.question.slice(0, 40)}`,
         );
+        logActivity("paper_fill", {
+          side: "BUY",
+          price: existing.ourBidPrice,
+          size: fillSize,
+          market: market.question.slice(0, 60),
+        });
       }
       await cancelOrder(existing.ourBidId);
     }
@@ -213,6 +220,12 @@ export async function quoteMarket(
         console.log(
           `[paper-fill] SELL filled @ ${existing.ourAskPrice.toFixed(4)} size=${fillSize} | ${market.question.slice(0, 40)}`,
         );
+        logActivity("paper_fill", {
+          side: "SELL",
+          price: existing.ourAskPrice,
+          size: fillSize,
+          market: market.question.slice(0, 60),
+        });
       }
       await cancelOrder(existing.ourAskId);
     }
@@ -261,6 +274,13 @@ export async function quoteMarket(
   ]);
 
   const openPositions = (bidResult ? 1 : 0) + (askResult ? 1 : 0);
+  if (bidResult || askResult) {
+    logActivity("quotes_posted", {
+      market: market.question.slice(0, 60),
+      bid: bidResult ? bidPrice : null,
+      ask: askResult ? askPrice : null,
+    });
+  }
   if (bidResult) recordAttribution(market, yesTokenId, "YES");
 
   states.set(market.conditionId, {
@@ -313,8 +333,18 @@ async function unwindRemovedMarkets(activeConditionIds: Set<string>): Promise<vo
         console.warn(
           `[quoter] Unwind SELL posted: ${heldYes.toFixed(2)} shares @ ${sellPrice.toFixed(4)}`,
         );
+        logActivity("market_unwound", {
+          conditionId: st.market.conditionId,
+          shares: heldYes,
+          sellPrice,
+        }, "warn");
       } catch (err) {
         console.error("[quoter] Unwind sell failed:", (err as Error).message);
+        logActivity(
+          "unwind_failed",
+          { conditionId: st.market.conditionId, message: (err as Error).message },
+          "error",
+        );
       }
     }
 
@@ -326,6 +356,7 @@ export async function runQuotingCycle(allocatedEquity: number): Promise<void> {
   const markets = await getActiveMarkets();
   if (markets.length === 0) {
     console.warn("[quoter] No active markets available");
+    logActivity("quote_skipped", { reason: "no_active_markets" }, "warn");
     return;
   }
 
@@ -364,4 +395,5 @@ export async function runQuotingCycle(allocatedEquity: number): Promise<void> {
   await Promise.allSettled(
     markets.map((m) => quoteMarket(m, equityPerMarket, freeCollateralUsd)),
   );
+  logActivity("quote_cycle_complete", { markets: markets.length });
 }

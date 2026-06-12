@@ -27,6 +27,7 @@ import {
 } from "./whitelist.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
 import { checkAndClosePositions } from "./closer.js";
+import { logActivity, getActivity } from "./activity.js";
 
 let lastSignals: ArbSignal[] = [];
 let lastScanAt: string | null = null;
@@ -61,6 +62,7 @@ async function runScanCycle(): Promise<void> {
   const kalshiStatus = await getKalshiStatus();
   if (!kalshiStatus.trading_active) {
     console.log("[kalshi-arb] Kalshi trading not active, skipping cycle");
+    logActivity("scan_skipped", { reason: "kalshi_trading_inactive" });
     return;
   }
 
@@ -97,6 +99,11 @@ async function runScanCycle(): Promise<void> {
   cycleSignals.sort((a, b) => b.netEdgePct - a.netEdgePct);
   lastSignals = cycleSignals;
   lastScanAt = new Date().toISOString();
+  logActivity("scan_complete", {
+    kalshiMarkets: kalshiMarkets.length,
+    matchedPairs: pairs.length,
+    signals: cycleSignals.length,
+  });
 
   if (cycleSignals.length === 0) {
     console.log(`[kalshi-arb] Scanned ${pairs.length} pairs, no signals above ${config.minNetSpreadPct}% threshold`);
@@ -109,6 +116,7 @@ async function runScanCycle(): Promise<void> {
   const availableSlots = config.maxOpenPairs - openCount;
   if (availableSlots <= 0) {
     console.log(`[kalshi-arb] maxOpenPairs=${config.maxOpenPairs} reached, skipping execution`);
+    logActivity("execution_skipped", { reason: "max_open_pairs", openCount }, "warn");
     return;
   }
 
@@ -118,6 +126,11 @@ async function runScanCycle(): Promise<void> {
   for (const signal of toFire) {
     await executeArb(signal).catch((err) => {
       console.error("[kalshi-arb] executeArb error:", (err as Error).message);
+      logActivity(
+        "execute_error",
+        { ticker: signal.pair.kalshiTicker, message: (err as Error).message },
+        "error",
+      );
     });
   }
 }
@@ -129,6 +142,7 @@ async function scheduleScan(): Promise<void> {
     await runScanCycle();
   } catch (err) {
     console.error("[kalshi-arb] Scan error:", (err as Error).message);
+    logActivity("scan_error", { message: (err as Error).message }, "error");
   }
   setTimeout(scheduleScan, config.scanIntervalMs);
 }
@@ -204,6 +218,17 @@ app.get("/scan-results", (_req: Request, res: Response) => {
     signals: lastSignals,
     scannedAt: lastScanAt,
     scannedPairs,
+  });
+});
+
+app.get("/activity", (req: Request, res: Response) => {
+  const limit = Number(req.query["limit"] ?? 100);
+  const afterSeq = Number(req.query["afterSeq"] ?? 0);
+  res.json({
+    entries: getActivity(
+      Number.isFinite(limit) ? limit : 100,
+      Number.isFinite(afterSeq) ? afterSeq : 0,
+    ),
   });
 });
 

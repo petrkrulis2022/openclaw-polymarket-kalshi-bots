@@ -7,6 +7,7 @@ import { getBestAsk, getBestBid, placeLimitOrder } from "./clob.js";
 import { params } from "./runtime-config.js";
 import { getPosition, recordFill } from "./inventory.js";
 import { markExecuted, markFailed, type PendingTrade } from "./pending.js";
+import { logActivity } from "./activity.js";
 import { config } from "./config.js";
 
 function recordAttribution(trade: PendingTrade): void {
@@ -45,6 +46,7 @@ export async function executeTrade(trade: PendingTrade): Promise<void> {
       targetShares = Math.min(targetShares, held);
       if (targetShares < 0.01) {
         markFailed(id, "Insufficient local inventory for SELL signal");
+        logActivity("trade_skipped", { id, reason: "insufficient_inventory" }, "warn");
         return;
       }
     }
@@ -66,6 +68,7 @@ export async function executeTrade(trade: PendingTrade): Promise<void> {
     const drift = Math.abs(price - reference) / reference;
     if (drift > params.maxSignalDriftPct) {
       markFailed(id, `Execution drift too high (${(drift * 100).toFixed(2)}%)`);
+      logActivity("trade_skipped", { id, reason: "price_drift", driftPct: drift * 100 }, "warn");
       return;
     }
 
@@ -84,9 +87,17 @@ export async function executeTrade(trade: PendingTrade): Promise<void> {
     console.log(
       `[executor] ✓ ${side} ${targetShares.toFixed(2)} shares @ ${price.toFixed(4)} (copy: ${traderLabel}) orderId=${orderId}`,
     );
+    logActivity("trade_executed", {
+      id,
+      side,
+      shares: targetShares,
+      price,
+      trader: traderLabel,
+    });
   } catch (err) {
     const msg = (err as Error).message ?? String(err);
     console.error(`[executor] ✗ Failed trade ${id}: ${msg}`);
+    logActivity("trade_failed", { id, message: msg }, "error");
     markFailed(id, msg);
   }
 }

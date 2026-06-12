@@ -5,6 +5,7 @@
 
 import { getBestAsk } from "./clob.js";
 import { config } from "./config.js";
+import { logActivity } from "./activity.js";
 
 const GAMMA_API = "https://gamma-api.polymarket.com/markets";
 
@@ -111,7 +112,9 @@ export async function runScreener(): Promise<void> {
     screened = withAsks;
     lastScreenAt = now;
     console.log(`[screener] ${screened.length} markets pass filter`);
+    logActivity("screen_complete", { passed: screened.length });
   } catch (err) {
     console.error("[screener] Error:", (err as Error).message);
+    logActivity("screen_error", { message: (err as Error).message }, "error");
   }
 }

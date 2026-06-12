@@ -168,15 +168,251 @@ function extraCols(card: MonitoringBotCard): ExtraCols {
   }
 }
 
+interface ActivityEntry {
+  seq: number;
+  ts: string;
+  event: string;
+  level: "info" | "warn" | "error";
+  detail?: Record<string, unknown>;
+}
+
+function levelColor(l: ActivityEntry["level"]): string {
+  if (l === "error") return "#ff3b30";
+  if (l === "warn") return "#ff9500";
+  return "var(--text-secondary)";
+}
+
+function dNum(v: unknown, digits = 2): string {
+  return typeof v === "number" ? v.toFixed(digits) : "?";
+}
+
+function dStr(v: unknown, max = 60): string {
+  const s = typeof v === "string" ? v : "";
+  return s.length > max ? s.slice(0, max) + "…" : s;
+}
+
+function describeActivity(e: ActivityEntry): string {
+  const d = e.detail ?? {};
+  switch (e.event) {
+    case "scan_complete":
+      if ("binaryMarkets" in d)
+        return `Scan: ${d.binaryMarkets} binary, ${d.negRiskGroups} negRisk — ${d.signals} signal(s)`;
+      if ("kalshiMarkets" in d)
+        return `Scan: ${d.kalshiMarkets} Kalshi mkts, ${d.matchedPairs} pairs — ${d.signals} signal(s)`;
+      if ("closedMarkets" in d)
+        return `Scan: ${d.closedMarkets} closed mkts, ${d.opportunities} opps — ${d.actionable} actionable`;
+      return `Scan complete`;
+    case "scan_skipped":
+      return `Scan skipped (${d.reason})`;
+    case "scan_error":
+    case "quote_cycle_error":
+    case "poll_error":
+      return `Error: ${dStr(d.message, 80)}`;
+    case "signal_found":
+      return d.kind === "binary"
+        ? `Signal: ${dStr(d.market)} — profit $${dNum(d.profitUsd, 4)}`
+        : `NegRisk signal: ${dStr(d.group)} (${d.legs} legs) — profit $${dNum(d.profitUsd, 4)}`;
+    case "signal_execute":
+      return `Executing ${dStr(d.ticker, 30)} — edge ${dNum(d.edgePct)}% $${dNum(d.sizeUsd)}${d.dryRun ? " (dry-run)" : ""}`;
+    case "signal_detected":
+      return `Copy signal: ${d.side} ${dStr(d.market, 45)} (trader ${dStr(d.trader, 20)}, ${d.mode})`;
+    case "pair_placed":
+      return "market" in d
+        ? `Pair placed: ${dStr(d.market, 45)} YES@${dNum(d.yesPrice, 3)} NO@${dNum(d.noPrice, 3)}`
+        : `Pair placed ($${dNum(d.sizeUsd)})`;
+    case "pair_place_failed":
+    case "pair_failed":
+      return `Pair failed: ${dStr(d.message, 70)}`;
+    case "pair_timeout_cancelled":
+      return `Pair timed out (yes ${dNum(d.yesFilled)}, no ${dNum(d.noFilled)} filled) — cancelled`;
+    case "pair_settled":
+      return `Pair settled — PnL $${dNum(d.pnlUsd, 4)}`;
+    case "pair_closed":
+      return `Pair closed early — PnL $${dNum(d.realizedPnl, 4)}`;
+    case "close_attempt":
+      return `Closing pair (sell value ${dNum(d.combinedSellValue, 4)})${d.dryRun ? " (dry-run)" : ""}`;
+    case "close_failed":
+      return `Early close failed`;
+    case "leg_cancelled":
+      return `Orphan leg cancelled`;
+    case "merge_attempted":
+      return `CTF merge: ${dNum(d.amount)} share-pairs → USDC`;
+    case "merge_complete":
+      return `CTF merge confirmed (${dStr(d.txHash, 18)})`;
+    case "merge_failed":
+      return `CTF merge FAILED: ${dStr(d.message, 70)}`;
+    case "negrisk_placed":
+      return `NegRisk placed: ${dStr(d.group, 45)} (${d.legs} legs, $${dNum(d.totalCostUsd)})`;
+    case "negrisk_leg_failed":
+      return `NegRisk leg failed: ${dStr(d.message, 60)}`;
+    case "negrisk_timeout_cancelled":
+      return `NegRisk pair timed out — cancelled`;
+    case "execution_skipped":
+      return `Execution skipped (${d.reason})`;
+    case "execute_error":
+    case "enter_error":
+    case "order_failed":
+      return `Order error: ${dStr(d.message, 70)}`;
+    case "opportunity_found":
+      return `Opportunity: ${dStr(d.market, 45)} @ ${dNum(d.ask, 3)} (${dNum(d.yieldPct)}% yield)`;
+    case "position_entered":
+      return `Entered: ${dStr(d.market, 45)} @ ${dNum(d.ask, 3)} × ${dNum(d.sizeShares, 1)}`;
+    case "position_resolved":
+      return `Resolved at $1: ${dStr(d.market, 50)}`;
+    case "quote_cycle_complete":
+      return "screened" in d
+        ? `Quote cycle: ${d.quoted}/${d.screened} screened markets quoted`
+        : `Quote cycle: ${d.markets} market(s) quoted`;
+    case "quote_skipped":
+      return `Quoting skipped (${d.reason})`;
+    case "quotes_posted":
+      return `Quotes: ${dStr(d.market, 40)} bid ${d.bid != null ? dNum(d.bid, 3) : "—"} / ask ${d.ask != null ? dNum(d.ask, 3) : "—"}`;
+    case "paper_fill":
+      return `Paper fill: ${d.side} ${dNum(d.size, 1)} @ ${dNum(d.price, 3)}`;
+    case "market_unwound":
+      return `Unwound ${dNum(d.shares, 1)} shares @ ${dNum(d.sellPrice, 3)}`;
+    case "unwind_failed":
+      return `Unwind FAILED: ${dStr(d.message, 60)}`;
+    case "screen_complete":
+      return `Screen: ${d.passed} market(s) pass filter`;
+    case "screen_error":
+      return `Screener error: ${dStr(d.message, 70)}`;
+    case "trade_executed":
+      return `Executed: ${d.side} ${dNum(d.shares, 1)} @ ${dNum(d.price, 3)} (copy ${dStr(d.trader, 20)})`;
+    case "trade_approved":
+      return `Approved: ${dStr(d.market, 50)}`;
+    case "trade_rejected":
+      return `Rejected trade ${dStr(d.id, 12)}`;
+    case "trade_skipped":
+      return `Trade skipped (${d.reason})`;
+    case "trade_failed":
+      return `Trade FAILED: ${dStr(d.message, 70)}`;
+    case "leg_unwound":
+      return `Naked leg unwound (${d.leg})`;
+    default:
+      return `${e.event} ${JSON.stringify(e.detail ?? {})}`.slice(0, 100);
+  }
+}
+
+function BotActivityPanel({
+  botName,
+  metamaskAddress,
+}: {
+  botName: string;
+  metamaskAddress?: string;
+}) {
+  const [entries, setEntries] = React.useState<ActivityEntry[] | null>(null);
+  const [fetchError, setFetchError] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!metamaskAddress) return;
+    let cancelled = false;
+    const url = `/api/orchestrator/users/${encodeURIComponent(metamaskAddress)}/bots/${botName}/proxy/activity?limit=50`;
+    const load = () => {
+      fetch(url)
+        .then((r) => {
+          if (!r.ok) throw new Error(String(r.status));
+          return r.json();
+        })
+        .then((d) => {
+          if (cancelled) return;
+          setEntries(((d as { entries?: ActivityEntry[] }).entries ?? []).slice().reverse());
+          setFetchError(false);
+        })
+        .catch(() => {
+          if (!cancelled) setFetchError(true);
+        });
+    };
+    load();
+    const t = setInterval(load, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [botName, metamaskAddress]);
+
+  if (!metamaskAddress) {
+    return (
+      <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 8 }}>
+        Connect wallet to view activity.
+      </div>
+    );
+  }
+  if (fetchError && !entries) {
+    return (
+      <div style={{ fontSize: 12, color: "#ff9500", marginTop: 8 }}>
+        Activity unavailable — bot offline?
+      </div>
+    );
+  }
+  if (!entries) {
+    return (
+      <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 8 }}>
+        Loading activity…
+      </div>
+    );
+  }
+
+  const newestCycle = entries.find((e) =>
+    ["scan_complete", "quote_cycle_complete", "screen_complete"].includes(e.event),
+  );
+
+  return (
+    <div
+      style={{
+        marginTop: 10,
+        paddingTop: 10,
+        borderTop: "1px solid var(--border)",
+      }}
+    >
+      {newestCycle && (
+        <div style={{ fontSize: 12, color: "var(--text)", marginBottom: 8 }}>
+          {describeActivity(newestCycle)}{" "}
+          <span style={{ color: "var(--text-secondary)" }}>
+            · {relTime(newestCycle.ts)}
+          </span>
+        </div>
+      )}
+      {entries.length === 0 ? (
+        <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+          No recorded activity yet (buffer resets on restart).
+        </div>
+      ) : (
+        <div
+          style={{
+            maxHeight: 240,
+            overflowY: "auto",
+            fontSize: 11,
+            fontFamily: "monospace",
+            lineHeight: 1.7,
+          }}
+        >
+          {entries.map((e) => (
+            <div key={e.seq} style={{ display: "flex", gap: 8 }}>
+              <span style={{ color: "var(--text-secondary)", flexShrink: 0, width: 64 }}>
+                {relTime(e.ts)}
+              </span>
+              <span style={{ color: levelColor(e.level) }}>{describeActivity(e)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BotCard({
   card,
   onSelect,
+  metamaskAddress,
 }: {
   card: MonitoringBotCard;
   onSelect: (card: MonitoringBotCard) => void;
+  metamaskAddress?: string;
 }) {
   const cols = extraCols(card);
   const isOffline = card.status !== "online";
+  const [expanded, setExpanded] = React.useState(false);
 
   return (
     <div
@@ -264,16 +500,28 @@ function BotCard({
               ? card.error
               : "No activity yet"}
         </span>
-        <button
-          className="btn-secondary"
-          style={{ fontSize: 12, padding: "3px 10px" }}
-          onClick={() => onSelect(card)}
-        >
-          View Details
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            className="btn-secondary"
+            style={{ fontSize: 12, padding: "3px 10px" }}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? "Hide Activity ▴" : "Activity ▾"}
+          </button>
+          <button
+            className="btn-secondary"
+            style={{ fontSize: 12, padding: "3px 10px" }}
+            onClick={() => onSelect(card)}
+          >
+            View Details
+          </button>
+        </div>
       </div>
 
       {card.botName === "resolution-lag" && <LearningRow extra={card.extra} />}
+      {expanded && (
+        <BotActivityPanel botName={card.botName} metamaskAddress={metamaskAddress} />
+      )}
     </div>
   );
 }
@@ -294,13 +542,18 @@ export function MonitoringDashboard({ onBack, metamaskAddress, onSelectBot }: Pr
   const [fills, setFills] = React.useState<FillRow[]>([]);
 
   React.useEffect(() => {
-    fetch("/api/orchestrator/fills?limit=50")
-      .then((r) => r.json())
-      .then((d) => {
-        const rows = ((d as { fills?: FillRow[] }).fills ?? []).slice().reverse();
-        setFills(rows);
-      })
-      .catch(() => {});
+    const load = () => {
+      fetch("/api/orchestrator/fills?limit=50")
+        .then((r) => r.json())
+        .then((d) => {
+          const rows = ((d as { fills?: FillRow[] }).fills ?? []).slice().reverse();
+          setFills(rows);
+        })
+        .catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 15_000);
+    return () => clearInterval(t);
   }, []);
 
   return (
@@ -364,6 +617,7 @@ export function MonitoringDashboard({ onBack, metamaskAddress, onSelectBot }: Pr
             key={card.botName}
             card={card}
             onSelect={(c) => onSelectBot(String(c.botId), c)}
+            metamaskAddress={metamaskAddress}
           />
         ))
       )}

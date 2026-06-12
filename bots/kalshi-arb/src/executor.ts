@@ -11,6 +11,7 @@ import { config } from "./config.js";
 import { placeKalshiOrder, cancelKalshiOrder } from "./kalshi.js";
 import { placeLimitOrder, cancelPolyOrder } from "./clob.js";
 import { addPair, updatePair } from "./inventory.js";
+import { logActivity } from "./activity.js";
 import type { ArbSignal } from "./orderbook.js";
 
 export interface ExecutionResult {
@@ -33,6 +34,13 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
     `${polySide.toUpperCase()} on Poly @ ${(polyVwap * 100).toFixed(1)}¢ | ` +
     `edge=${netEdgePct.toFixed(2)}% sizeUsd=${sizeUsd.toFixed(2)}`,
   );
+
+  logActivity("signal_execute", {
+    ticker: pair.kalshiTicker,
+    edgePct: netEdgePct,
+    sizeUsd,
+    dryRun: config.dryRun,
+  });
 
   if (config.dryRun) {
     return { pairId, dryRun: true };
@@ -73,6 +81,7 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
       polyOrderId,
       status: "filled",
     });
+    logActivity("pair_placed", { pairId, kalshiOrderId, polyOrderId, sizeUsd });
 
     // Report attribution to orchestrator
     fetch(`${config.orchestratorUrl}/attributions`, {
@@ -130,6 +139,7 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
   } catch (err) {
     const msg = (err as Error).message;
     console.error(`[executor] pair ${pairId} failed: ${msg}`);
+    logActivity("pair_failed", { pairId, message: msg }, "error");
 
     // Cancel whichever leg(s) landed
     const cancels: Promise<void>[] = [];

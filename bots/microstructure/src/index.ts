@@ -24,6 +24,7 @@ import {
   type OpenOrder,
 } from "./clob.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
+import { logActivity, getActivity } from "./activity.js";
 
 type TradeFill = {
   side: "BUY" | "SELL";
@@ -125,6 +126,7 @@ async function runQuoteCycle(): Promise<void> {
   const markets = getScreenedMarkets();
   if (markets.length === 0) {
     console.log("[micro] No screened markets — waiting for next screen");
+    logActivity("quote_skipped", { reason: "no_screened_markets" });
     return;
   }
 
@@ -153,6 +155,10 @@ async function runQuoteCycle(): Promise<void> {
     );
   }
   lastQuoteAt = new Date().toISOString();
+  logActivity("quote_cycle_complete", {
+    screened: markets.length,
+    quoted: cappedMarkets.length,
+  });
 }
 
 // ── Self-rescheduling loops ───────────────────────────────────────────────────
@@ -162,6 +168,7 @@ async function scheduleQuotes(): Promise<void> {
     await runQuoteCycle();
   } catch (err) {
     console.error("[micro] Quote cycle error:", (err as Error).message);
+    logActivity("quote_cycle_error", { message: (err as Error).message }, "error");
   }
   setTimeout(scheduleQuotes, config.quoteIntervalMs);
 }
@@ -213,6 +220,17 @@ app.get("/positions", (_req: Request, res: Response) => {
   res.json({
     positions: getAllPositions(),
     totalRealizedPnl: getTotalRealizedPnl(),
+  });
+});
+
+app.get("/activity", (req: Request, res: Response) => {
+  const limit = Number(req.query["limit"] ?? 100);
+  const afterSeq = Number(req.query["afterSeq"] ?? 0);
+  res.json({
+    entries: getActivity(
+      Number.isFinite(limit) ? limit : 100,
+      Number.isFinite(afterSeq) ? afterSeq : 0,
+    ),
   });
 });
 

@@ -26,6 +26,7 @@ import {
   getOrderBook,
 } from "./clob.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
+import { logActivity, getActivity } from "./activity.js";
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let allocatedEquity = 0; // updated from treasury at startup; bots don't move funds
@@ -99,6 +100,7 @@ async function mainLoop(): Promise<void> {
       await runQuotingCycle(allocatedEquity);
     } catch (err) {
       console.error("[quoter] Cycle error:", (err as Error).message);
+      logActivity("quote_cycle_error", { message: (err as Error).message }, "error");
     }
     if (running) setTimeout(scheduleQuoting, params.pollIntervalMs);
   }
@@ -241,6 +243,17 @@ app.get("/positions", async (_req, res) => {
 });
 
 // ── Runtime config endpoints ──────────────────────────────────────────────────
+
+app.get("/activity", (req, res) => {
+  const limit = Number(req.query["limit"] ?? 100);
+  const afterSeq = Number(req.query["afterSeq"] ?? 0);
+  res.json({
+    entries: getActivity(
+      Number.isFinite(limit) ? limit : 100,
+      Number.isFinite(afterSeq) ? afterSeq : 0,
+    ),
+  });
+});
 
 app.get("/config", (_req, res) => {
   res.json({

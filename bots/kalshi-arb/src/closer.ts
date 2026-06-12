@@ -19,6 +19,7 @@ import { config } from "./config.js";
 import { getKalshiOrderBook, placeKalshiOrder } from "./kalshi.js";
 import { getPolyOrderBook, placeLimitOrder } from "./clob.js";
 import { getOpenPairs, updatePair } from "./inventory.js";
+import { logActivity } from "./activity.js";
 
 // Exit when the remaining spread (cost to close) is within 0.25% of breakeven.
 // That means we've captured at least (entryEdgePct - 0.25%) of our locked profit.
@@ -67,6 +68,13 @@ export async function checkAndClosePositions(): Promise<void> {
           `entry edge=${pair.entryEdgePct.toFixed(2)}% realizedPnl≈${realizedPnl.toFixed(4)}`,
         );
 
+        logActivity("close_attempt", {
+          pairId: pair.id,
+          combinedSellValue,
+          realizedPnl,
+          dryRun: config.dryRun,
+        });
+
         if (config.dryRun) {
           console.log(`[closer] DRY_RUN — would close pair ${pair.id}`);
           return;
@@ -97,12 +105,21 @@ export async function checkAndClosePositions(): Promise<void> {
             `[closer] Close failed for ${pair.id}: ` +
             `kalshi=${kRes.status} poly=${pRes.status}`,
           );
+          logActivity(
+            "close_failed",
+            { pairId: pair.id, kalshi: kRes.status, poly: pRes.status },
+            "warn",
+          );
           return;
         }
 
         updatePair(pair.id, {
           status: "closed",
           closedAt: new Date().toISOString(),
+          realizedPnl: realizedPnl * kalshiContracts,
+        });
+        logActivity("pair_closed", {
+          pairId: pair.id,
           realizedPnl: realizedPnl * kalshiContracts,
         });
       } catch (err) {

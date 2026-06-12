@@ -49,6 +49,7 @@ import {
 } from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
+import { logActivity, getActivity } from "./activity.js";
 
 
 // ── Equity helper ──────────────────────────────────────────────────────────────
@@ -116,6 +117,12 @@ async function runCycle(): Promise<void> {
 
     for (const signal of signals) {
       const mode = trader.mode;
+      logActivity("signal_detected", {
+        side: signal.side,
+        market: signal.marketTitle,
+        trader: signal.traderLabel,
+        mode,
+      });
 
       if (mode === "auto") {
         // Instant approval
@@ -150,6 +157,7 @@ async function schedulePolling(): Promise<void> {
     await runCycle();
   } catch (err) {
     console.error("[copy] Cycle error:", (err as Error).message);
+    logActivity("poll_error", { message: (err as Error).message }, "error");
   }
   setTimeout(schedulePolling, params.pollIntervalMs);
 }
@@ -291,6 +299,17 @@ app.post("/positions/close-all", async (_req: Request, res: Response) => {
 
 // ── Pending queue ─────────────────────────────────────────────────────────────
 
+app.get("/activity", (req: Request, res: Response) => {
+  const limit = Number(req.query["limit"] ?? 100);
+  const afterSeq = Number(req.query["afterSeq"] ?? 0);
+  res.json({
+    entries: getActivity(
+      Number.isFinite(limit) ? limit : 100,
+      Number.isFinite(afterSeq) ? afterSeq : 0,
+    ),
+  });
+});
+
 app.get("/pending", (_req: Request, res: Response) => {
   res.json(listAll());
 });
@@ -301,6 +320,7 @@ app.post("/pending/:id/approve", (req: Request, res: Response) => {
     res.status(404).json({ error: "Trade not found or not in pending state" });
     return;
   }
+  logActivity("trade_approved", { id: trade.id, market: trade.marketTitle });
   // Execute asynchronously (don't await)
   executeTrade(trade).catch((err: unknown) =>
     console.error("[approve] Execution error:", (err as Error).message),
@@ -314,6 +334,7 @@ app.post("/pending/:id/reject", (req: Request, res: Response) => {
     res.status(404).json({ error: "Trade not found or not in pending state" });
     return;
   }
+  logActivity("trade_rejected", { id: req.params["id"] ?? "" });
   res.json({ ok: true });
 });
 

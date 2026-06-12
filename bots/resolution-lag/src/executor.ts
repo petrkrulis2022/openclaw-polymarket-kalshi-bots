@@ -4,6 +4,7 @@
 
 import { placeLimitOrder } from "./clob.js";
 import { addPosition, type LagPosition } from "./inventory.js";
+import { logActivity } from "./activity.js";
 import type { ResolutionOpportunity } from "./oracle.js";
 import { config } from "./config.js";
 
@@ -53,6 +54,11 @@ export async function enterPosition(opp: ResolutionOpportunity): Promise<void> {
     orderId = result.orderId;
   } catch (err) {
     console.error(`[executor] Order failed for ${id}:`, (err as Error).message);
+    logActivity(
+      "order_failed",
+      { positionId: id, market: opp.market.question, message: (err as Error).message },
+      "error",
+    );
     return;
   }
 
@@ -71,6 +77,12 @@ export async function enterPosition(opp: ResolutionOpportunity): Promise<void> {
     openedAt: new Date().toISOString(),
   };
   addPosition(pos);
+  logActivity("position_entered", {
+    positionId: id,
+    market: opp.market.question,
+    ask: opp.currentAsk,
+    sizeShares,
+  });
   recordAttribution(opp);
 
   // Log fill to measurement layer (fire-and-forget)

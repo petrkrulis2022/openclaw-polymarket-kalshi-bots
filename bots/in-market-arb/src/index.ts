@@ -26,6 +26,7 @@ import {
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
 import { cancelOrder, getCollateralBalance, getOpenOrders } from "./clob.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
+import { logActivity, getActivity } from "./activity.js";
 
 type AnySignal = ArbSignal | NegRiskArbSignal;
 
@@ -97,6 +98,11 @@ async function runScanCycle(): Promise<void> {
 
   lastScanSignals = signals;
   lastScanAt = new Date().toISOString();
+  logActivity("scan_complete", {
+    binaryMarkets: binary.length,
+    negRiskGroups: negRisk.length,
+    signals: signals.length,
+  });
 
   if (signals.length === 0) {
     console.log("[arb] No profitable signals this cycle");
@@ -113,8 +119,19 @@ async function runScanCycle(): Promise<void> {
         `[arb] Binary signal: ${signal.marketQuestion} | spread=${signal.netSpread.toFixed(4)} ` +
           `fee=${signal.feeRate} profit=$${signal.expectedProfitUsd.toFixed(4)}`,
       );
+      logActivity("signal_found", {
+        kind: "binary",
+        market: signal.marketQuestion,
+        spread: signal.netSpread,
+        profitUsd: signal.expectedProfitUsd,
+      });
       await executeArbPair(signal).catch((err) => {
         console.error("[arb] executeArbPair error:", (err as Error).message);
+        logActivity(
+          "execute_error",
+          { market: signal.marketQuestion, message: (err as Error).message },
+          "error",
+        );
         activeMarkets.delete(signal.marketId);
       });
       setTimeout(
@@ -128,10 +145,21 @@ async function runScanCycle(): Promise<void> {
         `[arb] NegRisk signal: ${signal.groupQuestion} | ${signal.legs.length} legs ` +
           `spread=${signal.netSpread.toFixed(4)} profit=$${signal.expectedProfitUsd.toFixed(4)}`,
       );
+      logActivity("signal_found", {
+        kind: "neg_risk",
+        group: signal.groupQuestion,
+        legs: signal.legs.length,
+        profitUsd: signal.expectedProfitUsd,
+      });
       await executeNegRiskArbPair(signal).catch((err) => {
         console.error(
           "[arb] executeNegRiskArbPair error:",
           (err as Error).message,
+        );
+        logActivity(
+          "execute_error",
+          { group: signal.groupQuestion, message: (err as Error).message },
+          "error",
         );
         activeNegRiskGroups.delete(signal.negRiskMarketId);
       });
@@ -180,12 +208,15 @@ async function reconcilePairs(): Promise<void> {
     if (yesOpen && noOpen) continue;
 
     if (!yesOpen && !noOpen) {
-      settlePair(pair.id, estimateLockedProfitUsd(pair));
+      const pnl = estimateLockedProfitUsd(pair);
+      settlePair(pair.id, pnl);
+      logActivity("pair_settled", { pairId: pair.id, pnlUsd: pnl });
       continue;
     }
 
     const remainingOrderId = yesOpen ? pair.yesOrderId : pair.noOrderId;
     await cancelOrder(remainingOrderId);
+    logActivity("leg_cancelled", { pairId: pair.id }, "warn");
     updatePair(pair.id, {
       status: "partial",
       yesRemainingSize: yesOpen ? (yesOrder?.remainingSize ?? pair.yesRemainingSize) : 0,
@@ -204,6 +235,7 @@ async function scheduleScan(): Promise<void> {
     await reconcilePairs();
   } catch (err) {
     console.error("[arb] Scan error:", (err as Error).message);
+    logActivity("scan_error", { message: (err as Error).message }, "error");
   }
   setTimeout(scheduleScan, config.scanIntervalMs);
 }
@@ -266,6 +298,17 @@ app.get("/positions", (_req: Request, res: Response) => {
 
 app.get("/scan-results", (_req: Request, res: Response) => {
   res.json({ signals: lastScanSignals, scannedAt: lastScanAt });
+});
+
+app.get("/activity", (req: Request, res: Response) => {
+  const limit = Number(req.query["limit"] ?? 100);
+  const afterSeq = Number(req.query["afterSeq"] ?? 0);
+  res.json({
+    entries: getActivity(
+      Number.isFinite(limit) ? limit : 100,
+      Number.isFinite(afterSeq) ? afterSeq : 0,
+    ),
+  });
 });
 
 app.get("/config", (_req: Request, res: Response) => {
