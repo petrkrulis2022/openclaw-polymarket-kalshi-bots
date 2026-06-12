@@ -391,6 +391,7 @@ function BotPositionsSection({
           outcomeIndex: pos.outcomeIndex,
           negativeRisk: pos.negativeRisk,
           tokenId: pos.tokenId,
+          size: pos.size,
         }),
       });
       if (!res.ok) {
@@ -2570,6 +2571,7 @@ function ResolutionLagView({
             outcomeIndex: pos.outcomeIndex,
             negativeRisk: pos.negativeRisk,
             tokenId: pos.tokenId,
+            size: pos.size,
           }),
         });
       }
@@ -4629,6 +4631,7 @@ function PortfolioSection({
           outcomeIndex: pos.outcomeIndex,
           negativeRisk: pos.negativeRisk,
           tokenId: pos.tokenId,
+          size: pos.size,
         }),
       });
       if (!res.ok) {

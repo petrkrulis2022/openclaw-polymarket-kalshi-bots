@@ -11,7 +11,8 @@
  *     index:        number   — HD wallet index of the bot EOA (>= 10)
  *     conditionId:  string   — bytes32 hex (from Polymarket positions API)
  *     outcomeIndex: number   — 0 = first outcome (YES), 1 = second (NO), etc.
- *     negativeRisk: boolean  — (reserved, currently always uses CTF_CONTRACT_ADDRESS)
+ *     negativeRisk: boolean  — true → redeem via the NegRiskAdapter (sports/multi-outcome markets)
+ *     size:         number   — shares held (required for negativeRisk redemption amounts)
  *   }
  *
  * Response:
@@ -40,6 +41,9 @@ import { SEED_PHRASE, POLYGON_RPC } from "../wdk.js";
 const PUSD_TOKEN_ADDRESS = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
 const USDCE_TOKEN_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
 const CTF_CONTRACT_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045";
+// Neg-risk positions (sports moneylines, multi-outcome groups) are wrapped by
+// the NegRiskAdapter — plain CTF redeemPositions is a no-op for them.
+const NEG_RISK_ADAPTER_ADDRESS = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296";
 
 const DEPOSIT_WALLET_FACTORY = "0x00000000000Fb5C9ADea0298D729A0CB3823Cc07";
 const DEPOSIT_WALLET_IMPL = "0x58CA52ebe0DadfdF531Cde7062e76746de4Db1eB";
@@ -60,6 +64,10 @@ const CTF_ABI = [
   "function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] calldata indexSets) external",
   "function getCollectionId(bytes32 parentCollectionId, bytes32 conditionId, uint256 indexSet) view returns (bytes32)",
   "function getPositionId(address collateralToken, bytes32 collectionId) view returns (uint256)",
+];
+
+const NEG_RISK_ADAPTER_ABI = [
+  "function redeemPositions(bytes32 _conditionId, uint256[] calldata _amounts) external",
 ];
 
 // ── Deposit wallet address derivation ────────────────────────────────────────
@@ -340,19 +348,99 @@ async function pollRelayerTx(
   );
 }
 
+// ── Shared relayer batch submission ───────────────────────────────────────────
+
+async function submitRelayerBatch(
+  wallet: HDNodeWallet,
+  depositWalletAddress: string,
+  calls: Array<{ target: string; value: string; data: string }>,
+): Promise<string> {
+  const eoaAddress = wallet.address;
+
+  console.log(`[redeem] Deriving CLOB API key for ${eoaAddress}...`);
+  const clobCreds = await deriveOrCreateClobApiKey(wallet);
+  const builderCreds = await getOrCreateBuilderApiKey(wallet, clobCreds);
+
+  // Get next nonce for WALLET-type batches
+  const nonceResp = await relayerGet("/nonce", {
+    address: eoaAddress,
+    type: "WALLET",
+  });
+  const nonce = String(nonceResp["nonce"] ?? "0");
+  const deadline = String(Math.floor(Date.now() / 1000) + 3600);
+
+  // EIP-712 batch signature (DepositWallet domain)
+  const domain = {
+    name: "DepositWallet",
+    version: "1",
+    chainId: 137,
+    verifyingContract: depositWalletAddress,
+  };
+  const types = {
+    Call: [
+      { name: "target", type: "address" },
+      { name: "value", type: "uint256" },
+      { name: "data", type: "bytes" },
+    ],
+    Batch: [
+      { name: "wallet", type: "address" },
+      { name: "nonce", type: "uint256" },
+      { name: "deadline", type: "uint256" },
+      { name: "calls", type: "Call[]" },
+    ],
+  };
+  const message = {
+    wallet: depositWalletAddress,
+    nonce: BigInt(nonce),
+    deadline: BigInt(deadline),
+    calls: calls.map((c) => ({ target: c.target, value: 0n, data: c.data })),
+  };
+
+  console.log(`[redeem] Signing EIP-712 batch (nonce=${nonce})...`);
+  const signature = await wallet.signTypedData(domain, types, message);
+
+  console.log(`[redeem] Submitting WALLET batch to relayer...`);
+  const batchResp = await relayerPost(
+    "/submit",
+    {
+      type: "WALLET",
+      from: eoaAddress,
+      to: DEPOSIT_WALLET_FACTORY,
+      nonce,
+      signature,
+      depositWalletParams: {
+        depositWallet: depositWalletAddress,
+        deadline,
+        calls,
+      },
+    },
+    builderCreds,
+  );
+
+  const batchTxId = String(batchResp["transactionID"] ?? "");
+  if (!batchTxId) {
+    throw new Error(
+      `WALLET batch did not return a transactionID: ${JSON.stringify(batchResp)}`,
+    );
+  }
+  console.log(`[redeem] WALLET batch submitted txID=${batchTxId}, polling...`);
+  return pollRelayerTx(batchTxId);
+}
+
 // ── Router ────────────────────────────────────────────────────────────────────
 
 const router = Router();
 
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { index, conditionId, outcomeIndex, negativeRisk, tokenId } =
+    const { index, conditionId, outcomeIndex, negativeRisk, tokenId, size } =
       req.body as {
         index?: unknown;
         conditionId?: unknown;
         outcomeIndex?: unknown;
         negativeRisk?: unknown;
         tokenId?: unknown;
+        size?: unknown;
       };
 
     // ── Input validation ──────────────────────────────────────────────────────
@@ -399,11 +487,43 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       `[redeem] index=${index} eoa=${eoaAddress} depositWallet=${depositWalletAddress}`,
     );
 
-    // ── Build CTF redeemPositions calldata ────────────────────────────────────
+    // ── Build redeem calldata (NegRiskAdapter or plain CTF) ───────────────────
 
     // indexSets: bit N set = redeem outcome N. outcomeIndex 0 → 1, 1 → 2, 2 → 4 …
     const indexSets = [BigInt(1) << BigInt(outcomeIndex)];
     const parentCollectionId = zeroPadValue("0x00", 32); // bytes32(0)
+
+    if (negativeRisk === true) {
+      // Neg-risk markets: redeem through the adapter with per-outcome amounts.
+      const sizeNum = typeof size === "number" && size > 0 ? size : 0;
+      if (sizeNum <= 0) {
+        return res.status(400).json({
+          error: "size (shares held) is required for negativeRisk redemption",
+        });
+      }
+      const amountUnits = BigInt(Math.round(sizeNum * 1e6));
+      const amounts = [0n, 0n];
+      amounts[outcomeIndex === 0 ? 0 : 1] = amountUnits;
+
+      const adapterInterface = new Interface(NEG_RISK_ADAPTER_ABI);
+      const adapterCalldata = adapterInterface.encodeFunctionData(
+        "redeemPositions",
+        [conditionId, amounts],
+      );
+      console.log(
+        `[redeem] negRisk redemption via adapter: conditionId=${conditionId} amounts=[${amounts.join(",")}]`,
+      );
+      const txHash = await submitRelayerBatch(wallet, depositWalletAddress, [
+        { target: NEG_RISK_ADAPTER_ADDRESS, value: "0", data: adapterCalldata },
+      ]);
+      return res.json({
+        txHash,
+        depositWallet: depositWalletAddress,
+        conditionId,
+        outcomeIndex,
+        negativeRisk: true,
+      });
+    }
 
     // Detect which collateral token the position was created with.
     // Polymarket uses pUSD for new markets and USDC.e for older markets.
@@ -459,80 +579,9 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 
     // ── Submit via Polymarket gasless relayer (no POL needed) ─────────────────
 
-    const calls = [
+    const txHash = await submitRelayerBatch(wallet, depositWalletAddress, [
       { target: CTF_CONTRACT_ADDRESS, value: "0", data: redeemCalldata },
-    ];
-
-    console.log(`[redeem] Deriving CLOB API key for ${eoaAddress}...`);
-    const clobCreds = await deriveOrCreateClobApiKey(wallet);
-    const builderCreds = await getOrCreateBuilderApiKey(wallet, clobCreds);
-
-    // Get next nonce for WALLET-type batches
-    const nonceResp = await relayerGet("/nonce", {
-      address: eoaAddress,
-      type: "WALLET",
-    });
-    const nonce = String(nonceResp["nonce"] ?? "0");
-    const deadline = String(Math.floor(Date.now() / 1000) + 3600);
-
-    // EIP-712 batch signature (DepositWallet domain)
-    const domain = {
-      name: "DepositWallet",
-      version: "1",
-      chainId: 137,
-      verifyingContract: depositWalletAddress,
-    };
-    const types = {
-      Call: [
-        { name: "target", type: "address" },
-        { name: "value", type: "uint256" },
-        { name: "data", type: "bytes" },
-      ],
-      Batch: [
-        { name: "wallet", type: "address" },
-        { name: "nonce", type: "uint256" },
-        { name: "deadline", type: "uint256" },
-        { name: "calls", type: "Call[]" },
-      ],
-    };
-    const message = {
-      wallet: depositWalletAddress,
-      nonce: BigInt(nonce),
-      deadline: BigInt(deadline),
-      calls: calls.map((c) => ({ target: c.target, value: 0n, data: c.data })),
-    };
-
-    console.log(`[redeem] Signing EIP-712 batch (nonce=${nonce})...`);
-    const signature = await wallet.signTypedData(domain, types, message);
-
-    console.log(`[redeem] Submitting WALLET batch to relayer...`);
-    const batchResp = await relayerPost(
-      "/submit",
-      {
-        type: "WALLET",
-        from: eoaAddress,
-        to: DEPOSIT_WALLET_FACTORY,
-        nonce,
-        signature,
-        depositWalletParams: {
-          depositWallet: depositWalletAddress,
-          deadline,
-          calls,
-        },
-      },
-      builderCreds,
-    );
-
-    const batchTxId = String(batchResp["transactionID"] ?? "");
-    if (!batchTxId) {
-      throw new Error(
-        `WALLET batch did not return a transactionID: ${JSON.stringify(batchResp)}`,
-      );
-    }
-    console.log(
-      `[redeem] WALLET batch submitted txID=${batchTxId}, polling...`,
-    );
-    const txHash = await pollRelayerTx(batchTxId);
+    ]);
 
     return res.json({
       txHash,

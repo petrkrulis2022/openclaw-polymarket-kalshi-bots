@@ -80,6 +80,80 @@ export function buildAttributionMap(slot: number): Map<string, string> {
   return map;
 }
 
+// ── Live bot-inventory attribution fallback ──────────────────────────────────
+//
+// The attribution file only knows about orders recorded via POST /attribute,
+// which bots skip when USER_METAMASK_ADDRESS is unset (and old positions
+// predate the mechanism entirely). As a fallback, ask each running bot for
+// its current inventory and match positions by tokenId — any position a bot
+// is actively tracking gets labeled even without an attribution record.
+
+const INVENTORY_BOTS: Array<{ name: string; portOffset: number }> = [
+  { name: "market-maker", portOffset: 0 },
+  { name: "copy-trader", portOffset: 1 },
+  { name: "in-market-arb", portOffset: 2 },
+  { name: "resolution-lag", portOffset: 3 },
+  { name: "microstructure", portOffset: 4 },
+  { name: "kalshi-arb", portOffset: 8 },
+];
+
+const TOKEN_KEYS = new Set([
+  "tokenId",
+  "yesTokenId",
+  "noTokenId",
+  "polyYesTokenId",
+  "polyNoTokenId",
+  "asset",
+]);
+
+/** Recursively collect token-id-looking strings from a bot /positions payload. */
+function collectTokenIds(node: unknown, out: Set<string>): void {
+  if (Array.isArray(node)) {
+    for (const item of node) collectTokenIds(item, out);
+    return;
+  }
+  if (node && typeof node === "object") {
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      if (TOKEN_KEYS.has(key) && typeof value === "string" && value.length > 10) {
+        out.add(value);
+      } else {
+        collectTokenIds(value, out);
+      }
+    }
+  }
+}
+
+const liveInvCache = new Map<number, { map: Map<string, string>; fetchedAt: number }>();
+
+async function buildLiveInventoryMap(slot: number): Promise<Map<string, string>> {
+  const cached = liveInvCache.get(slot);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.map;
+
+  const basePort = 4010 + slot * 10;
+  const map = new Map<string, string>();
+  await Promise.allSettled(
+    INVENTORY_BOTS.map(async (bot) => {
+      try {
+        const res = await fetch(
+          `http://127.0.0.1:${basePort + bot.portOffset}/positions`,
+          { signal: AbortSignal.timeout(2_500) },
+        );
+        if (!res.ok) return;
+        const payload = (await res.json()) as unknown;
+        const tokens = new Set<string>();
+        collectTokenIds(payload, tokens);
+        for (const t of tokens) {
+          if (!map.has(t)) map.set(t, bot.name);
+        }
+      } catch {
+        /* bot offline — skip */
+      }
+    }),
+  );
+  liveInvCache.set(slot, { map, fetchedAt: Date.now() });
+  return map;
+}
+
 /** Resolve user slot from MetaMask address. */
 function slotForUser(address: string): number | null {
   const users = getAllUsers();
@@ -284,13 +358,20 @@ positionsRouter.get("/by-user", async (req: Request, res: Response) => {
   }
 
   try {
-    const positions = await fetchPositions(depositWallet);
+    const [positions, liveMap] = await Promise.all([
+      fetchPositions(depositWallet),
+      buildLiveInventoryMap(slot),
+    ]);
     const attrMap = buildAttributionMap(slot);
 
     const enriched = positions.map((p) => {
-      // Try to attribute by tokenId (asset) first, then by conditionId
+      // Recorded attribution first (tokenId, then conditionId), then live
+      // bot-inventory match as fallback.
       const botName =
-        attrMap.get(p.asset) ?? attrMap.get(p.conditionId) ?? null;
+        attrMap.get(p.asset) ??
+        attrMap.get(p.conditionId) ??
+        liveMap.get(p.asset) ??
+        null;
       return { ...p, sourceWallet: depositWallet, botName };
     });
 

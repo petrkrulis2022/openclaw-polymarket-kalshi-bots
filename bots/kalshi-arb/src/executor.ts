@@ -113,21 +113,26 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
     });
     logActivity("pair_placed", { pairId, kalshiOrderId, polyOrderId, sizeUsd });
 
-    // Report attribution to orchestrator
-    fetch(`${config.orchestratorUrl}/attributions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        botId: config.botId,
-        pairId,
-        kalshiTicker: pair.kalshiTicker,
-        polyConditionId: pair.polyConditionId,
-        entryEdgePct: netEdgePct,
-        sizeUsd,
-        openedAt: new Date().toISOString(),
-      }),
-      signal: AbortSignal.timeout(5_000),
-    }).catch(() => {});
+    // Report attribution to orchestrator (same endpoint as the other bots —
+    // the previous /attributions route never existed, so kalshi-arb positions
+    // showed no bot label on the dashboard)
+    const userAddress = process.env["USER_METAMASK_ADDRESS"] ?? "";
+    if (userAddress) {
+      fetch(`${config.orchestratorUrl}/positions/attribute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userAddress,
+          conditionId: pair.polyConditionId,
+          outcomeIndex: polySide === "yes" ? 0 : 1,
+          tokenId: polyTokenId,
+          botName: "kalshi-arb",
+          marketQuestion: pair.polyQuestion,
+          side: polySide.toUpperCase(),
+        }),
+        signal: AbortSignal.timeout(5_000),
+      }).catch(() => {});
+    }
 
     // Log fills to measurement layer (fire-and-forget)
     const ts = new Date().toISOString();
