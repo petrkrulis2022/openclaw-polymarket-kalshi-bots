@@ -24,7 +24,6 @@ import {
   getOrderBook,
   placeLimitOrder,
   cancelOrder,
-  getLastTradeMid,
   getOpenOrders,
 } from "./clob.js";
 import { getSkew, recordFill, getPosition } from "./inventory.js";
@@ -115,41 +114,34 @@ export async function quoteMarket(
   } else {
     const MAX_USABLE_SPREAD = 0.3;
 
-    // Prefer Gamma API prices (already fetched at market discovery, no extra
-    // API call). Fall back to CLOB order book only if Gamma prices are missing.
-    const gammaBid = market.gammaBestBid;
-    const gammaAsk = market.gammaBestAsk;
-    const gammaSpread = gammaAsk - gammaBid;
-
-    if (gammaBid > 0 && gammaAsk < 1 && gammaSpread <= MAX_USABLE_SPREAD) {
-      mid = (gammaBid + gammaAsk) / 2;
-      spread = gammaSpread;
-    } else {
-      // Gamma prices stale/missing — query CLOB order book
-      const book = await getOrderBook(yesTokenId);
-      const clobBid = book.bids[0]?.price ?? 0;
-      const clobAsk = book.asks[0]?.price ?? 1;
-      if (clobBid <= 0 || clobAsk <= 0 || clobAsk <= clobBid) return;
-      spread = clobAsk - clobBid;
-
-      if (spread > MAX_USABLE_SPREAD) {
-        // CLOB also sparse — last resort: last trade price
-        const lastMid = await getLastTradeMid(yesTokenId);
-        if (lastMid <= 0) {
-          console.warn(
-            `[quoter] No usable price for ${market.question.slice(0, 40)}, skipping`,
-          );
-          return;
-        }
-        mid = lastMid;
-      } else {
-        mid = (clobBid + clobAsk) / 2;
-      }
+    // Always price off the live CLOB book. Gamma prices lag the book —
+    // quoting off them is adverse-selection bait.
+    const book = await getOrderBook(yesTokenId);
+    const clobBid = book.bids[0]?.price ?? 0;
+    const clobAsk = book.asks[0]?.price ?? 0;
+    if (clobBid <= 0 || clobAsk <= 0 || clobAsk <= clobBid) {
+      console.warn(
+        `[quoter] One-sided/empty book for ${market.question.slice(0, 40)}, skipping`,
+      );
+      return;
     }
+    spread = clobAsk - clobBid;
+    if (spread > MAX_USABLE_SPREAD) {
+      console.warn(
+        `[quoter] Spread too wide (${spread.toFixed(3)}) for ${market.question.slice(0, 40)}, skipping`,
+      );
+      return;
+    }
+    mid = (clobBid + clobAsk) / 2;
   }
 
-  // Fixed half-width from config (e.g. 0.03 = 3 cents each side)
-  const halfWidth = params.quoteHalfWidth;
+  // Half-width: inside the rewards band when the market pays rewards
+  // (orders outside rewardsMaxSpread of mid earn nothing).
+  const inRewardsBand =
+    params.rewardsMode && !config.paperTrading && market.rewardsMaxSpread > 0;
+  const halfWidth = inRewardsBand
+    ? Math.min(params.quoteHalfWidth, 0.8 * market.rewardsMaxSpread)
+    : params.quoteHalfWidth;
 
   const existing = states.get(market.conditionId);
 
@@ -171,6 +163,15 @@ export async function quoteMarket(
       yesRatio > params.maxInventorySkew ||
       yesRatio < 1 - params.maxInventorySkew;
 
+    // Rewards only accrue while quotes sit inside the band around mid —
+    // re-quote as soon as a resting order drifts out of it.
+    const bandExit =
+      inRewardsBand &&
+      ((existing.ourBidId &&
+        Math.abs(mid - existing.ourBidPrice) > market.rewardsMaxSpread) ||
+        (existing.ourAskId &&
+          Math.abs(existing.ourAskPrice - mid) > market.rewardsMaxSpread));
+
     const hasAnyLiveOrder = Boolean(existing.ourBidId || existing.ourAskId);
 
     if (
@@ -178,7 +179,8 @@ export async function quoteMarket(
       !midMoved &&
       !bidStale &&
       !askStale &&
-      !inventorySkewed
+      !inventorySkewed &&
+      !bandExit
     ) {
       return; // nothing to do
     }
@@ -235,7 +237,11 @@ export async function quoteMarket(
   const { yesRatio } = getSkew(yesTokenId, equityPerMarket);
   const skewFactor = 1 - Math.max(0, yesRatio - 0.5) * 2;
 
-  const MIN_ORDER_SIZE = 5; // Polymarket minimum shares per order
+  // Rewards require resting size ≥ rewardsMinSize to score at all
+  const MIN_ORDER_SIZE = Math.max(
+    5, // Polymarket minimum shares per order
+    inRewardsBand ? market.rewardsMinSize : 0,
+  );
   const bidPrice = Math.max(0.01, Math.min(0.99, mid - halfWidth));
   const askPrice = Math.max(0.01, Math.min(0.99, mid + halfWidth));
 
@@ -251,12 +257,32 @@ export async function quoteMarket(
     ? parseFloat(Math.max(MIN_ORDER_SIZE, rawBuySize * skewFactor).toFixed(2))
     : 0;
 
-  // Only SELL if we own the inventory (in-memory tracked fills)
+  if (inRewardsBand && !canBuy) {
+    logActivity("quote_skipped", {
+      reason: "rewards_min_size_unaffordable",
+      market: market.question.slice(0, 60),
+      minSize: MIN_ORDER_SIZE,
+    }, "warn");
+    return;
+  }
+
   const heldYes = getPosition(yesTokenId).netSize;
   const askSize = parseFloat(
     Math.max(MIN_ORDER_SIZE, equityPerMarket / 2 / mid).toFixed(2),
   );
+  // Prefer SELLing held YES (recycles inventory); otherwise quote the ask
+  // side as a BUY on the NO token at 1−askPrice — economically identical
+  // (the binary book is unified) and funded by USDC, so we can quote
+  // two-sided from day one. Rewards score requires both sides.
   const canSell = heldYes >= MIN_ORDER_SIZE;
+  const noBidPrice = Math.max(0.01, Math.min(0.99, 1 - askPrice));
+  const canQuoteNoBid =
+    !config.paperTrading &&
+    !canSell &&
+    (freeCollateralUsd * 0.95) / noBidPrice >= MIN_ORDER_SIZE;
+  const noBidSize = parseFloat(
+    Math.max(MIN_ORDER_SIZE, (equityPerMarket / 2) / Math.max(0.01, noBidPrice)).toFixed(2),
+  );
 
   const [bidResult, askResult] = await Promise.all([
     canBuy && bidSize >= MIN_ORDER_SIZE
@@ -270,7 +296,9 @@ export async function quoteMarket(
           Math.min(askSize, heldYes),
           market.question,
         )
-      : Promise.resolve(null),
+      : canQuoteNoBid
+        ? placeLimitOrder(noTokenId, "BUY", noBidPrice, noBidSize, market.question)
+        : Promise.resolve(null),
   ]);
 
   const openPositions = (bidResult ? 1 : 0) + (askResult ? 1 : 0);

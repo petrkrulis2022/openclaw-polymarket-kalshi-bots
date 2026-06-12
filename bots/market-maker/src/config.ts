@@ -60,6 +60,9 @@ export const config = {
       10,
     ),
     maxInventorySkew: 0.6, // cancel/re-quote if one side > 60%
+    // Quote inside Polymarket liquidity-rewards bands (the actual edge for
+    // small MMs). Set REWARDS_MODE=false to fall back to naked spread capture.
+    rewardsMode: (process.env["REWARDS_MODE"] ?? "true") === "true",
     reQuoteThreshold: 0.005, // 0.5% mid move triggers re-quote
     orderStalenessThreshold: 0.01, // 1% off market triggers re-quote
   },

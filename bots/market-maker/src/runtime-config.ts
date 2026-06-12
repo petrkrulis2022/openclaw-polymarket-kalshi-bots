@@ -40,6 +40,8 @@ export interface QuotingParams {
   orderStalenessThreshold: number;
   /** Simulated equity used when running in paper-trading mode ($). */
   paperEquity: number;
+  /** Quote inside Polymarket liquidity-rewards bands and prefer reward markets. */
+  rewardsMode: boolean;
 }
 
 // Frozen defaults — these are the "reset" target
@@ -54,6 +56,7 @@ const DEFAULTS: QuotingParams = {
   reQuoteThreshold: config.quoting.reQuoteThreshold,
   orderStalenessThreshold: config.quoting.orderStalenessThreshold,
   paperEquity: config.quoting.paperEquity,
+  rewardsMode: config.quoting.rewardsMode,
 };
 
 /** Live mutable copy — quoter.ts and markets.ts read from this. */

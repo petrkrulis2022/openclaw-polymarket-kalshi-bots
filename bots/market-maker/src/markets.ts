@@ -29,6 +29,13 @@ export interface GammaMarket {
    * Used to exclude live/near-live game markets from market-making.
    */
   gameStartTime: string;
+  /**
+   * Liquidity-rewards band half-width as a decimal price (Gamma reports
+   * cents; 3.5 → 0.035). 0 = market pays no rewards.
+   */
+  rewardsMaxSpread: number;
+  /** Minimum resting order size (shares) to qualify for rewards. */
+  rewardsMinSize: number;
 }
 
 // Gamma API returns null category for all markets (as of 2026-06).
@@ -112,6 +119,11 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
       const gammaBestBid = parseFloat(String(m["bestBid"] ?? "0")) || 0;
       const gammaBestAsk = parseFloat(String(m["bestAsk"] ?? "1")) || 1;
 
+      // Gamma reports the rewards band in cents (e.g. 3.5 = 3.5¢)
+      const rawRewardSpread = parseFloat(String(m["rewardsMaxSpread"] ?? "0")) || 0;
+      const rewardsMaxSpread = rawRewardSpread > 0 ? rawRewardSpread / 100 : 0;
+      const rewardsMinSize = parseFloat(String(m["rewardsMinSize"] ?? "0")) || 0;
+
       markets.push({
         conditionId: m["conditionId"] as string,
         question: m["question"] as string,
@@ -130,10 +142,20 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
         gammaBestAsk,
         category,
         gameStartTime,
+        rewardsMaxSpread,
+        rewardsMinSize,
       });
     }
 
-    markets.sort((a, b) => b.volume24hr - a.volume24hr);
+    // Reward-paying markets first (that's the edge for small MMs), then by volume
+    markets.sort((a, b) => {
+      if (params.rewardsMode) {
+        const aR = a.rewardsMaxSpread > 0 ? 1 : 0;
+        const bR = b.rewardsMaxSpread > 0 ? 1 : 0;
+        if (aR !== bR) return bR - aR;
+      }
+      return b.volume24hr - a.volume24hr;
+    });
     cachedMarkets = markets;
 
     const selected = markets.slice(0, params.numMarkets);
@@ -141,7 +163,8 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
     console.log(`[markets] Selected ${selected.length} non-sports/non-crypto markets:`);
     selected.forEach((m) =>
       console.log(
-        `  • [${m.category || "?"}] YES=${m.yesPrice.toFixed(3)} ${m.question.slice(0, 50)} | vol24h=$${m.volume24hr.toFixed(0)}`,
+        `  • [${m.category || "?"}] YES=${m.yesPrice.toFixed(3)} ${m.question.slice(0, 50)} | ` +
+          `vol24h=$${m.volume24hr.toFixed(0)} rewards=${m.rewardsMaxSpread > 0 ? `±${(m.rewardsMaxSpread * 100).toFixed(1)}¢/min${m.rewardsMinSize}` : "none"}`,
       ),
     );
   } catch (err) {
