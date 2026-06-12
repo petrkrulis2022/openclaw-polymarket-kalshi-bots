@@ -15,7 +15,6 @@
  * Both sells via Promise.all with FOK. If either fails, leave position open.
  */
 
-import { config } from "./config.js";
 import { getKalshiOrderBook, placeKalshiOrder } from "./kalshi.js";
 import { getPolyOrderBook, placeLimitOrder } from "./clob.js";
 import { getAllPairs, getOpenPairs, updatePair } from "./inventory.js";
@@ -86,13 +85,7 @@ export async function checkAndClosePositions(): Promise<void> {
           pairId: pair.id,
           combinedSellValue,
           realizedPnl,
-          dryRun: config.dryRun,
         });
-
-        if (config.dryRun) {
-          console.log(`[closer] DRY_RUN — would close pair ${pair.id}`);
-          return;
-        }
 
         const sizePerLeg = pair.sizeUsd / 2;
         const kalshiContracts = sizePerLeg / pair.kalshiEntryVwap;

@@ -1,9 +1,8 @@
 /**
  * executor.ts — fires both legs of a Kalshi ↔ Polymarket arb concurrently.
  *
- * DRY_RUN=true (default): logs signal, skips order placement.
- * Both legs placed via Promise.all; either failure cancels both.
- * FOK orders — no partial fills to manage.
+ * Both legs placed concurrently; a legging failure triggers the unwind
+ * path in unwind.ts. FOK orders — no partial fills to manage.
  */
 
 import { randomUUID } from "crypto";
@@ -17,7 +16,6 @@ import type { ArbSignal } from "./orderbook.js";
 
 export interface ExecutionResult {
   pairId: string;
-  dryRun: boolean;
   kalshiOrderId?: string;
   polyOrderId?: string;
   error?: string;
@@ -30,7 +28,7 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
   const sizeUsd = Math.min(config.maxPositionUsd / 2, kalshiContracts * kalshiVwap, polyShares * polyVwap);
 
   console.log(
-    `[executor] ${config.dryRun ? "DRY_RUN " : ""}signal: ${pair.kalshiTicker} ↔ ${pair.polyQuestion.slice(0, 50)} | ` +
+    `[executor] signal: ${pair.kalshiTicker} ↔ ${pair.polyQuestion.slice(0, 50)} | ` +
     `${kalshiSide.toUpperCase()} on Kalshi @ ${(kalshiVwap * 100).toFixed(1)}¢ + ` +
     `${polySide.toUpperCase()} on Poly @ ${(polyVwap * 100).toFixed(1)}¢ | ` +
     `edge=${netEdgePct.toFixed(2)}% sizeUsd=${sizeUsd.toFixed(2)}`,
@@ -40,12 +38,7 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
     ticker: pair.kalshiTicker,
     edgePct: netEdgePct,
     sizeUsd,
-    dryRun: config.dryRun,
   });
-
-  if (config.dryRun) {
-    return { pairId, dryRun: true };
-  }
 
   const clientOrderId = `arb-${pairId.slice(0, 8)}`;
   let kalshiOrderId: string | undefined;
@@ -86,7 +79,7 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
       // Both legs failed — nothing held, plain cancel.
       logActivity("pair_failed", { pairId, message: `${kMsg} | ${pMsg}` }, "error");
       updatePair(pairId, { status: "cancelled", closedAt: new Date().toISOString() });
-      return { pairId, dryRun: false, error: `${kMsg} | ${pMsg}` };
+      return { pairId, error: `${kMsg} | ${pMsg}` };
     }
 
     // Exactly one leg succeeded — we may hold a naked position.
@@ -97,7 +90,7 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
       await cancelKalshiOrder(kalshiOrderId);
       const naked = getAllPairs().find((p) => p.id === pairId);
       if (naked) await startUnwind(naked, "kalshi");
-      return { pairId, dryRun: false, kalshiOrderId, error: pMsg ?? undefined };
+      return { pairId, kalshiOrderId, error: pMsg ?? undefined };
     }
 
     polyOrderId = (pSettled as PromiseFulfilledResult<{ orderId: string }>).value.orderId;
@@ -106,7 +99,7 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
     await cancelPolyOrder(polyOrderId);
     const naked = getAllPairs().find((p) => p.id === pairId);
     if (naked) await startUnwind(naked, "poly");
-    return { pairId, dryRun: false, polyOrderId, error: kMsg ?? undefined };
+    return { pairId, polyOrderId, error: kMsg ?? undefined };
   }
 
   try {
@@ -172,13 +165,13 @@ export async function executeArb(signal: ArbSignal): Promise<ExecutionResult> {
       signal: AbortSignal.timeout(5_000),
     }).catch(() => {});
 
-    return { pairId, dryRun: false, kalshiOrderId, polyOrderId };
+    return { pairId, kalshiOrderId, polyOrderId };
   } catch (err) {
     // Both orders were placed; this catch only covers post-placement work
     // (attribution/fills reporting) — the pair itself is live and hedged.
     const msg = (err as Error).message;
     console.error(`[executor] pair ${pairId} post-placement error: ${msg}`);
     logActivity("pair_failed", { pairId, message: msg }, "warn");
-    return { pairId, dryRun: false, kalshiOrderId, polyOrderId, error: msg };
+    return { pairId, kalshiOrderId, polyOrderId, error: msg };
   }
 }

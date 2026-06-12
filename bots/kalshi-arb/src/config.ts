@@ -46,7 +46,6 @@ export const config = {
   maxUnhedgedMs: parseInt(process.env["MAX_UNHEDGED_MS"] ?? "10000", 10),
   unwindMaxRetries: parseInt(process.env["UNWIND_MAX_RETRIES"] ?? "3", 10),
   // true = scan and log signals but never place real orders
-  dryRun: (process.env["DRY_RUN"] ?? "true") === "true",
   // Fallback Polymarket fee rate when market data doesn't provide one
   defaultPolyFeeRate: parseFloat(process.env["DEFAULT_POLY_FEE_RATE"] ?? "0.02"),
 } as const;

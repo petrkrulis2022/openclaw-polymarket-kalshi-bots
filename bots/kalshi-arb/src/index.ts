@@ -7,7 +7,7 @@
  *   3. For each pair, compute arb signals (orderbook.ts)
  *   4. Execute best signals up to maxOpenPairs (executor.ts)
  *
- * DRY_RUN=true by default — no real orders placed until explicitly disabled.
+ * Live trading is gated by the pair whitelist — only user-approved pairs fire.
  */
 
 import express, { type Request, type Response } from "express";
@@ -188,7 +188,6 @@ app.get("/diagnostics", async (_req: Request, res: Response) => {
     botId: config.botId,
     name: "kalshi-arb",
     healthy: true,
-    dryRun: config.dryRun,
     allocatedEquity: eq,
     kalshiTradingActive: kalshiStatus.status === "fulfilled" ? kalshiStatus.value.trading_active : false,
     kalshiBalanceUsd: kalshiBalance.status === "fulfilled" ? kalshiBalance.value : 0,
@@ -235,7 +234,6 @@ app.get("/activity", (req: Request, res: Response) => {
 app.get("/config", (_req: Request, res: Response) => {
   res.json({
     botId: config.botId,
-    dryRun: config.dryRun,
     scanIntervalMs: config.scanIntervalMs,
     minNetSpreadPct: config.minNetSpreadPct,
     maxPositionUsd: config.maxPositionUsd,
@@ -280,7 +278,7 @@ app.delete("/pairs/whitelist/:ticker", (req: Request, res: Response) => {
 
 app.listen(config.port, () => {
   console.log(
-    `[kalshi-arb] Kalshi-Arb Bot (id=${config.botId}) listening on :${config.port} | dryRun=${config.dryRun}`,
+    `[kalshi-arb] Kalshi-Arb Bot (id=${config.botId}) listening on :${config.port}`,
   );
   loadInventory();
   loadWhitelist();
