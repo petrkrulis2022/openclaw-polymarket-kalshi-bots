@@ -208,7 +208,7 @@ export async function executeNegRiskArbPair(
   for (const leg of signal.legs) {
     try {
       const result = await placeLimitOrder(
-        leg.yesTokenId,
+        leg.tokenId,
         "BUY",
         leg.entryPrice,
         size,
@@ -235,9 +235,10 @@ export async function executeNegRiskArbPair(
     type: "neg_risk",
     negRiskMarketId: signal.negRiskMarketId,
     groupQuestion: signal.groupQuestion,
+    sweep: signal.sweep,
     legs: signal.legs.map((l, i) => ({
       marketId: l.marketId,
-      yesTokenId: l.yesTokenId,
+      yesTokenId: l.tokenId,
       orderId: placedOrderIds[i],
       price: l.entryPrice,
       size,
@@ -250,13 +251,20 @@ export async function executeNegRiskArbPair(
   addNegRiskPair(pair);
   logActivity("negrisk_placed", {
     pairId: id,
+    sweep: signal.sweep,
     group: signal.groupQuestion,
     legs: signal.legs.length,
     totalCostUsd: pair.totalCostUsd,
   });
 
   signal.legs.forEach((leg, i) => {
-    recordAttribution(leg.yesTokenId, i, "YES", leg.marketId, signal.groupQuestion);
+    recordAttribution(
+      leg.tokenId,
+      i,
+      signal.sweep === "yes" ? "YES" : "NO",
+      leg.marketId,
+      signal.groupQuestion,
+    );
   });
 
   setTimeout(async () => {

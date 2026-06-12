@@ -11,7 +11,13 @@
 import express, { type Request, type Response } from "express";
 import { config } from "./config.js";
 import { scanActiveMarkets } from "./scanner.js";
-import { computeArbSignal, computeNegRiskArbSignal, type ArbSignal, type NegRiskArbSignal } from "./orderbook.js";
+import {
+  computeArbSignal,
+  computeNegRiskArbSignal,
+  computeNegRiskNoSweepSignal,
+  type ArbSignal,
+  type NegRiskArbSignal,
+} from "./orderbook.js";
 import { executeArbPair, executeNegRiskArbPair } from "./executor.js";
 import {
   getAllPairs,
@@ -91,8 +97,13 @@ async function runScanCycle(): Promise<void> {
 
   await Promise.allSettled(
     negRiskCandidates.map(async (g) => {
-      const signal = await computeNegRiskArbSignal(g);
-      if (signal) signals.push(signal);
+      // YES-sweep and NO-sweep trade independent books — both can fire.
+      const [yesSweep, noSweep] = await Promise.all([
+        computeNegRiskArbSignal(g),
+        computeNegRiskNoSweepSignal(g),
+      ]);
+      if (yesSweep) signals.push(yesSweep);
+      if (noSweep) signals.push(noSweep);
     }),
   );
 
@@ -142,11 +153,13 @@ async function runScanCycle(): Promise<void> {
       if (activeNegRiskGroups.has(signal.negRiskMarketId)) continue;
       activeNegRiskGroups.add(signal.negRiskMarketId);
       console.log(
-        `[arb] NegRisk signal: ${signal.groupQuestion} | ${signal.legs.length} legs ` +
-          `spread=${signal.netSpread.toFixed(4)} profit=$${signal.expectedProfitUsd.toFixed(4)}`,
+        `[arb] NegRisk ${signal.sweep.toUpperCase()}-sweep signal: ${signal.groupQuestion} | ` +
+          `${signal.legs.length} legs spread=${signal.netSpread.toFixed(4)} ` +
+          `profit=$${signal.expectedProfitUsd.toFixed(4)}`,
       );
       logActivity("signal_found", {
         kind: "neg_risk",
+        sweep: signal.sweep,
         group: signal.groupQuestion,
         legs: signal.legs.length,
         profitUsd: signal.expectedProfitUsd,

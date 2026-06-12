@@ -33,6 +33,8 @@ export interface NegRiskPair {
   type: "neg_risk";
   negRiskMarketId: string;
   groupQuestion: string;
+  /** "yes" = YES-sweep (payout $1/set); "no" = NO-sweep (payout $(N−1)/set). */
+  sweep?: "yes" | "no";
   legs: Array<{
     marketId: string;
     yesTokenId: string;

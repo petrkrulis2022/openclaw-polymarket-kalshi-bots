@@ -33,7 +33,13 @@ export interface NegRiskArbSignal {
   type: "neg_risk";
   negRiskMarketId: string;
   groupQuestion: string;
-  legs: Array<{ marketId: string; yesTokenId: string; entryPrice: number }>;
+  /**
+   * "yes" — buy YES of every outcome; exactly one wins → payout $1/set.
+   * "no"  — buy NO of every outcome; all but one win → payout $(N−1)/set.
+   */
+  sweep: "yes" | "no";
+  /** tokenId is the traded token (YES or NO per sweep). */
+  legs: Array<{ marketId: string; tokenId: string; entryPrice: number }>;
   profitableVolumeUsd: number;
   expectedProfitUsd: number;
   /** Net profit per $1 guaranteed return, after fees. */
@@ -188,14 +194,77 @@ export async function computeNegRiskArbSignal(
     type: "neg_risk",
     negRiskMarketId: group.negRiskMarketId,
     groupQuestion: group.groupQuestion,
+    sweep: "yes",
     legs: group.outcomes.map((o, i) => ({
       marketId: o.marketId,
-      yesTokenId: o.yesTokenId,
+      tokenId: o.yesTokenId,
       entryPrice: asks[i].price,
     })),
     profitableVolumeUsd: size * totalRawCost,
     expectedProfitUsd: size * netProfit,
     netSpread: netProfit,
+    feeRate,
+  };
+}
+
+/**
+ * NO-sweep variant: buy NO for all N outcomes in a negRisk group.
+ * Exactly one outcome resolves YES, so N−1 of the NO tokens pay $1 each —
+ * guaranteed $(N−1) per share-set. Profitable when the summed effective NO
+ * cost is below that payout.
+ */
+export async function computeNegRiskNoSweepSignal(
+  group: NegRiskGroup,
+): Promise<NegRiskArbSignal | null> {
+  const N = group.outcomes.length;
+  if (N < 2) return null;
+
+  const books = await Promise.all(
+    group.outcomes.map((o) => getOrderBook(o.noTokenId)),
+  );
+
+  const topAsks = books.map((b) => {
+    const asks = b.asks.filter((a) => a.price > 0 && a.size > 0);
+    return asks.length > 0 ? asks[0] : null;
+  });
+
+  if (topAsks.some((a) => a === null)) return null;
+
+  const asks = topAsks as Array<{ price: number; size: number }>;
+  const feeRate = group.feeRate;
+  const payout = N - 1;
+
+  const totalEffectiveCost = asks.reduce(
+    (sum, a) => sum + effectiveCost(a.price, feeRate),
+    0,
+  );
+  const netProfit = payout - totalEffectiveCost;
+  // Normalize to profit per $1 of payout so the threshold is comparable
+  // with the YES-sweep and binary signals.
+  const netSpread = netProfit / payout;
+
+  if (netSpread <= config.feeThreshold) return null;
+
+  const totalRawCost = asks.reduce((s, a) => s + a.price, 0);
+  const minSize = Math.min(...asks.map((a) => a.size));
+  const maxSharesByBudget = config.maxPositionUsd / totalRawCost;
+  const size = Math.min(minSize, maxSharesByBudget);
+
+  if (size < 0.01) return null;
+
+  return {
+    type: "neg_risk",
+    negRiskMarketId: group.negRiskMarketId,
+    groupQuestion: group.groupQuestion,
+    sweep: "no",
+    legs: group.outcomes.map((o, i) => ({
+      marketId: o.marketId,
+      tokenId: o.noTokenId,
+      entryPrice: asks[i].price,
+    })),
+    profitableVolumeUsd: size * totalRawCost,
+    expectedProfitUsd: size * netProfit,
+    netSpread,
     feeRate,
   };
 }
