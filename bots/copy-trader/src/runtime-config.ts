@@ -57,7 +57,15 @@ export const traders: TrackedTrader[] = [];
 
 // ── Trader persistence ───────────────────────────────────────────────────────
 
-const TRADERS_FILE = process.env["TRADERS_STATE_FILE"] ?? "";
+// Prefer an explicit TRADERS_STATE_FILE, but fall back to a path derived from
+// POSITIONS_STATE_FILE (which the orchestrator always sets). This makes the
+// tracked-trader list survive restarts even when the orchestrator didn't inject
+// TRADERS_STATE_FILE — no re-spawn or env gymnastics required.
+const TRADERS_FILE =
+  process.env["TRADERS_STATE_FILE"] ||
+  (process.env["POSITIONS_STATE_FILE"]
+    ? process.env["POSITIONS_STATE_FILE"].replace(/\.json$/, "-traders.json")
+    : "");
 
 function saveTraders(): void {
   if (!TRADERS_FILE) return;
