@@ -29,9 +29,19 @@ function getClient(): ClobClient {
 }
 
 let _signingClient: ClobClient | null = null;
+// Don't re-derive the API key more than once per backoff window after a
+// failure. Polymarket rate-limits /auth/api-key, and retrying every 30s (the
+// metrics loop) just keeps the rate-limit alive. One success caches the client.
+let _deriveFailedAt = 0;
+const DERIVE_BACKOFF_MS = 5 * 60_000;
 
 async function getSigningClient(): Promise<ClobClient> {
   if (_signingClient) return _signingClient;
+  if (_deriveFailedAt && Date.now() - _deriveFailedAt < DERIVE_BACKOFF_MS) {
+    throw new Error(
+      "Polymarket API key derivation backing off after a recent failure (rate-limited)",
+    );
+  }
   const key = config.polymarket.signerKey;
   if (!key) throw new Error("BOT_SIGNER_KEY not set — Polymarket orders unavailable");
   const account = privateKeyToAccount(
@@ -52,17 +62,25 @@ async function getSigningClient(): Promise<ClobClient> {
   console.log(
     `[clob] creating API key sig_type=${config.polymarket.signatureType} funder=${config.polymarket.funderAddress || "(none)"}`,
   );
-  const creds = await tempClient.createOrDeriveApiKey();
-  if (!creds || !(creds as unknown as Record<string, unknown>)["key"]) {
+  let creds: unknown;
+  try {
+    creds = await tempClient.createOrDeriveApiKey();
+  } catch (err) {
+    _deriveFailedAt = Date.now();
+    throw err;
+  }
+  if (!creds || !(creds as Record<string, unknown>)["key"]) {
+    _deriveFailedAt = Date.now();
     throw new Error(
       `createOrDeriveApiKey returned empty creds: ${JSON.stringify(creds)}`,
     );
   }
+  _deriveFailedAt = 0;
   _signingClient = new ClobClient({
     host: config.polymarket.host,
     chain: Chain.POLYGON,
     signer: signer as any,
-    creds,
+    creds: creds as any,
     signatureType: config.polymarket.signatureType,
     funderAddress: config.polymarket.funderAddress,
   });
