@@ -157,10 +157,8 @@ function dateWithinHours(a: string, b: string, hours: number): boolean {
 }
 
 /**
- * Numeric "strikes" in a title/ticker (rate thresholds, price levels, …),
- * excluding 4-digit years. Used to keep threshold-ladder markets from
- * cross-matching: a Kalshi "fed funds rate ≥ 2.75%" must not pair with a
- * Polymarket market about a different number (3.25%, etc.).
+ * Numeric "strikes" in free text (rate thresholds, price levels, …), excluding
+ * 4-digit years so "2026" in a question isn't treated as a strike.
  */
 function extractStrikes(s: string): number[] {
   return (s.match(/\d+(?:\.\d+)?/g) ?? [])
@@ -169,14 +167,38 @@ function extractStrikes(s: string): number[] {
 }
 
 /**
- * Compatible when neither side carries a strike, or they share at least one
- * strike value. Rejects pairs that share keywords but differ on the number.
+ * The threshold of a Kalshi scalar market, taken from the `-T<num>` segment of
+ * the ticker (e.g. KXFED-26JUN-T3.50 → 3.50). Parsing the ticker avoids the
+ * year digits ("26JUN") that a raw number scan would pick up. Null when the
+ * market isn't a threshold ladder.
  */
-function strikesCompatible(a: string, b: string): boolean {
-  const sa = extractStrikes(a);
-  const sb = extractStrikes(b);
-  if (sa.length === 0 || sb.length === 0) return true;
-  return sa.some((x) => sb.some((y) => Math.abs(x - y) < 1e-6));
+function kalshiStrike(ticker: string): number | null {
+  const m = ticker.match(/-T(\d+(?:\.\d+)?)/i);
+  return m ? parseFloat(m[1]!) : null;
+}
+
+/**
+ * Reject threshold-ladder false-positives. If the Kalshi market is a scalar
+ * threshold (has a -T strike, or a strike in its title), the Polymarket market
+ * MUST reference that same number — otherwise a Fed-rate ≥3.50% rung matches an
+ * unrelated market that merely shares a year/keyword (governor races, Ballon
+ * d'Or, …). Non-threshold Kalshi markets are left unconstrained.
+ */
+function strikesCompatible(
+  kalshiTitle: string,
+  kalshiTicker: string,
+  polyQuestion: string,
+): boolean {
+  const tStrike = kalshiStrike(kalshiTicker);
+  const kalshiStrikes = [
+    ...extractStrikes(kalshiTitle),
+    ...(tStrike != null ? [tStrike] : []),
+  ];
+  if (kalshiStrikes.length === 0) return true; // not a threshold market
+  const polyStrikes = extractStrikes(polyQuestion);
+  return kalshiStrikes.some((x) =>
+    polyStrikes.some((y) => Math.abs(x - y) < 1e-6),
+  );
 }
 
 // ── Main matcher ──────────────────────────────────────────────────────────────
@@ -212,9 +234,9 @@ export async function findMarketPairs(
     for (const pm of cheapPoly) {
       if (usedPolyIds.has(pm.conditionId)) continue;
       if (!dateWithinHours(km.closeTime, pm.endDate, 168)) continue;
-      // Reject threshold-ladder false-positives (e.g. Fed rate 2.75 vs 3.25).
-      // The Kalshi strike lives in the ticker (…-T2.75), so include it.
-      if (!strikesCompatible(`${km.title} ${km.ticker}`, pm.question)) continue;
+      // Reject threshold-ladder false-positives (e.g. Fed rate 2.75 vs a
+      // governor race). A Kalshi scalar market must share its strike with Poly.
+      if (!strikesCompatible(km.title, km.ticker, pm.question)) continue;
 
       let score = tokenOverlap(km.title, pm.question);
 
