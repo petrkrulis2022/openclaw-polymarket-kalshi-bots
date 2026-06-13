@@ -250,16 +250,20 @@ export async function placeKalshiOrder(
   // Kalshi count = number of contracts. Each contract pays $1 on win.
   // At price P, cost per contract = P dollars. Count = sizeUsd / price.
   const count = sizeUsd / price;
+  // Dollar-denominated (fixed-point) order API — see kalshi.md "Order Placement".
+  // The reads already use the dollar book (orderbook_fp.yes_dollars); the write
+  // side must use the matching endpoint/format. The old /portfolio/orders path
+  // with a dollar-string price rejects, which is why every Kalshi leg failed.
   const body = {
     ticker,
     action,
     outcome_side: outcomeSide,
     price: price.toFixed(4),
-    count: Math.max(1, Math.round(count)),
+    count: Math.max(1, Math.round(count)).toFixed(2),
     time_in_force: "fill_or_kill",
     client_order_id: clientOrderId,
   };
-  const raw = await kalshiPost<RawOrderResponse>("/portfolio/orders", body);
+  const raw = await kalshiPost<RawOrderResponse>("/portfolio/events/orders", body);
   const orderId =
     raw.order?.order_id ?? (raw as Record<string, unknown>)["order_id"] as string ?? "unknown";
   return { orderId };

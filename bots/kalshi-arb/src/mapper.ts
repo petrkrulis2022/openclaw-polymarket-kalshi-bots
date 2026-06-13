@@ -156,6 +156,29 @@ function dateWithinHours(a: string, b: string, hours: number): boolean {
   return diff <= hours * 3_600_000;
 }
 
+/**
+ * Numeric "strikes" in a title/ticker (rate thresholds, price levels, …),
+ * excluding 4-digit years. Used to keep threshold-ladder markets from
+ * cross-matching: a Kalshi "fed funds rate ≥ 2.75%" must not pair with a
+ * Polymarket market about a different number (3.25%, etc.).
+ */
+function extractStrikes(s: string): number[] {
+  return (s.match(/\d+(?:\.\d+)?/g) ?? [])
+    .map((n) => parseFloat(n))
+    .filter((n) => Number.isFinite(n) && !(n >= 1900 && n <= 2100));
+}
+
+/**
+ * Compatible when neither side carries a strike, or they share at least one
+ * strike value. Rejects pairs that share keywords but differ on the number.
+ */
+function strikesCompatible(a: string, b: string): boolean {
+  const sa = extractStrikes(a);
+  const sb = extractStrikes(b);
+  if (sa.length === 0 || sb.length === 0) return true;
+  return sa.some((x) => sb.some((y) => Math.abs(x - y) < 1e-6));
+}
+
 // ── Main matcher ──────────────────────────────────────────────────────────────
 
 export async function findMarketPairs(
@@ -189,6 +212,9 @@ export async function findMarketPairs(
     for (const pm of cheapPoly) {
       if (usedPolyIds.has(pm.conditionId)) continue;
       if (!dateWithinHours(km.closeTime, pm.endDate, 168)) continue;
+      // Reject threshold-ladder false-positives (e.g. Fed rate 2.75 vs 3.25).
+      // The Kalshi strike lives in the ticker (…-T2.75), so include it.
+      if (!strikesCompatible(`${km.title} ${km.ticker}`, pm.question)) continue;
 
       let score = tokenOverlap(km.title, pm.question);
 

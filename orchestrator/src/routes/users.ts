@@ -944,6 +944,11 @@ async function ensureUserBotProcess(
         POSITIONS_DIR,
         `${bot.name}-u${slot}.json`,
       ),
+      // copy-trader persists its tracked-trader list here; ignored by other bots.
+      TRADERS_STATE_FILE: path.join(
+        POSITIONS_DIR,
+        `${bot.name}-u${slot}-traders.json`,
+      ),
       ...(getBotTradeAmountEnv(user, botName)
         ? { MAX_POSITION_USD: getBotTradeAmountEnv(user, botName) }
         : {}),
@@ -1219,6 +1224,11 @@ router.post(
             POSITIONS_STATE_FILE: path.join(
               POSITIONS_DIR,
               `${bot.name}-u${slot}.json`,
+            ),
+            // copy-trader persists its tracked-trader list here; ignored by others.
+            TRADERS_STATE_FILE: path.join(
+              POSITIONS_DIR,
+              `${bot.name}-u${slot}-traders.json`,
             ),
             ...(getBotTradeAmountEnv(user, bot.name)
               ? { MAX_POSITION_USD: getBotTradeAmountEnv(user, bot.name) }

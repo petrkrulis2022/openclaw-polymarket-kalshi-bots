@@ -1146,18 +1146,24 @@ function CopyTraderView({
     if (usernameMatch) {
       const slug = usernameMatch[1];
       try {
+        // gamma public-search is the live username→wallet path. The old
+        // data-api /profiles?username= endpoint now 404s.
         const res = await fetch(
-          `https://data-api.polymarket.com/profiles?username=${encodeURIComponent(slug)}`,
+          `https://gamma-api.polymarket.com/public-search?q=${encodeURIComponent(slug)}&search_profiles=true&limit_per_type=10`,
           { signal: AbortSignal.timeout(6_000) },
         );
         if (res.ok) {
-          const data: unknown = await res.json();
-          const arr = Array.isArray(data) ? data : [data];
-          const profile = arr[0] as Record<string, unknown> | undefined;
-          const addr =
-            (profile?.["proxyWallet"] as string | undefined) ??
-            (profile?.["address"] as string | undefined) ??
-            (profile?.["walletAddress"] as string | undefined);
+          const data = (await res.json()) as {
+            profiles?: Array<Record<string, unknown>>;
+          };
+          const profiles = data.profiles ?? [];
+          // Prefer an exact (case-insensitive) name match, else the first hit.
+          const exact = profiles.find(
+            (p) =>
+              String(p["name"] ?? "").toLowerCase() === slug.toLowerCase(),
+          );
+          const profile = exact ?? profiles[0];
+          const addr = profile?.["proxyWallet"] as string | undefined;
           if (addr && /^0x[0-9a-fA-F]{40}/i.test(addr))
             return addr.toLowerCase();
         }

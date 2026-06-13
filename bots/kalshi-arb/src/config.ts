@@ -40,6 +40,11 @@ export const config = {
   scanIntervalMs: parseInt(process.env["SCAN_INTERVAL_MS"] ?? "15000", 10),
   // Minimum net edge (%) after all fees before firing a trade
   minNetSpreadPct: parseFloat(process.env["MIN_NET_SPREAD_PCT"] ?? "1.0"),
+  // Upper plausibility bound on net edge (%). A real same-event cross-exchange
+  // arb is at most a few percent; a larger edge means the Kalshi and Poly
+  // markets aren't actually the same event (mapper false-positive). Discard it
+  // rather than leg into a mismatched, unhedged pair.
+  maxPlausibleEdgePct: parseFloat(process.env["MAX_PLAUSIBLE_EDGE_PCT"] ?? "15"),
   maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "200"),
   maxOpenPairs: parseInt(process.env["MAX_OPEN_PAIRS"] ?? "5", 10),
   pairTimeoutMs: parseInt(process.env["PAIR_TIMEOUT_MS"] ?? "10000", 10),

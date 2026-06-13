@@ -136,6 +136,16 @@ function computeSignal(
 
   if (netEdgePct < config.minNetSpreadPct) return null;
 
+  // Implausibly large edge ⇒ the two legs aren't the same event (mapper
+  // false-positive, e.g. a Fed-rate threshold matched to the wrong strike).
+  // Real same-event arbs are small; drop the rest instead of legging in.
+  if (netEdgePct > config.maxPlausibleEdgePct) {
+    console.warn(
+      `[orderbook] Dropping implausible ${netEdgePct.toFixed(1)}% edge on ${pair.kalshiTicker} ↔ ${pair.polyQuestion.slice(0, 40)} — likely market mismatch`,
+    );
+    return null;
+  }
+
   const avgContracts = Math.min(kResult.contracts, pResult.contracts);
   const estimatedProfitUsd = netEdge * avgContracts;
 
