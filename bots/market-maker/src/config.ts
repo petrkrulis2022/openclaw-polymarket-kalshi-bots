@@ -47,6 +47,13 @@ export const config = {
   orchestratorUrl: process.env["ORCHESTRATOR_URL"] ?? "http://localhost:3002",
   treasuryUrl: process.env["TREASURY_URL"] ?? "http://localhost:3001",
 
+  // On-chain CTF mergePositions is signed by the bot EOA, so it only succeeds
+  // when the EOA itself holds the conditional tokens — i.e. POLY_EOA mode.
+  // In proxy/Safe/1271 mode the tokens live in the proxy wallet and a direct
+  // EOA merge reverts, so we skip it and recycle inventory through the book
+  // (and capture the locked spread at oracle resolution instead).
+  canMergeOnchain: signatureTypeFromEnv() === SignatureTypeV2.EOA,
+
   quoting: {
     // halfWidth: how far each side is from mid, e.g. 0.03 = 3 cent spread on each side
     quoteHalfWidth: parseFloat(process.env["QUOTE_HALF_WIDTH"] ?? "0.03"),

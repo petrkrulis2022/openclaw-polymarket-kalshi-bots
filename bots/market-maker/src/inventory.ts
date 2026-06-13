@@ -82,6 +82,55 @@ export function getPosition(tokenId: string): InventoryPosition {
   );
 }
 
+/**
+ * Record an on-chain CTF merge of `amount` matched YES+NO pairs into USDC.
+ * Each merged pair returns exactly $1, so realized profit is
+ * 1 − (yesAvg + noAvg) per pair — the spread we captured by acquiring both
+ * legs below $1. Reduces both legs and books the profit on the YES leg.
+ * Returns the number of pairs actually merged (capped by held inventory).
+ */
+export function recordMerge(
+  yesTokenId: string,
+  noTokenId: string,
+  amount: number,
+): number {
+  const yes = inventory.get(yesTokenId);
+  const no = inventory.get(noTokenId);
+  if (!yes || !no) return 0;
+  const merged = Math.min(amount, yes.netSize, no.netSize);
+  if (merged <= 0) return 0;
+
+  yes.realizedPnl += merged * (1 - yes.avgPrice - no.avgPrice);
+  yes.netSize -= merged;
+  no.netSize -= merged;
+  if (yes.netSize < 1e-9) yes.netSize = 0;
+  if (no.netSize < 1e-9) no.netSize = 0;
+
+  inventory.set(yesTokenId, yes);
+  inventory.set(noTokenId, no);
+  persistState();
+  return merged;
+}
+
+/**
+ * Net directional skew across both legs of a binary market, as a signed
+ * fraction of the per-market allocation. Positive = net long YES exposure,
+ * negative = net long NO. Used to throttle the side that would grow our
+ * existing imbalance further.
+ */
+export function getNetSkew(
+  yesTokenId: string,
+  noTokenId: string,
+  allocated: number,
+): number {
+  if (allocated <= 0) return 0;
+  const yes = getPosition(yesTokenId);
+  const no = getPosition(noTokenId);
+  const yesValue = yes.netSize * yes.avgPrice;
+  const noValue = no.netSize * no.avgPrice;
+  return (yesValue - noValue) / allocated;
+}
+
 export function getTotalRealizedPnl(): number {
   let total = 0;
   for (const pos of inventory.values()) total += pos.realizedPnl;

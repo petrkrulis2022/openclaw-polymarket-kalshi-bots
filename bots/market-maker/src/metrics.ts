@@ -1,6 +1,6 @@
 import { config } from "./config.js";
 import { getStates } from "./quoter.js";
-import { getTotalRealizedPnl } from "./inventory.js";
+import { getTotalRealizedPnl, getAllPositions } from "./inventory.js";
 
 export interface MetricsSnapshot {
   botId: number;
@@ -31,10 +31,18 @@ export function buildSnapshot(allocatedEquity: number): MetricsSnapshot {
   const states = getStates();
   const openPositions = states.reduce((s, st) => s + st.openPositions, 0);
 
-  // Approx unrealized: sum of mid * position size for all active markets
-  const unrealizedPnl = states.reduce((s, st) => {
-    const mid = st.mid;
-    return s + mid * 0; // placeholder until fill tracking is complete
+  // Mark inventory to the current mid of each leg (YES uses st.mid, NO uses
+  // 1 − st.mid). Positions in markets we no longer quote have no mid and are
+  // left out of the mark.
+  const midByToken = new Map<string, number>();
+  for (const st of states) {
+    if (st.yesTokenId) midByToken.set(st.yesTokenId, st.mid);
+    if (st.noTokenId) midByToken.set(st.noTokenId, 1 - st.mid);
+  }
+  const unrealizedPnl = getAllPositions().reduce((s, p) => {
+    const mid = midByToken.get(p.tokenId);
+    if (mid == null || p.netSize <= 0) return s;
+    return s + (mid - p.avgPrice) * p.netSize;
   }, 0);
 
   const realizedPnl = getTotalRealizedPnl();

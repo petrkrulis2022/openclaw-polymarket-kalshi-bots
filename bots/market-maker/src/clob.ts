@@ -257,6 +257,71 @@ export async function fetchTradeHistory(): Promise<TradeRecord[]> {
   }
 }
 
+export interface NormalizedMakerOrder {
+  orderId: string;
+  assetId: string;
+  side: string;
+  matchedAmount: string;
+  price: string;
+}
+
+export interface NormalizedTrade {
+  id: string;
+  status: string;
+  traderSide: string;
+  takerOrderId: string;
+  assetId: string;
+  side: string;
+  size: string;
+  price: string;
+  makerOrders: NormalizedMakerOrder[];
+}
+
+/**
+ * Fetch recent trades for our maker wallet with the per-order detail intact.
+ * Unlike fetchTradeHistory (which flattens to top-level fields), this keeps
+ * `maker_orders[]` so callers can attribute fills to specific order IDs — the
+ * only reliable way to tell our fills apart from other bots sharing the wallet.
+ */
+export async function fetchRawTrades(): Promise<NormalizedTrade[]> {
+  if (config.paperTrading) return [];
+  try {
+    const c = await getSigningClient();
+    const result = await c.getTrades({
+      maker_address: config.polymarket.walletAddress,
+    });
+    const trades = Array.isArray(result)
+      ? result
+      : ((result as { data?: unknown[] }).data ?? []);
+    return trades.map((t: unknown): NormalizedTrade => {
+      const tr = t as Record<string, unknown>;
+      const rawMakers = Array.isArray(tr["maker_orders"])
+        ? (tr["maker_orders"] as Array<Record<string, unknown>>)
+        : [];
+      return {
+        id: String(tr["id"] ?? ""),
+        status: String(tr["status"] ?? ""),
+        traderSide: String(tr["trader_side"] ?? ""),
+        takerOrderId: String(tr["taker_order_id"] ?? ""),
+        assetId: String(tr["asset_id"] ?? ""),
+        side: String(tr["side"] ?? ""),
+        size: String(tr["size"] ?? "0"),
+        price: String(tr["price"] ?? "0"),
+        makerOrders: rawMakers.map((mo) => ({
+          orderId: String(mo["order_id"] ?? ""),
+          assetId: String(mo["asset_id"] ?? ""),
+          side: String(mo["side"] ?? ""),
+          matchedAmount: String(mo["matched_amount"] ?? "0"),
+          price: String(mo["price"] ?? "0"),
+        })),
+      };
+    });
+  } catch (err) {
+    console.warn("[clob] fetchRawTrades error:", (err as Error).message);
+    return [];
+  }
+}
+
 export async function getLastTradeMid(tokenId: string): Promise<number> {
   try {
     const c = getClient();

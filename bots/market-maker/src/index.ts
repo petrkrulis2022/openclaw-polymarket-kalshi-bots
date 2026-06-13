@@ -27,6 +27,7 @@ import {
 } from "./clob.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 import { logActivity, getActivity } from "./activity.js";
+import { loadFillsState, pollFills } from "./fills.js";
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let allocatedEquity = 0; // updated from treasury at startup; bots don't move funds
@@ -90,8 +91,10 @@ async function mainLoop(): Promise<void> {
   await getActiveMarkets();
 
   // Restore inventory from state file only — never from raw CLOB trade history,
-  // which would mix in trades placed by other bots sharing this wallet.
+  // which would mix in trades placed by other bots sharing this wallet. The
+  // fill poller attributes ongoing fills by our own order IDs instead.
   loadPersistedState();
+  loadFillsState();
 
   // Self-rescheduling quoting loop — picks up pollIntervalMs changes immediately
   async function scheduleQuoting(): Promise<void> {
@@ -103,6 +106,20 @@ async function mainLoop(): Promise<void> {
       logActivity("quote_cycle_error", { message: (err as Error).message }, "error");
     }
     if (running) setTimeout(scheduleQuoting, params.pollIntervalMs);
+  }
+
+  // Fill-detection loop — folds our own confirmed fills into inventory so the
+  // SELL/recycle paths and skew controls can see real positions. Runs slightly
+  // ahead of quoting so each cycle quotes off fresh inventory.
+  const FILLS_INTERVAL_MS = 8000;
+  async function scheduleFills(): Promise<void> {
+    if (!running) return;
+    try {
+      await pollFills();
+    } catch (err) {
+      console.error("[fills] Poll error:", (err as Error).message);
+    }
+    if (running) setTimeout(scheduleFills, FILLS_INTERVAL_MS);
   }
 
   // Self-rescheduling metrics loop — picks up metricsIntervalMs changes immediately
@@ -125,6 +142,7 @@ async function mainLoop(): Promise<void> {
   }, 60_000);
 
   // Kick off loops
+  setTimeout(scheduleFills, FILLS_INTERVAL_MS);
   setTimeout(scheduleQuoting, params.pollIntervalMs);
   setTimeout(scheduleMetrics, params.metricsIntervalMs);
 
