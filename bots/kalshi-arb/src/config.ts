@@ -45,7 +45,11 @@ export const config = {
   // markets aren't actually the same event (mapper false-positive). Discard it
   // rather than leg into a mismatched, unhedged pair.
   maxPlausibleEdgePct: parseFloat(process.env["MAX_PLAUSIBLE_EDGE_PCT"] ?? "15"),
-  maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "200"),
+  // Total notional per arb pair (split across the two legs, so each leg is
+  // half this). Lowered to fit the thin shared deposit wallet (~$10); $10 →
+  // ~$5/leg, which still clears Polymarket's 5-share / $1 order minimum at
+  // typical prices. Raise via MAX_POSITION_USD once the wallet is funded.
+  maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "10"),
   maxOpenPairs: parseInt(process.env["MAX_OPEN_PAIRS"] ?? "5", 10),
   pairTimeoutMs: parseInt(process.env["PAIR_TIMEOUT_MS"] ?? "10000", 10),
   maxUnhedgedMs: parseInt(process.env["MAX_UNHEDGED_MS"] ?? "10000", 10),
