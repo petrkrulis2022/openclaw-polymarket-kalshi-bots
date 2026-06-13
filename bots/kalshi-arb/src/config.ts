@@ -50,7 +50,10 @@ export const config = {
   // ~$5/leg, which still clears Polymarket's 5-share / $1 order minimum at
   // typical prices. Raise via MAX_POSITION_USD once the wallet is funded.
   maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "10"),
-  maxOpenPairs: parseInt(process.env["MAX_OPEN_PAIRS"] ?? "5", 10),
+  // One pair at a time while the wallet is thin and the live order path is being
+  // validated — caps concurrent exposure (and naked-leg blast radius) to ~$5.
+  // Raise via MAX_OPEN_PAIRS once a few pairs have round-tripped cleanly.
+  maxOpenPairs: parseInt(process.env["MAX_OPEN_PAIRS"] ?? "1", 10),
   pairTimeoutMs: parseInt(process.env["PAIR_TIMEOUT_MS"] ?? "10000", 10),
   maxUnhedgedMs: parseInt(process.env["MAX_UNHEDGED_MS"] ?? "10000", 10),
   unwindMaxRetries: parseInt(process.env["UNWIND_MAX_RETRIES"] ?? "3", 10),

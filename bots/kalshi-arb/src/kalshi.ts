@@ -261,6 +261,9 @@ export async function placeKalshiOrder(
     price: price.toFixed(4),
     count: Math.max(1, Math.round(count)).toFixed(2),
     time_in_force: "fill_or_kill",
+    // Required by CreateOrderV2Request. taker_at_cross cancels our taker order if
+    // it would self-cross (we don't self-trade, so this is just the safe default).
+    self_trade_prevention_type: "taker_at_cross",
     client_order_id: clientOrderId,
   };
   const raw = await kalshiPost<RawOrderResponse>("/portfolio/events/orders", body);
