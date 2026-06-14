@@ -1,6 +1,7 @@
 // ── Runtime-mutable state for the copy-trader bot ──────────────────────────
 
 import fs from "fs";
+import path from "path";
 
 export interface TrackedTrader {
   /** Polymarket proxy wallet address (from profile URL, e.g. polymarket.com/profile/0x...) */
@@ -68,15 +69,29 @@ const TRADERS_FILE =
     : "");
 
 function saveTraders(): void {
-  if (!TRADERS_FILE) return;
+  if (!TRADERS_FILE) {
+    console.error(
+      "[runtime-config] No TRADERS_STATE_FILE/POSITIONS_STATE_FILE set — traders will NOT persist across restarts",
+    );
+    return;
+  }
   try {
+    // Self-heal: ensure the directory exists (a missing dir was a silent
+    // writeFileSync failure that lost the trader list on every restart).
+    fs.mkdirSync(path.dirname(TRADERS_FILE), { recursive: true });
     fs.writeFileSync(
       TRADERS_FILE,
       JSON.stringify({ traders, savedAt: new Date().toISOString() }, null, 2),
       "utf-8",
     );
-  } catch {
-    /* non-fatal */
+    console.log(
+      `[runtime-config] Saved ${traders.length} trader(s) to ${TRADERS_FILE}`,
+    );
+  } catch (err) {
+    console.error(
+      `[runtime-config] FAILED to save traders to ${TRADERS_FILE}:`,
+      (err as Error).message,
+    );
   }
 }
 
