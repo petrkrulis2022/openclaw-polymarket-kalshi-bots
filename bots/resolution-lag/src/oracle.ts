@@ -37,6 +37,11 @@ export async function findResolutionOpportunities(
   );
   const seenThisScan = new Set<string>();
 
+  // Diagnostics: count why candidates get rejected so "0 opportunities" is
+  // explainable instead of a black box.
+  const diag = { notConfirmed: 0, noAsk: 0, priceBand: 0, pending: 0, found: 0 };
+  const askSamples: number[] = [];
+
   // Process in small concurrency-limited batches — firing a CLOB request for
   // every candidate at once bursts hundreds of calls at clob.polymarket.com and
   // gets rate-limited ("fetch failed"), so no opportunity is ever confirmed.
@@ -53,6 +58,7 @@ export async function findResolutionOpportunities(
         const clobWinnerTokenId = await getResolvedWinnerTokenId(m.conditionId);
         if (!clobWinnerTokenId || clobWinnerTokenId !== winningTokenId) {
           confirmationCounts.delete(confirmKey);
+          diag.notConfirmed++;
           return;
         }
       }
@@ -60,19 +66,26 @@ export async function findResolutionOpportunities(
       const ask = await getBestAsk(winningTokenId);
       if (ask <= 0) {
         confirmationCounts.delete(confirmKey);
+        diag.noAsk++;
         return;
       }
+      if (askSamples.length < 12) askSamples.push(ask);
 
       // Ignore obvious live-market pricing and fully settled pricing.
       if (ask < config.minAskPrice || ask >= config.maxAskPrice) {
         confirmationCounts.delete(confirmKey);
+        diag.priceBand++;
         return;
       }
 
       const nextConfirmCount = (confirmationCounts.get(confirmKey) ?? 0) + 1;
       confirmationCounts.set(confirmKey, nextConfirmCount);
-      if (nextConfirmCount < config.requiredResolutionConfirmations) return;
+      if (nextConfirmCount < config.requiredResolutionConfirmations) {
+        diag.pending++;
+        return;
+      }
 
+      diag.found++;
       const expectedYield = (1 - ask) / ask;
       opportunities.push({
         market: m,
@@ -83,6 +96,12 @@ export async function findResolutionOpportunities(
       }),
     );
   }
+
+  console.log(
+    `[oracle] candidates=${actionable.length} confirmRejected=${diag.notConfirmed} ` +
+      `noAsk=${diag.noAsk} priceBand=${diag.priceBand} pending=${diag.pending} ` +
+      `found=${diag.found} | asks=[${askSamples.map((a) => a.toFixed(2)).join(",")}]`,
+  );
 
   for (const key of confirmationCounts.keys()) {
     if (!seenThisScan.has(key)) confirmationCounts.delete(key);
