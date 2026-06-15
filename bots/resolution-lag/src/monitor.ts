@@ -131,10 +131,21 @@ export async function fetchClosedUnresolvedMarkets(): Promise<ClosedMarket[]> {
     const allMarkets: GammaMarket[] = [];
     const limit = 100;
 
+    // Bound the query to markets that ended within the recent lookback window.
+    // Without this, closed=true is dominated by far-future-dated markets (closed
+    // early, end date years out) and ancient ones, so the recently-ended markets
+    // that carry the lag opportunity never appear and discovery returns 0.
+    const now = Date.now();
+    const endMin = new Date(now - config.lookbackHours * 3_600_000).toISOString();
+    const endMax = new Date(now).toISOString();
+
     for (let page = 0; page < 5; page++) {
       // Most-recently-ended first — resolution-lag opportunities live in the
       // short window right after close, not in the back catalogue.
-      const url = `${GAMMA_API}?closed=true&active=false&limit=${limit}&offset=${page * limit}&order=endDate&ascending=false`;
+      const url =
+        `${GAMMA_API}?closed=true&end_date_min=${encodeURIComponent(endMin)}` +
+        `&end_date_max=${encodeURIComponent(endMax)}` +
+        `&limit=${limit}&offset=${page * limit}&order=endDate&ascending=false`;
       const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
       if (!res.ok) throw new Error(`Gamma API ${res.status}`);
       const data = (await res.json()) as GammaMarket[];
@@ -148,6 +159,10 @@ export async function fetchClosedUnresolvedMarkets(): Promise<ClosedMarket[]> {
     const result: ClosedMarket[] = [];
     for (const m of markets) {
       if (!isResolved(m)) continue;
+      // Skip high-frequency crypto "Up or Down" markets — they auto-resolve on
+      // the CLOB with no lag, so they're noise that would waste hundreds of CLOB
+      // checks per scan (and risk rate-limiting) for zero opportunity.
+      if (/up or down/i.test(m.question ?? "")) continue;
       const endDate = m.end_date_iso ?? m.endDate ?? "";
       if (!hasPassedEndDateBuffer(endDate)) continue;
 

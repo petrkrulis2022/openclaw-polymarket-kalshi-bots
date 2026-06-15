@@ -46,6 +46,10 @@ export const config = {
   maxAskPrice: parseFloat(process.env["MAX_ASK_PRICE"] ?? "0.99"),
   // Safety buffer after market end time before considering it actionable.
   minPostEndMinutes: parseInt(process.env["MIN_POST_END_MINUTES"] ?? "45", 10),
+  // Only consider markets that ended within this lookback window. Resolution-lag
+  // opportunities are fresh closures; an unbounded closed=true query is dominated
+  // by far-future-dated and ancient markets and surfaces zero recent ones.
+  lookbackHours: parseInt(process.env["LOOKBACK_HOURS"] ?? "48", 10),
   // Require the same candidate to pass checks in N consecutive scans.
   // 1 is sufficient since CLOB winner confirmation is an independent safety gate.
   requiredResolutionConfirmations: parseInt(
