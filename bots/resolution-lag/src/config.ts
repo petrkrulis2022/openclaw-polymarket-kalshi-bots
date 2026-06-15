@@ -46,7 +46,10 @@ export const config = {
   // dispute zone; requireClobWinnerConfirmation is the independent safety gate.
   // Lower (e.g. 0.10) = main-style lottery tickets — size tiny, losses frequent.
   minAskPrice: parseFloat(process.env["MIN_ASK_PRICE"] ?? "0.10"),
-  maxAskPrice: parseFloat(process.env["MAX_ASK_PRICE"] ?? "0.99"),
+  // Price ceiling. Above this the yield (1-ask)/ask is too thin to clear fees:
+  // 0.90 → ≥11% yield. Note the high band is actually the *safest* (near-certain
+  // winners), just low-margin — lowering this trims safe thin trades, not risk.
+  maxAskPrice: parseFloat(process.env["MAX_ASK_PRICE"] ?? "0.90"),
   // Safety buffer after market end time before considering it actionable.
   // Short (5m) to catch the brief post-resolution window where panic/forced
   // sellers dump the winner below $1, before the book reprices to $1. Tradeoff:
