@@ -39,10 +39,13 @@ export const config = {
   ),
   // Minimum annualised yield (%) to enter a resolution-lag trade
   minYieldPct: parseFloat(process.env["MIN_YIELD_PCT"] ?? "0.5"),
-  // Price band for stale resolved markets. Floor at 0.85 avoids buying into disputed
-  // markets — a confirmed winner trading below 85¢ is more likely a dispute signal
-  // than a lag opportunity. Override with MIN_ASK_PRICE env var if needed.
-  minAskPrice: parseFloat(process.env["MIN_ASK_PRICE"] ?? "0.85"),
+  // Price floor for the winner token. The ask = the market's live probability
+  // the resolution holds, so a cheap winner means the market disbelieves it
+  // (dispute / premature-or-wrong resolution → can settle to $0). 0.50 captures
+  // genuine redemption-lag discounts while staying out of the deep-discount
+  // dispute zone; requireClobWinnerConfirmation is the independent safety gate.
+  // Lower (e.g. 0.10) = main-style lottery tickets — size tiny, losses frequent.
+  minAskPrice: parseFloat(process.env["MIN_ASK_PRICE"] ?? "0.50"),
   maxAskPrice: parseFloat(process.env["MAX_ASK_PRICE"] ?? "0.99"),
   // Safety buffer after market end time before considering it actionable.
   minPostEndMinutes: parseInt(process.env["MIN_POST_END_MINUTES"] ?? "45", 10),
