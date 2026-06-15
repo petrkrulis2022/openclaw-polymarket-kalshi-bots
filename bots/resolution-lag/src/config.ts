@@ -45,7 +45,7 @@ export const config = {
   // genuine redemption-lag discounts while staying out of the deep-discount
   // dispute zone; requireClobWinnerConfirmation is the independent safety gate.
   // Lower (e.g. 0.10) = main-style lottery tickets — size tiny, losses frequent.
-  minAskPrice: parseFloat(process.env["MIN_ASK_PRICE"] ?? "0.50"),
+  minAskPrice: parseFloat(process.env["MIN_ASK_PRICE"] ?? "0.10"),
   maxAskPrice: parseFloat(process.env["MAX_ASK_PRICE"] ?? "0.99"),
   // Safety buffer after market end time before considering it actionable.
   minPostEndMinutes: parseInt(process.env["MIN_POST_END_MINUTES"] ?? "45", 10),
