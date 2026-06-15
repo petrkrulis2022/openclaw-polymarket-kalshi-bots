@@ -50,6 +50,12 @@ export const config = {
   // opportunities are fresh closures; an unbounded closed=true query is dominated
   // by far-future-dated and ancient markets and surfaces zero recent ones.
   lookbackHours: parseInt(process.env["LOOKBACK_HOURS"] ?? "48", 10),
+  // Cap how many (freshest-first) candidates we CLOB-check per scan, and how many
+  // CLOB requests run concurrently. Checking every candidate at once bursts
+  // hundreds of requests at clob.polymarket.com and gets rate-limited ("fetch
+  // failed"). The freshest closures are also the ones most likely still lagging.
+  maxCandidates: parseInt(process.env["MAX_CANDIDATES"] ?? "50", 10),
+  clobCheckConcurrency: parseInt(process.env["CLOB_CHECK_CONCURRENCY"] ?? "4", 10),
   // Require the same candidate to pass checks in N consecutive scans.
   // 1 is sufficient since CLOB winner confirmation is an independent safety gate.
   requiredResolutionConfirmations: parseInt(

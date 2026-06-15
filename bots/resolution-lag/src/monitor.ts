@@ -180,7 +180,9 @@ export async function fetchClosedUnresolvedMarkets(): Promise<ClosedMarket[]> {
         endDate,
       });
     }
-    return result;
+    // Freshest closures first (markets came back endDate-desc); cap the set so
+    // the downstream CLOB checks don't burst hundreds of requests per scan.
+    return result.slice(0, config.maxCandidates);
   } catch (err) {
     console.error("[monitor] Gamma API error:", (err as Error).message);
     return [];

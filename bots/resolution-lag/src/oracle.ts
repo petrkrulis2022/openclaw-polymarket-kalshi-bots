@@ -37,8 +37,14 @@ export async function findResolutionOpportunities(
   );
   const seenThisScan = new Set<string>();
 
-  await Promise.allSettled(
-    actionable.map(async (m) => {
+  // Process in small concurrency-limited batches — firing a CLOB request for
+  // every candidate at once bursts hundreds of calls at clob.polymarket.com and
+  // gets rate-limited ("fetch failed"), so no opportunity is ever confirmed.
+  const batchSize = Math.max(1, config.clobCheckConcurrency);
+  for (let i = 0; i < actionable.length; i += batchSize) {
+    const batch = actionable.slice(i, i + batchSize);
+    await Promise.allSettled(
+      batch.map(async (m) => {
       const winningTokenId = m.winnerTokenId;
       const confirmKey = `${m.id}:${winningTokenId}`;
       seenThisScan.add(confirmKey);
@@ -74,8 +80,9 @@ export async function findResolutionOpportunities(
         currentAsk: ask,
         expectedYield,
       });
-    }),
-  );
+      }),
+    );
+  }
 
   for (const key of confirmationCounts.keys()) {
     if (!seenThisScan.has(key)) confirmationCounts.delete(key);
