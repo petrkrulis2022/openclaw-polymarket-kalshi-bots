@@ -2,7 +2,7 @@
  * executor.ts — places limit buy on the winning token during resolution lag.
  */
 
-import { placeLimitOrder } from "./clob.js";
+import { placeLimitOrder, getCollateralBalance } from "./clob.js";
 import { addPosition, type LagPosition } from "./inventory.js";
 import { logActivity } from "./activity.js";
 import type { ResolutionOpportunity } from "./oracle.js";
@@ -32,9 +32,25 @@ function makeId(): string {
 }
 
 export async function enterPosition(opp: ResolutionOpportunity): Promise<void> {
-  const sizeShares =
-    opp.currentAsk > 0 ? config.maxPositionUsd / opp.currentAsk : 0;
-  if (sizeShares < 0.01) return;
+  if (opp.currentAsk <= 0) return;
+
+  // Size to what the wallet can actually fund, capped by maxPositionUsd. Ordering
+  // the full cap blindly just fails "not enough balance" whenever the wallet is
+  // smaller than the cap (e.g. $100 cap vs a $1.71 balance).
+  const balance = await getCollateralBalance();
+  const budgetUsd = Math.min(config.maxPositionUsd, balance * 0.95);
+  const sizeShares = budgetUsd / opp.currentAsk;
+  if (budgetUsd < 1 || sizeShares < 0.01) {
+    console.warn(
+      `[executor] Skipping — wallet too thin to fund a trade: balance=$${balance.toFixed(2)}`,
+    );
+    logActivity(
+      "order_skipped",
+      { reason: "insufficient_balance", balance, budgetUsd },
+      "warn",
+    );
+    return;
+  }
 
   const id = makeId();
   console.log(
