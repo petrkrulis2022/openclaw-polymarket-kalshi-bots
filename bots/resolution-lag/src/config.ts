@@ -80,8 +80,10 @@ export const config = {
   // resolution + the post-end buffer + the price floor instead (what main did).
   requireClobWinnerConfirmation:
     (process.env["REQUIRE_CLOB_WINNER_CONFIRMATION"] ?? "false") === "true",
-  // Per-trade size. Small by default so the wallet spreads across several
-  // independent positions (important in the low-floor / lottery-ticket mode).
-  maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "3"),
+  // Per-trade ceiling. The executor sizes to min(this, walletBalance * 0.95),
+  // so at a normal balance the WALLET is the binding constraint and this is just
+  // a non-binding upper bound (sizing is effectively "use the full wallet,
+  // dynamically"). Kept high so a fresh spawn never accidentally caps tiny.
+  maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "100"),
   maxOpenPositions: parseInt(process.env["MAX_OPEN_POSITIONS"] ?? "20", 10),
 } as const;
