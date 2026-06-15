@@ -48,7 +48,11 @@ export const config = {
   minAskPrice: parseFloat(process.env["MIN_ASK_PRICE"] ?? "0.10"),
   maxAskPrice: parseFloat(process.env["MAX_ASK_PRICE"] ?? "0.99"),
   // Safety buffer after market end time before considering it actionable.
-  minPostEndMinutes: parseInt(process.env["MIN_POST_END_MINUTES"] ?? "45", 10),
+  // Short (5m) to catch the brief post-resolution window where panic/forced
+  // sellers dump the winner below $1, before the book reprices to $1. Tradeoff:
+  // closer to the UMA challenge window, so higher chance a grabbed "winner" is
+  // later disputed and settles to $0 — consistent with the low-floor mode.
+  minPostEndMinutes: parseInt(process.env["MIN_POST_END_MINUTES"] ?? "5", 10),
   // Only consider markets that ended within this lookback window. Resolution-lag
   // opportunities are fresh closures; an unbounded closed=true query is dominated
   // by far-future-dated and ancient markets and surfaces zero recent ones.
