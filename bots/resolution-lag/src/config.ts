@@ -65,9 +65,16 @@ export const config = {
     process.env["REQUIRED_RESOLUTION_CONFIRMATIONS"] ?? "1",
     10,
   ),
-  // Require CLOB market endpoint to confirm the exact winning token.
+  // Require the CLOB /markets endpoint to confirm the winning token. This is
+  // structurally incompatible with the strategy: getResolvedWinnerTokenId only
+  // returns a winner once the CLOB market is closed (accepting_orders=false), but
+  // the tradeable lag window is exactly when it's still accepting orders — so
+  // turning it on rejects 100% of tradeable candidates. Rely on Gamma's UMA
+  // resolution + the post-end buffer + the price floor instead (what main did).
   requireClobWinnerConfirmation:
-    (process.env["REQUIRE_CLOB_WINNER_CONFIRMATION"] ?? "true") === "true",
-  maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "100"),
+    (process.env["REQUIRE_CLOB_WINNER_CONFIRMATION"] ?? "false") === "true",
+  // Per-trade size. Small by default so the wallet spreads across several
+  // independent positions (important in the low-floor / lottery-ticket mode).
+  maxPositionUsd: parseFloat(process.env["MAX_POSITION_USD"] ?? "3"),
   maxOpenPositions: parseInt(process.env["MAX_OPEN_POSITIONS"] ?? "20", 10),
 } as const;
