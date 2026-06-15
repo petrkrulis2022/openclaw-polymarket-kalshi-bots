@@ -113,7 +113,10 @@ export async function getOrderBook(tokenId: string): Promise<OrderBook> {
 
 export async function getBestAsk(tokenId: string): Promise<number> {
   const { asks } = await getOrderBook(tokenId);
-  if (!asks.length) return 0.99;
+  // No asks = nobody selling this token below $1 (the usual post-resolution
+  // state). Return 0 so callers count it as "no ask" rather than a phantom
+  // 0.99 price — there's nothing to buy.
+  if (!asks.length) return 0;
   return asks[0].price;
 }
 
