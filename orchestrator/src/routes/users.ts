@@ -936,6 +936,10 @@ async function ensureUserBotProcess(
       BOT_SIGNER_KEY: signerKey,
       POLYMARKET_FUNDER_ADDRESS: depositWalletAddress,
       POLYMARKET_SIGNATURE_TYPE: "POLY_1271",
+      // Server has no IPv6; Node tries IPv6 first and intermittently turns the
+      // ENETUNREACH into a "fetch failed" instead of falling back to IPv4.
+      // Prefer IPv4 so polls/orders to Polymarket stop dropping.
+      NODE_OPTIONS: "--dns-result-order=ipv4first",
       ORCHESTRATOR_URL: `http://localhost:${process.env["PORT"] ?? 3002}`,
       TREASURY_URL: WDK_TREASURY_URL,
       BOT_COUNT: String(Math.max(1, totalEnabledBots)),
@@ -1217,6 +1221,9 @@ router.post(
             BOT_SIGNER_KEY: signerKey,
             POLYMARKET_FUNDER_ADDRESS: depositWalletAddress,
             POLYMARKET_SIGNATURE_TYPE: "POLY_1271",
+            // Server has no IPv6; prefer IPv4 so Node doesn't intermittently
+            // fail fetches to Polymarket on the dead IPv6 attempt.
+            NODE_OPTIONS: "--dns-result-order=ipv4first",
             ORCHESTRATOR_URL: `http://localhost:${process.env["PORT"] ?? 3002}`,
             TREASURY_URL: WDK_TREASURY_URL,
             BOT_COUNT: String(enabledBots.length),
