@@ -164,6 +164,8 @@ export function LiveManager({
     Record<string, TriggerTiming>
   >({});
   const [gameElapsedMs, setGameElapsedMs] = useState<number | null>(null);
+  const [sellPending, setSellPending] = useState(false);
+  const [sellStatus, setSellStatus] = useState<string | null>(null);
 
   const botId = BOT_NAME_TO_ID[botName] ?? 10;
   const { data: botData } = useSportsBot(botId, metamaskAddress);
@@ -323,6 +325,38 @@ export function LiveManager({
     }
   };
 
+  // Manual sell — the user decides when to exit. Goes through the generic bot
+  // proxy to POST /force-sell (immediate market sell, recorded as "manual").
+  const triggerSell = async (): Promise<void> => {
+    if (!metamaskAddress || sellPending) return;
+    setSellPending(true);
+    setSellStatus("Selling…");
+    try {
+      const res = await fetch(
+        `/api/orchestrator/users/${metamaskAddress}/bots/${botName}/proxy/force-sell`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        },
+      );
+      const payload = (await res.json()) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      };
+      setSellStatus(
+        res.ok
+          ? (payload.message ?? "Sell submitted")
+          : (payload.error ?? "Sell failed"),
+      );
+    } catch {
+      setSellStatus("Sell failed: orchestrator unavailable");
+    } finally {
+      setSellPending(false);
+    }
+  };
+
   const cards = useMemo(() => {
     return selectedKeys
       .map((key) => liveByKey[key] ?? baseByKey[key])
@@ -399,7 +433,38 @@ export function LiveManager({
         </div>
       )}
 
-      {/* Open position summary */}
+      {/* Live both-team prices — visible before, during, and after the trigger */}
+      {botData.prices &&
+        (botData.prices.yesAsk > 0 || botData.prices.noAsk > 0) && (
+          <div
+            style={{
+              marginBottom: 10,
+              padding: "8px 12px",
+              background: "#11202b",
+              border: "1px solid #1f4f6b",
+              borderRadius: 8,
+              fontSize: 12,
+              display: "flex",
+              gap: 24,
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ color: "#90caf9", fontWeight: 600 }}>
+              💹 Live prices
+            </span>
+            <span style={{ color: "#e0e0e0" }}>
+              Team A (YES): bid{" "}
+              <b>{(botData.prices.yesBid * 100).toFixed(1)}¢</b> / ask{" "}
+              <b>{(botData.prices.yesAsk * 100).toFixed(1)}¢</b>
+            </span>
+            <span style={{ color: "#e0e0e0" }}>
+              Team B (NO): bid <b>{(botData.prices.noBid * 100).toFixed(1)}¢</b>{" "}
+              / ask <b>{(botData.prices.noAsk * 100).toFixed(1)}¢</b>
+            </span>
+          </div>
+        )}
+
+      {/* Open position summary + manual sell */}
       {openPos && (
         <div
           style={{
@@ -409,16 +474,52 @@ export function LiveManager({
             border: "1px solid #2e7d32",
             borderRadius: 8,
             fontSize: 12,
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 8,
           }}
         >
-          <span style={{ color: "#81c784", fontWeight: 600 }}>
-            📈 Open:{" "}
-          </span>
           <span style={{ color: "#e0e0e0" }}>
-            {openPos.size.toFixed(2)} {openPos.label} shares @{" "}
-            {(openPos.entryAsk * 100).toFixed(1)}¢ (
-            {(openPos.size * openPos.entryAsk).toFixed(2)} USDC)
+            <span style={{ color: "#81c784", fontWeight: 600 }}>📈 Open: </span>
+            {openPos.size.toFixed(2)} {openPos.label} @ entry{" "}
+            {(openPos.entryAsk * 100).toFixed(1)}¢
+            {openPos.currentBid != null && openPos.currentBid > 0 && (
+              <>
+                {" "}
+                | now bid {(openPos.currentBid * 100).toFixed(1)}¢ | P&amp;L{" "}
+                <span
+                  style={{
+                    color:
+                      (openPos.unrealizedPnl ?? 0) >= 0 ? "#81c784" : "#ef9a9a",
+                    fontWeight: 600,
+                  }}
+                >
+                  {(openPos.unrealizedPnl ?? 0) >= 0 ? "+" : ""}
+                  {(openPos.unrealizedPnl ?? 0).toFixed(2)} USDC
+                </span>
+              </>
+            )}
           </span>
+          <button
+            onClick={() => void triggerSell()}
+            disabled={sellPending}
+            style={{
+              marginLeft: "auto",
+              padding: "4px 12px",
+              background: sellPending ? "#444" : "#c62828",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              cursor: sellPending ? "default" : "pointer",
+              fontWeight: 600,
+            }}
+          >
+            {sellPending ? "Selling…" : "Sell now"}
+          </button>
+          {sellStatus && (
+            <span style={{ color: "#90caf9", width: "100%" }}>{sellStatus}</span>
+          )}
         </div>
       )}
 

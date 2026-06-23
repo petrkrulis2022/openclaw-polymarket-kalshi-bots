@@ -59,7 +59,7 @@ interface OpenPosition {
 interface ClosedTrade extends OpenPosition {
   sellPrice: number;
   pnl: number;
-  reason: "profit" | "stop-loss" | "timeout" | "game-over";
+  reason: "profit" | "stop-loss" | "timeout" | "game-over" | "manual";
   closedAtMs: number;
 }
 
@@ -144,10 +144,13 @@ let lastSetupError: string | null = null;
 
 let lastScoreHome = NaN;
 let lastScoreAway = NaN;
-// Last valid (>0) CLOB asks seen during the live poll — the pre-goal reference
-// price the score-trigger BUY caps against. Reset on game switch.
+// Last CLOB prices seen during the live poll. Asks are the pre-goal reference
+// the score-trigger BUY caps against; bids drive the live sell view / PnL.
+// Reset on game switch.
 let lastYesAsk = 0;
 let lastNoAsk = 0;
+let lastYesBid = 0;
+let lastNoBid = 0;
 let gameIsOver = false;
 let liveGameSlug = "";
 let openPosition: OpenPosition | null = null;
@@ -504,9 +507,11 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
       // Reset goal-delta baseline when user switches tracked game.
       lastScoreHome = NaN;
       lastScoreAway = NaN;
-      // Drop the previous game's pre-goal ask reference.
+      // Drop the previous game's cached prices.
       lastYesAsk = 0;
       lastNoAsk = 0;
+      lastYesBid = 0;
+      lastNoBid = 0;
       console.log(
         `[watch] Switched tracked game -> key=${selectedWatchedGameKey} staticId=${staticId} slug=${activeMatchSlug || "(none)"}`,
       );
@@ -856,9 +861,8 @@ async function onGoalDetected(
     avgPrice - config.maxLossCents,
   );
   console.log(
-    `[trade]    Sell plan: hold ${config.holdBeforeSellSeconds}s then monitor | ` +
-      `profit bid≥${fmt(avgPrice + config.minProfitCents)} | ` +
-      `stop-loss bid≤${fmt(hybridStopBid)} | ` +
+    `[trade]    Sell plan: manual exit (sell via dashboard) | ` +
+      `safety stop-loss bid≤${fmt(hybridStopBid)} | ` +
       `timeout ${config.sellTimeoutMinutes}min`,
   );
 
@@ -898,7 +902,10 @@ function getOrCreateWatchlistRow(key: string): WatchlistStateRow {
   return row;
 }
 
-async function checkAndSell(forceSell = false): Promise<void> {
+async function checkAndSell(
+  forceSell = false,
+  forceReason: ClosedTrade["reason"] = "game-over",
+): Promise<void> {
   if (!openPosition) return;
 
   const bestBid = await getBestBid(openPosition.tokenId);
@@ -913,7 +920,9 @@ async function checkAndSell(forceSell = false): Promise<void> {
     return;
   }
 
-  const hitProfit = bestBid >= openPosition.entryAsk + config.minProfitCents;
+  // Manual-exit mode: the user decides when to take profit (via /force-sell).
+  // Auto-sell only fires as a safety net — stop-loss or the timeout. There is no
+  // automatic profit-target sell anymore.
   const stopLossBid = Math.max(
     openPosition.entryAsk * config.stopLossRatio,
     openPosition.entryAsk - config.maxLossCents,
@@ -921,10 +930,9 @@ async function checkAndSell(forceSell = false): Promise<void> {
   const hitStopLoss = bestBid > 0 && bestBid <= stopLossBid;
   const hitTimeout = elapsed >= timeoutMs;
 
-  if (!forceSell && !hitProfit && !hitStopLoss && !hitTimeout) {
+  if (!forceSell && !hitStopLoss && !hitTimeout) {
     console.log(
-      `[sell]  ${openPosition.label} | bid=${fmt(bestBid)} entry=${fmt(openPosition.entryAsk)} | ` +
-        `need bid≥${fmt(openPosition.entryAsk + config.minProfitCents)} | ` +
+      `[sell]  ${openPosition.label} | holding for manual sell | bid=${fmt(bestBid)} entry=${fmt(openPosition.entryAsk)} | ` +
         `stop bid≤${fmt(stopLossBid)} | ` +
         `elapsed=${Math.round(elapsed / 1000)}s`,
     );
@@ -932,12 +940,10 @@ async function checkAndSell(forceSell = false): Promise<void> {
   }
 
   const reason: ClosedTrade["reason"] = forceSell
-    ? "game-over"
-    : hitProfit
-      ? "profit"
-      : hitStopLoss
-        ? "stop-loss"
-        : "timeout";
+    ? forceReason
+    : hitStopLoss
+      ? "stop-loss"
+      : "timeout";
 
   console.log(
     `\n[trade] 💰 Market SELL ${openPosition.size} ${openPosition.label} (${reason})`,
@@ -1001,9 +1007,12 @@ async function logPrices(): Promise<void> {
   const noBid = noBook.bids[0]?.price ?? 0;
   const noAsk = noBook.asks[0]?.price ?? 0;
 
-  // Cache the last valid ask per side as the pre-goal reference for the BUY cap.
+  // Cache the last valid ask per side as the pre-goal reference for the BUY cap,
+  // and the bids for the live sell view / PnL exposed on /trades.
   if (yesAsk > 0) lastYesAsk = yesAsk;
   if (noAsk > 0) lastNoAsk = noAsk;
+  if (yesBid > 0) lastYesBid = yesBid;
+  if (noBid > 0) lastNoBid = noBid;
 
   console.log(
     `[clob]  ${activeTeamHome} YES: bid=${fmt(yesBid)} ask=${fmt(yesAsk)} | ` +
@@ -1262,15 +1271,34 @@ httpApp.get("/metrics", (_req, res) => {
 });
 
 httpApp.get("/trades", (_req, res) => {
+  // Enrich the open position with its live bid and unrealized PnL so the
+  // dashboard can show live profit while the user decides when to sell.
+  let enrichedPosition = null;
+  if (openPosition) {
+    const isYes = market ? openPosition.tokenId === market.yesTokenId : true;
+    const currentBid = isYes ? lastYesBid : lastNoBid;
+    const unrealizedPnl =
+      currentBid > 0
+        ? (currentBid - openPosition.entryAsk) * openPosition.size
+        : 0;
+    enrichedPosition = { ...openPosition, currentBid, unrealizedPnl };
+  }
   res.json({
     trades,
-    openPosition,
+    openPosition: enrichedPosition,
     totalPnl,
     gameOver: gameIsOver,
     matchSlug: activeMatchSlug,
     watchedGamesCount: watchedGames.length,
     selectedWatchedGameKey,
     gameStartDate: lastMarketLifecycle?.gamma.startDate ?? null,
+    // Live both-team prices for the dashboard price panel.
+    prices: {
+      yesBid: lastYesBid,
+      yesAsk: lastYesAsk,
+      noBid: lastNoBid,
+      noAsk: lastNoAsk,
+    },
     market: market
       ? {
           yesTokenId: market.yesTokenId,
@@ -1404,7 +1432,7 @@ httpApp.post("/force-sell", async (_req, res) => {
   if (!openPosition) {
     return res.json({ ok: true, message: "No open position" });
   }
-  await checkAndSell(true);
+  await checkAndSell(true, "manual");
   return res.json({ ok: !openPosition, position: openPosition ?? null });
 });
 

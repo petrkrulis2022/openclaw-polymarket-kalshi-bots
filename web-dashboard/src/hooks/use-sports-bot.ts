@@ -16,12 +16,16 @@ export interface SportsOpenPosition {
   orderId: string;
   boughtAtMs: number;
   timing?: TriggerTiming;
+  /** Live best bid for the held token (current exit price). */
+  currentBid?: number;
+  /** Live unrealized PnL = (currentBid - entryAsk) * size. */
+  unrealizedPnl?: number;
 }
 
 export interface SportsClosedTrade extends SportsOpenPosition {
   sellPrice: number;
   pnl: number;
-  reason: "profit" | "stop-loss" | "timeout" | "game-over";
+  reason: "profit" | "stop-loss" | "timeout" | "game-over" | "manual";
   closedAtMs: number;
 }
 
@@ -29,6 +33,14 @@ export interface SportsMarketInfo {
   yesTokenId: string;
   noTokenId: string;
   question: string;
+}
+
+/** Live best bid/ask for both teams (YES = home/player1, NO = away/player2). */
+export interface SportsPrices {
+  yesBid: number;
+  yesAsk: number;
+  noBid: number;
+  noAsk: number;
 }
 
 export interface SportsBotData {
@@ -39,6 +51,7 @@ export interface SportsBotData {
   matchSlug: string;
   gameStartDate: string | null;
   market: SportsMarketInfo | null;
+  prices: SportsPrices | null;
   metrics: { equity: number; pnl: number; openPositions: number } | null;
 }
 
@@ -61,6 +74,7 @@ export function useSportsBot(
     matchSlug: "",
     gameStartDate: null,
     market: null,
+    prices: null,
     metrics: null,
   });
   const [loading, setLoading] = useState(true);
@@ -98,6 +112,7 @@ export function useSportsBot(
         matchSlug: t.matchSlug ?? "",
         gameStartDate: t.gameStartDate ?? null,
         market: t.market ?? null,
+        prices: t.prices ?? null,
         metrics: m
           ? {
               equity: Number(m.equity),
@@ -116,6 +131,7 @@ export function useSportsBot(
         matchSlug: "",
         gameStartDate: null,
         market: null,
+        prices: null,
         metrics: null,
       });
       setError(e instanceof Error ? e.message : "Bot offline");
@@ -127,7 +143,7 @@ export function useSportsBot(
   useEffect(() => {
     setLoading(true);
     fetch_();
-    timerRef.current = setInterval(fetch_, 5_000);
+    timerRef.current = setInterval(fetch_, 2_000);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
