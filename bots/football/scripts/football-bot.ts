@@ -138,6 +138,10 @@ let lastSetupError: string | null = null;
 
 let lastScoreHome = NaN;
 let lastScoreAway = NaN;
+// Last valid (>0) CLOB asks seen during the live poll — the pre-goal reference
+// price the score-trigger BUY caps against. Reset on game switch.
+let lastYesAsk = 0;
+let lastNoAsk = 0;
 let gameIsOver = false;
 let liveGameSlug = "";
 let openPosition: OpenPosition | null = null;
@@ -159,17 +163,6 @@ function fmt(n: number, decimals = 4): string {
 
 function pnlStr(pnl: number): string {
   return `${pnl >= 0 ? "+" : ""}${fmt(pnl, 4)} USDC`;
-}
-
-function getBuyWorstPriceCap(): number {
-  const fallbackTick = 0.001;
-  const tick =
-    market.orderPriceMinTickSize && market.orderPriceMinTickSize > 0
-      ? market.orderPriceMinTickSize
-      : fallbackTick;
-  const rawCap = 1 - tick;
-  // Clamp to a safe market range and keep deterministic formatting for logs/orders.
-  return Number(Math.min(0.999, Math.max(0.9, rawCap)).toFixed(6));
 }
 
 function parseInsufficientBalanceUsdc(message: string): number | null {
@@ -480,6 +473,9 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
       // Reset goal-delta baseline when user switches tracked game.
       lastScoreHome = NaN;
       lastScoreAway = NaN;
+      // Drop the previous game's pre-goal ask reference.
+      lastYesAsk = 0;
+      lastNoAsk = 0;
       console.log(
         `[watch] Switched tracked game -> key=${selectedWatchedGameKey} staticId=${staticId} slug=${activeMatchSlug || "(none)"}`,
       );
@@ -578,7 +574,11 @@ async function onGoalDetected(
   | { ok: true; reason: "executed"; message: string; timing?: TriggerTiming }
   | {
       ok: false;
-      reason: "ignored_open_position" | "rejected_market_state" | "error";
+      reason:
+        | "ignored_open_position"
+        | "rejected_market_state"
+        | "no_reference"
+        | "error";
       message: string;
     }
 > {
@@ -624,10 +624,25 @@ async function onGoalDetected(
   console.log(
     `[trade] → Market BUY ${label} (${fmt(runtimeMaxPositionUsd, 2)} USDC, FOK)`,
   );
-  const buyWorstPriceCap = getBuyWorstPriceCap();
+  // Cap the BUY at the pre-goal ask + slippage — the whole edge is buying the
+  // stale price, so if the goal already moved the book past this, the FOK order
+  // should reject rather than chase up toward 99¢. No reference ⇒ don't trade.
+  const preGoalAsk = isHomeGoal ? lastYesAsk : lastNoAsk;
   const tickSize = market.orderPriceMinTickSize ?? 0.001;
+  if (!(preGoalAsk > 0)) {
+    const message =
+      "No pre-goal ask cached (empty book or goal before first poll) — rejecting BUY";
+    console.warn(`[trade] ⚠️  ${message}`);
+    return { ok: false, reason: "no_reference", message };
+  }
+  const buyWorstPriceCap = Number(
+    Math.min(
+      1 - tickSize,
+      Math.max(tickSize, preGoalAsk + config.maxSlippageCents),
+    ).toFixed(6),
+  );
   console.log(
-    `[trade] BUY cap config: tick=${fmt(tickSize, 6)} worstPriceCap=${fmt(buyWorstPriceCap, 6)}`,
+    `[trade] BUY cap config: tick=${fmt(tickSize, 6)} preGoalAsk=${fmt(preGoalAsk, 6)} slippage=${fmt(config.maxSlippageCents, 4)} worstPriceCap=${fmt(buyWorstPriceCap, 6)}`,
   );
 
   const MAX_BUY_ATTEMPTS = 4;
@@ -899,6 +914,10 @@ async function logPrices(): Promise<void> {
   const yesAsk = yesBook.asks[0]?.price ?? 0;
   const noBid = noBook.bids[0]?.price ?? 0;
   const noAsk = noBook.asks[0]?.price ?? 0;
+
+  // Cache the last valid ask per side as the pre-goal reference for the BUY cap.
+  if (yesAsk > 0) lastYesAsk = yesAsk;
+  if (noAsk > 0) lastNoAsk = noAsk;
 
   console.log(
     `[clob]  ${activeTeamHome} YES: bid=${fmt(yesBid)} ask=${fmt(yesAsk)} | ` +

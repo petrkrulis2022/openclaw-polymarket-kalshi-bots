@@ -144,6 +144,10 @@ let lastSetupError: string | null = null;
 
 let lastScoreHome = NaN;
 let lastScoreAway = NaN;
+// Last valid (>0) CLOB asks seen during the live poll — the pre-goal reference
+// price the score-trigger BUY caps against. Reset on game switch.
+let lastYesAsk = 0;
+let lastNoAsk = 0;
 let gameIsOver = false;
 let liveGameSlug = "";
 let openPosition: OpenPosition | null = null;
@@ -169,15 +173,6 @@ function pnlStr(pnl: number): string {
 
 function clampPrice(price: number): number {
   return Number(Math.min(0.99, Math.max(0.01, price)).toFixed(6));
-}
-
-function getBuyWorstPrice(bestAsk: number): number {
-  const tick =
-    market.orderPriceMinTickSize && market.orderPriceMinTickSize > 0
-      ? market.orderPriceMinTickSize
-      : 0.001;
-  // Buy near top of book only: allow one tick + small slippage buffer.
-  return clampPrice(bestAsk + tick + 0.01);
 }
 
 function getSellWorstPrice(bestBid: number): number {
@@ -509,6 +504,9 @@ async function loadWatchedGamesFromOrchestrator(): Promise<void> {
       // Reset goal-delta baseline when user switches tracked game.
       lastScoreHome = NaN;
       lastScoreAway = NaN;
+      // Drop the previous game's pre-goal ask reference.
+      lastYesAsk = 0;
+      lastNoAsk = 0;
       console.log(
         `[watch] Switched tracked game -> key=${selectedWatchedGameKey} staticId=${staticId} slug=${activeMatchSlug || "(none)"}`,
       );
@@ -615,7 +613,11 @@ async function onGoalDetected(
     }
   | {
       ok: false;
-      reason: "ignored_open_position" | "rejected_market_state" | "error";
+      reason:
+        | "ignored_open_position"
+        | "rejected_market_state"
+        | "no_reference"
+        | "error";
       message: string;
       timing: TriggerTimingResult;
     }
@@ -696,6 +698,21 @@ async function onGoalDetected(
     `[trade] → Market BUY ${label} (${fmt(runtimeMaxPositionUsd, 2)} USDC, FOK)`,
   );
 
+  // Cap the BUY at the pre-goal ask + slippage — the whole edge is buying the
+  // stale price, so if the goal already moved the book past this, the FOK order
+  // should reject rather than chase up toward 99¢. No reference ⇒ don't trade.
+  const preGoalAsk = isHomeGoal ? lastYesAsk : lastNoAsk;
+  if (!(preGoalAsk > 0)) {
+    const message =
+      "No pre-goal ask cached (empty book or goal before first poll) — rejecting BUY";
+    console.warn(`[trade] ⚠️  ${message}`);
+    return { ok: false, reason: "no_reference", message, timing: timingBase };
+  }
+  const buyWorstPriceCap = clampPrice(preGoalAsk + config.maxSlippageCents);
+  console.log(
+    `[trade] BUY cap: preGoalAsk=${fmt(preGoalAsk, 6)} slippage=${fmt(config.maxSlippageCents, 4)} worstPriceCap=${fmt(buyWorstPriceCap, 6)}`,
+  );
+
   // After a goal event market makers pull their asks to reprice — the book can be
   // empty for 2-10 seconds. Retry the FOK up to 4 times with a short wait so we
   // catch the market once liquidity returns.
@@ -755,7 +772,7 @@ async function onGoalDetected(
         continue;
       }
 
-      const buyWorstPrice = getBuyWorstPrice(bestAsk);
+      const buyWorstPrice = buyWorstPriceCap;
 
       console.log(
         `[trade] BUY attempt ${attempt}/${MAX_BUY_ATTEMPTS}: ${askSummary} worst=${fmt(buyWorstPrice, 6)} spend=${fmt(spendAmountUsd, 6)}`,
@@ -983,6 +1000,10 @@ async function logPrices(): Promise<void> {
   const yesAsk = yesBook.asks[0]?.price ?? 0;
   const noBid = noBook.bids[0]?.price ?? 0;
   const noAsk = noBook.asks[0]?.price ?? 0;
+
+  // Cache the last valid ask per side as the pre-goal reference for the BUY cap.
+  if (yesAsk > 0) lastYesAsk = yesAsk;
+  if (noAsk > 0) lastNoAsk = noAsk;
 
   console.log(
     `[clob]  ${activeTeamHome} YES: bid=${fmt(yesBid)} ask=${fmt(yesAsk)} | ` +

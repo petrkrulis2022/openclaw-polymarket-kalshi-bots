@@ -39,6 +39,10 @@ export const config = {
     10,
   ),
   maxLossCents: parseFloat(process.env["MAX_LOSS_CENTS"] ?? "0.03"),
+  // Most we'll pay above the pre-set ask on a score-trigger BUY. The buy's
+  // worst price = preSetAsk + this (price units; 0.05 = 5¢). Keeps a late order
+  // from chasing the post-set repricing up toward 99¢.
+  maxSlippageCents: parseFloat(process.env["MAX_SLIPPAGE_CENTS"] ?? "0.05"),
   sellTimeoutMinutes: parseInt(process.env["SELL_TIMEOUT_MINUTES"] ?? "15", 10),
   preGamePollMs:
     parseInt(process.env["PRE_GAME_POLL_SECONDS"] ?? "1", 10) * 1_000,
