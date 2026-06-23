@@ -996,7 +996,7 @@ async function checkAndSell(
 
 // ── Log current prices ────────────────────────────────────────────────────────
 
-async function logPrices(): Promise<void> {
+async function logPrices(quiet = false): Promise<void> {
   const [yesBook, noBook] = await Promise.all([
     getOrderBook(market.yesTokenId),
     getOrderBook(market.noTokenId),
@@ -1014,10 +1014,12 @@ async function logPrices(): Promise<void> {
   if (yesBid > 0) lastYesBid = yesBid;
   if (noBid > 0) lastNoBid = noBid;
 
-  console.log(
-    `[clob]  ${activeTeamHome} YES: bid=${fmt(yesBid)} ask=${fmt(yesAsk)} | ` +
-      `${activeTeamAway} WIN: bid=${fmt(noBid)} ask=${fmt(noAsk)}`,
-  );
+  if (!quiet) {
+    console.log(
+      `[clob]  ${activeTeamHome} YES: bid=${fmt(yesBid)} ask=${fmt(yesAsk)} | ` +
+        `${activeTeamAway} WIN: bid=${fmt(noBid)} ask=${fmt(noAsk)}`,
+    );
+  }
 }
 
 // ── P&L Report ────────────────────────────────────────────────────────────────
@@ -1062,6 +1064,9 @@ async function lifecycleMonitorLoop(): Promise<void> {
       gameIsOver = true;
       break;
     }
+    // Refresh the live bid/ask cache every poll (powers the dashboard price panel
+    // + the pre-goal BUY slippage cap). Quiet: no per-second log spam during the game.
+    await logPrices(true);
     const lifecycle = await readMarketLifecycleSnapshot();
     if (lifecycle) {
       if (lifecycleLooksEnded(lifecycle)) {
