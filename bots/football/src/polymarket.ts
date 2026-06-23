@@ -285,26 +285,49 @@ export async function fetchHomeTeamMarket(
     (awayTeamName && awayTeamName.trim()) || config.matchTeamAway;
   let homeTeamMarket: Record<string, unknown> | null = null;
 
-  for (const m of markets) {
+  const isMoneylineMarket = (m: Record<string, unknown>): boolean => {
     const mType = String(m["sportsMarketType"] ?? "").toLowerCase();
-    const groupTitle = String(m["groupItemTitle"] ?? "");
-    const question = String(m["question"] ?? "");
-    const questionLower = question.toLowerCase();
-
-    const isMoneyline =
+    const ql = String(m["question"] ?? "").toLowerCase();
+    return (
       mType.includes("moneyline") ||
       (!mType &&
-        !questionLower.includes("halftime") &&
-        !questionLower.includes("corner") &&
-        !questionLower.includes("score"));
+        !ql.includes("halftime") &&
+        !ql.includes("corner") &&
+        !ql.includes("score"))
+    );
+  };
+  const isDrawMarket = (m: Record<string, unknown>): boolean => {
+    const ql = String(m["question"] ?? "").toLowerCase();
+    const gl = String(m["groupItemTitle"] ?? "").toLowerCase();
+    return ql.includes("draw") || gl.includes("draw");
+  };
+  // A sub-market is the home-team win market only if its identifier matches the
+  // home team AND does NOT match the away team. Matching the home name alone is
+  // unsafe: in a 3-way event the draw market's question/title names BOTH teams
+  // ("Will England vs. Ghana end in a draw?"), so a bare home-substring match
+  // would wrongly select the draw (or, by array order, the away) sub-market.
+  const matchesHomeNotAway = (text: string): boolean =>
+    !!text &&
+    textMatchesTeam(text, selectedHomeTeam) &&
+    !(!!selectedAwayTeam && textMatchesTeam(text, selectedAwayTeam));
 
-    const isHomeTeam =
-      textMatchesTeam(groupTitle, selectedHomeTeam) ||
-      textMatchesTeam(question, selectedHomeTeam);
-
-    if (isMoneyline && isHomeTeam) {
+  // Pass 1 (precise): groupItemTitle is the clean outcome label ("England").
+  for (const m of markets) {
+    if (!isMoneylineMarket(m) || isDrawMarket(m)) continue;
+    if (matchesHomeNotAway(String(m["groupItemTitle"] ?? ""))) {
       homeTeamMarket = m;
       break;
+    }
+  }
+  // Pass 2 (fallback): some events lack groupItemTitle — use the question,
+  // which for a win market names only the home team ("Will England win on …").
+  if (!homeTeamMarket) {
+    for (const m of markets) {
+      if (!isMoneylineMarket(m) || isDrawMarket(m)) continue;
+      if (matchesHomeNotAway(String(m["question"] ?? ""))) {
+        homeTeamMarket = m;
+        break;
+      }
     }
   }
 
