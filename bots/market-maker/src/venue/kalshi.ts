@@ -324,6 +324,20 @@ export async function listMarkets(): Promise<GammaMarket[]> {
       const raw = await kalshiGet<{ markets?: RawMarket[]; cursor?: string }>(
         `/markets?${qs}`,
       );
+      if (page === 0) {
+        const ms = raw.markets ?? [];
+        const mve = ms.filter((m) => m.mve_collection_ticker).length;
+        const nonMve = ms
+          .filter((m) => !m.mve_collection_ticker)
+          .slice(0, 4)
+          .map(
+            (m) =>
+              `${m.ticker}|bid=${m.yes_bid_dollars}|ask=${m.yes_ask_dollars}|close=${m.close_time}`,
+          );
+        console.log(
+          `[kalshi-debug] page0=${ms.length} mve=${mve} nonMveSamples=${JSON.stringify(nonMve)}`,
+        );
+      }
       for (const m of raw.markets ?? []) {
         const ticker = m.ticker ?? "";
         if (!ticker || seen.has(ticker)) continue;
