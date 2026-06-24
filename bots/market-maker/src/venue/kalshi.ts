@@ -160,11 +160,20 @@ export async function placeLimitOrder(
     self_trade_prevention_type: "taker_at_cross",
     client_order_id: `mm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
   };
-  const raw = await kalshiPost<RawOrderResponse>("/portfolio/events/orders", body);
+  let raw: RawOrderResponse;
+  try {
+    raw = await kalshiPost<RawOrderResponse>("/portfolio/events/orders", body);
+  } catch (err) {
+    console.error(
+      `[kalshi] order rejected: ${(err as Error).message} | body=${JSON.stringify(body)}`,
+    );
+    throw err;
+  }
   const orderId =
     raw.order?.order_id ??
     ((raw as Record<string, unknown>)["order_id"] as string) ??
     "unknown";
+  console.log(`[kalshi] order ok ${side} ${body.count}@${body.price} ${ticker} → ${orderId}`);
   return { orderId, paper: false };
 }
 
