@@ -118,22 +118,74 @@ export async function getBestBid(tokenId: string): Promise<number> {
 
 // ── Order placement ────────────────────────────────────────────────────────────
 
-export async function placeLimitOrder(
+/** Marketable buffer so a one-tick move between the price probe and the post
+ * doesn't kill the whole order. */
+const MARKETABLE_SLIPPAGE = 0.02;
+
+/**
+ * Place a marketable Fill-And-Kill order and return the ACTUAL fill.
+ *
+ * Why not a plain limit (createAndPostOrder)? That posts a GTC limit which can
+ * rest unfilled — yet the caller used to book the full size as a position
+ * regardless, producing phantom inventory. createAndPostMarketOrder with FAK
+ * takes whatever liquidity is available right now, cancels the unfilled
+ * remainder (never rests), and reports the matched amounts so we record only
+ * what truly filled.
+ *
+ * `sizeShares` is the target share count; `limitPrice` is the reference price
+ * (best ask for BUY / best bid for SELL). Returns filledShares = 0 when the
+ * order killed without a fill (no marketable liquidity, or insufficient funds).
+ */
+export async function placeMarketableOrder(
   tokenId: string,
   side: "BUY" | "SELL",
-  price: number,
-  size: number,
-  _marketQuestion: string,
-): Promise<OrderResult> {
+  sizeShares: number,
+  limitPrice: number,
+): Promise<{ orderId: string; filledShares: number; filledUsdc: number }> {
   const c = await getSigningClient();
-  const order = await c.createAndPostOrder({
-    tokenID: tokenId,
-    side: side === "BUY" ? Side.BUY : Side.SELL,
-    price,
-    size,
-  });
-  const orderId = (order as { orderID?: string }).orderID ?? "unknown";
-  return { orderId };
+
+  const worstPrice =
+    side === "BUY"
+      ? Math.min(0.99, limitPrice + MARKETABLE_SLIPPAGE)
+      : Math.max(0.01, limitPrice - MARKETABLE_SLIPPAGE);
+
+  // createAndPostMarketOrder amount = USDC to spend (BUY) or shares to sell (SELL).
+  const amount =
+    side === "BUY"
+      ? Number((sizeShares * worstPrice).toFixed(6))
+      : Number(sizeShares.toFixed(6));
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await (c as any).createAndPostMarketOrder(
+    {
+      tokenID: tokenId,
+      side: side === "BUY" ? Side.BUY : Side.SELL,
+      amount,
+      price: worstPrice,
+    },
+    undefined,
+    "FAK",
+  );
+
+  const r = result as Record<string, unknown>;
+  const rejection = String(r["errorMsg"] ?? r["error"] ?? "").trim();
+  if (rejection && rejection !== "null" && rejection !== "undefined") {
+    throw new Error(`Order rejected: ${rejection}`);
+  }
+  const statusCode = Number(r["status"] ?? 0);
+  if (Number.isFinite(statusCode) && statusCode >= 400) {
+    throw new Error(`Order rejected with status ${statusCode}`);
+  }
+
+  const orderId = String(r["orderID"] ?? "unknown");
+  // Amounts are micro-units (1e6). BUY: making=USDC paid, taking=shares received.
+  // SELL: making=shares given, taking=USDC received.
+  const makingAmt = (parseFloat(String(r["makingAmount"] || "0")) || 0) / 1e6;
+  const takingAmt = (parseFloat(String(r["takingAmount"] || "0")) || 0) / 1e6;
+  const filledUsdc = side === "BUY" ? makingAmt : takingAmt;
+  const filledShares = side === "BUY" ? takingAmt : makingAmt;
+
+  return { orderId, filledShares, filledUsdc };
 }
 
 export async function cancelOrder(orderId: string): Promise<void> {

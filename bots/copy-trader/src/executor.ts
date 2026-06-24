@@ -3,7 +3,12 @@
  * at the current best available price.
  */
 
-import { getBestAsk, getBestBid, placeLimitOrder } from "./clob.js";
+import {
+  getBestAsk,
+  getBestBid,
+  getCollateralBalance,
+  placeMarketableOrder,
+} from "./clob.js";
 import { params } from "./runtime-config.js";
 import { getPosition, recordFill } from "./inventory.js";
 import { markExecuted, markFailed, type PendingTrade } from "./pending.js";
@@ -36,8 +41,7 @@ function recordAttribution(trade: PendingTrade): void {
  *  - Updates inventory and pending entry status
  */
 export async function executeTrade(trade: PendingTrade): Promise<void> {
-  const { id, tokenId, side, ourTargetShares, marketTitle, traderLabel } =
-    trade;
+  const { id, tokenId, side, ourTargetShares, traderLabel } = trade;
 
   try {
     let targetShares = ourTargetShares;
@@ -72,26 +76,58 @@ export async function executeTrade(trade: PendingTrade): Promise<void> {
       return;
     }
 
-    const { orderId } = await placeLimitOrder(
+    // Don't hammer the CLOB with BUYs we can't fund. The probe returns 0 when
+    // unavailable, so only gate on a positive-but-insufficient balance.
+    if (side === "BUY") {
+      const cost = targetShares * price;
+      const collateral = await getCollateralBalance();
+      if (collateral > 0 && collateral < cost) {
+        markFailed(
+          id,
+          `Insufficient balance ($${collateral.toFixed(2)} available < $${cost.toFixed(2)} needed)`,
+        );
+        logActivity(
+          "trade_failed",
+          { id, reason: "insufficient_balance", collateral, cost },
+          "warn",
+        );
+        return;
+      }
+    }
+
+    // Marketable FAK: fills whatever liquidity is available right now and
+    // reports the REAL matched amounts — no resting orders, no phantom fills.
+    const { orderId, filledShares, filledUsdc } = await placeMarketableOrder(
       tokenId,
       side,
-      price,
       targetShares,
-      `[COPY:${traderLabel}] ${marketTitle}`,
+      price,
     );
 
-    markExecuted(id, orderId, price, targetShares);
-    recordFill(tokenId, traderLabel, side, price, targetShares);
+    if (filledShares < 0.01) {
+      markFailed(id, "Order killed with no fill (no marketable liquidity / funds)");
+      logActivity(
+        "trade_failed",
+        { id, reason: "zero_fill", requested: targetShares },
+        "warn",
+      );
+      return;
+    }
+
+    const avgPrice = filledUsdc / filledShares;
+    markExecuted(id, orderId, avgPrice, filledShares);
+    recordFill(tokenId, traderLabel, side, avgPrice, filledShares);
     if (side === "BUY") recordAttribution(trade);
 
     console.log(
-      `[executor] ✓ ${side} ${targetShares.toFixed(2)} shares @ ${price.toFixed(4)} (copy: ${traderLabel}) orderId=${orderId}`,
+      `[executor] ✓ ${side} ${filledShares.toFixed(2)}/${targetShares.toFixed(2)} shares @ ${avgPrice.toFixed(4)} (copy: ${traderLabel}) orderId=${orderId}`,
     );
     logActivity("trade_executed", {
       id,
       side,
-      shares: targetShares,
-      price,
+      shares: filledShares,
+      requested: targetShares,
+      price: avgPrice,
       trader: traderLabel,
     });
   } catch (err) {

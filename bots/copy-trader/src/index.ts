@@ -36,7 +36,7 @@ import { executeTrade } from "./executor.js";
 import {
   getCollateralBalance,
   getBestBid,
-  placeLimitOrder,
+  placeMarketableOrder,
   cancelOrder,
   getOpenOrders,
 } from "./clob.js";
@@ -274,18 +274,33 @@ app.post("/positions/close-all", async (_req: Request, res: Response) => {
       }
 
       const size = pos.netSize;
-      const { orderId } = await placeLimitOrder(
+      const { orderId, filledShares, filledUsdc } = await placeMarketableOrder(
         pos.tokenId,
         "SELL",
-        price,
         size,
-        "[MANUAL CLOSE-ALL]",
+        price,
       );
 
-      // Keep local inventory in sync immediately after successful order post.
-      recordFill(pos.tokenId, "manual-close", "SELL", price, size);
+      // Only book the close we actually executed. A phantom position with no
+      // real on-chain shares kills with zero fill and is reported as skipped —
+      // never recorded as a (fake) realized loss.
+      if (filledShares < 0.01) {
+        skipped.push({
+          tokenId: pos.tokenId,
+          reason: "Sell killed with no fill (no bid liquidity / no on-chain shares)",
+        });
+        continue;
+      }
 
-      closed.push({ tokenId: pos.tokenId, size, price, orderId });
+      const avgPrice = filledUsdc / filledShares;
+      recordFill(pos.tokenId, "manual-close", "SELL", avgPrice, filledShares);
+
+      closed.push({
+        tokenId: pos.tokenId,
+        size: filledShares,
+        price: avgPrice,
+        orderId,
+      });
     } catch (err) {
       skipped.push({
         tokenId: pos.tokenId,
