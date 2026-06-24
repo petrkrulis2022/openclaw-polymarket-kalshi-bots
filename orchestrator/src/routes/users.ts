@@ -969,7 +969,9 @@ async function ensureUserBotProcess(
       ...(bot.name === "kalshi-arb" || bot.name.endsWith("-kalshi")
         ? {
             KALSHI_API_KEY_ID: user.kalshi_api_key_id ?? "",
-            KALSHI_PRIVATE_KEY_PEM: user.kalshi_private_key_pem ?? "",
+            // Escape newlines so the multi-line PEM survives as a single-line env
+            // value through pm2; the bot config un-escapes it at runtime.
+            KALSHI_PRIVATE_KEY_PEM: (user.kalshi_private_key_pem ?? "").replace(/\n/g, "\\n"),
             KALSHI_HOST: "https://external-api.kalshi.com/trade-api/v2",
           }
         : {}),
@@ -1262,7 +1264,9 @@ router.post(
             ...(bot.name === "kalshi-arb" || bot.name.endsWith("-kalshi")
               ? {
                   KALSHI_API_KEY_ID: user.kalshi_api_key_id ?? "",
-                  KALSHI_PRIVATE_KEY_PEM: user.kalshi_private_key_pem ?? "",
+                  // Escape newlines so the multi-line PEM survives as a single-line
+                  // env value through pm2; the bot config un-escapes it at runtime.
+                  KALSHI_PRIVATE_KEY_PEM: (user.kalshi_private_key_pem ?? "").replace(/\n/g, "\\n"),
                   KALSHI_HOST: "https://external-api.kalshi.com/trade-api/v2",
                 }
               : {}),
