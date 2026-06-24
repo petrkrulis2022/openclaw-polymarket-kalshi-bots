@@ -966,6 +966,15 @@ async function ensureUserBotProcess(
       ...(getBotTradeAmountEnv(user, botName)
         ? { MAX_POSITION_USD: getBotTradeAmountEnv(user, botName) }
         : {}),
+      ...(bot.name === "kalshi-arb" || bot.name.endsWith("-kalshi")
+        ? {
+            KALSHI_API_KEY_ID: user.kalshi_api_key_id ?? "",
+            KALSHI_PRIVATE_KEY_PEM: user.kalshi_private_key_pem ?? "",
+            KALSHI_HOST: "https://external-api.kalshi.com/trade-api/v2",
+          }
+        : {}),
+      ...(bot.name === "kalshi-arb" ? { DRY_RUN: "true" } : {}),
+      ...(bot.name.endsWith("-kalshi") ? { VENUE: "kalshi" } : {}),
     },
   };
 
