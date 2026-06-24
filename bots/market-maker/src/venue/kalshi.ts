@@ -124,14 +124,12 @@ export async function getLastTradeMid(ref: string): Promise<number> {
 // ── Balance ─────────────────────────────────────────────────────────────────
 export async function getCollateralBalance(): Promise<number> {
   try {
-    const raw = await kalshiGet<{ balance?: { available?: string | number } }>(
+    const raw = await kalshiGet<{ balance_dollars?: string; balance?: number }>(
       "/portfolio/balance",
     );
-    console.log("[kalshi-debug] balance raw:", JSON.stringify(raw).slice(0, 300));
-    const avail = raw.balance?.available;
-    if (avail === undefined) return 0;
-    const n = typeof avail === "string" ? parseFloat(avail) : avail;
-    return n / 100;
+    if (raw.balance_dollars !== undefined) return parseFloat(raw.balance_dollars) || 0;
+    if (typeof raw.balance === "number") return raw.balance / 100; // cents
+    return 0;
   } catch (err) {
     console.warn("[kalshi] getCollateralBalance error:", (err as Error).message);
     return 0;
@@ -295,30 +293,20 @@ export async function fetchTradeHistory(): Promise<
 interface RawMarket {
   ticker?: string;
   title?: string;
-  event_title?: string;
+  event_ticker?: string;
   yes_sub_title?: string;
-  category?: string;
   close_time?: string;
   status?: string;
-  volume_24h?: number;
-  volume?: number;
-  liquidity?: number;
-  last_price?: number; // cents
-  yes_bid?: number; // cents
-  yes_ask?: number; // cents
+  // external-api.kalshi.com uses dollar-string fields
+  yes_bid_dollars?: string;
+  yes_ask_dollars?: string;
+  last_price_dollars?: string;
+  liquidity_dollars?: string;
+  volume_24h_fp?: number | string;
+  // Set on multivariate/parlay markets (no clean two-sided binary book)
+  mve_collection_ticker?: string;
+  market_type?: string;
 }
-
-const EXCLUDED_CATEGORIES = new Set([
-  "crypto",
-  "cryptocurrency",
-  "sports",
-  "soccer",
-  "football",
-  "basketball",
-  "baseball",
-  "hockey",
-  "tennis",
-]);
 
 // Multi-game/parlay event tickers have no clean two-sided binary book to quote.
 function isParlayTicker(ticker: string): boolean {
@@ -336,53 +324,35 @@ export async function listMarkets(): Promise<GammaMarket[]> {
       const raw = await kalshiGet<{ markets?: RawMarket[]; cursor?: string }>(
         `/markets?${qs}`,
       );
-      if (page === 0 && (raw.markets?.length ?? 0) > 0) {
-        console.log(
-          "[kalshi-debug] market keys:",
-          Object.keys(raw.markets![0]!).join(","),
-        );
-        console.log(
-          "[kalshi-debug] market sample:",
-          JSON.stringify(raw.markets![0]).slice(0, 600),
-        );
-      }
       for (const m of raw.markets ?? []) {
         const ticker = m.ticker ?? "";
         if (!ticker || seen.has(ticker)) continue;
-        if (isParlayTicker(ticker)) continue;
-        const rawTitle = m.title ?? m.event_title ?? m.yes_sub_title ?? ticker;
-        // Parlay/multi-outcome markets arrive as comma-joined "yes X,yes Y"
-        // outcome lists with no clean two-sided book — skip regardless of ticker.
+        // Skip multivariate/parlay markets — no clean two-sided binary book.
+        if (m.mve_collection_ticker || isParlayTicker(ticker)) continue;
+        const rawTitle = m.title ?? m.event_ticker ?? m.yes_sub_title ?? ticker;
         if (/,\s*(yes|no)\s/i.test(rawTitle)) continue;
-        const category = (m.category ?? "").toLowerCase().trim();
-        if (EXCLUDED_CATEGORIES.has(category)) continue;
         const endDate = m.close_time ?? "";
         const endMs = new Date(endDate).getTime();
         if (!Number.isFinite(endMs) || endMs < cutoff48hMs) continue;
-        // Soft two-sided check: only reject when the summary book is present and
-        // clearly one-sided. Kalshi often omits yes_bid/yes_ask from the list,
-        // so otherwise let the quoter's live getOrderBook check decide.
-        const yesBidC = m.yes_bid;
-        const yesAskC = m.yes_ask;
-        if (
-          yesBidC !== undefined &&
-          yesAskC !== undefined &&
-          !(yesBidC > 0 && yesAskC > 0 && yesAskC > yesBidC)
-        )
-          continue;
-        const midC =
-          yesBidC && yesAskC ? (yesBidC + yesAskC) / 2 : (m.last_price ?? 50);
-        const yesPrice = midC / 100;
+        // Require a real two-sided summary book (dollar-string fields).
+        const yesBid = parseFloat(m.yes_bid_dollars ?? "0");
+        const yesAsk = parseFloat(m.yes_ask_dollars ?? "0");
+        if (!(yesBid > 0 && yesAsk > 0 && yesAsk > yesBid)) continue;
+        const yesPrice = (yesBid + yesAsk) / 2;
         if (yesPrice > 0.9 || yesPrice < 0.1) continue;
         seen.add(ticker);
-        const vol = m.volume_24h ?? m.volume ?? 0;
+        const vol =
+          typeof m.volume_24h_fp === "string"
+            ? parseFloat(m.volume_24h_fp)
+            : (m.volume_24h_fp ?? 0);
+        const liq = parseFloat(m.liquidity_dollars ?? "0");
         out.push({
           conditionId: ticker,
           question: rawTitle.trim(),
           endDateIso: endDate,
           volume24hr: vol,
-          volumeNum: m.volume ?? vol,
-          liquidityNum: m.liquidity ?? 0,
+          volumeNum: vol,
+          liquidityNum: liq,
           active: true,
           closed: false,
           clobTokenIds: JSON.stringify([makeRef(ticker, "yes"), makeRef(ticker, "no")]),
@@ -390,9 +360,9 @@ export async function listMarkets(): Promise<GammaMarket[]> {
           yesTokenId: makeRef(ticker, "yes"),
           noTokenId: makeRef(ticker, "no"),
           yesPrice,
-          gammaBestBid: 0,
-          gammaBestAsk: 1,
-          category,
+          gammaBestBid: yesBid,
+          gammaBestAsk: yesAsk,
+          category: "",
           gameStartTime: "",
           rewardsMaxSpread: 0, // Kalshi has no Polymarket-style rewards band
           rewardsMinSize: 0,
@@ -401,8 +371,8 @@ export async function listMarkets(): Promise<GammaMarket[]> {
       cursor = raw.cursor;
       if (!cursor || (raw.markets ?? []).length < 200) break;
     }
-    // Highest 24h volume first (most likely to have a two-sided book to quote).
-    out.sort((a, b) => b.volume24hr - a.volume24hr);
+    // Deepest book first — best candidates to quote.
+    out.sort((a, b) => b.liquidityNum - a.liquidityNum);
   } catch (err) {
     console.error("[kalshi] listMarkets error:", (err as Error).message);
   }

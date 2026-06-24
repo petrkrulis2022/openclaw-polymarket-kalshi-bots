@@ -232,7 +232,8 @@ export async function quoteMarket(
   // mid; the actual order on each side may be on the YES or NO token depending
   // on what inventory we're recycling, but stays at the same book level.
   const MIN_ORDER_SIZE = Math.max(
-    5, // Polymarket minimum shares per order
+    // Polymarket min is 5 shares; Kalshi's is 1 contract.
+    config.venue === "kalshi" ? 1 : 5,
     inRewardsBand ? market.rewardsMinSize : 0,
   );
   const bidPrice = clamp(mid - halfWidth);
