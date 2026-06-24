@@ -150,23 +150,22 @@ export async function placeLimitOrder(
   _marketQuestion: string,
 ): Promise<OrderResult> {
   const { ticker, side: outcomeSide } = parseRef(ref);
-  // Standard resting limit order (cents). The /portfolio/events/orders V2 path
-  // requires a kill-style time_in_force; for a market-maker we want a GTC order
-  // that rests — omitting expiration_ts here means Good-Till-Cancelled.
-  const cents = Math.max(1, Math.min(99, Math.round(price * 100)));
-  const count = Math.max(1, Math.round(size));
-  const body: Record<string, unknown> = {
+  // V2 resting limit order. time_in_force "good_till_canceled" rests the order in
+  // the book (vs fill_or_kill/immediate_or_cancel which never rest). Price is a
+  // fixed-point dollar string; count is contracts.
+  const body = {
     ticker,
-    client_order_id: `mm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     action: side === "BUY" ? "buy" : "sell",
-    side: outcomeSide,
-    count,
-    type: "limit",
-    [outcomeSide === "yes" ? "yes_price" : "no_price"]: cents,
+    outcome_side: outcomeSide,
+    price: price.toFixed(4),
+    count: Math.max(1, Math.round(size)).toFixed(2),
+    time_in_force: "good_till_canceled",
+    self_trade_prevention_type: "taker_at_cross",
+    client_order_id: `mm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
   };
   let raw: RawOrderResponse;
   try {
-    raw = await kalshiPost<RawOrderResponse>("/portfolio/orders", body);
+    raw = await kalshiPost<RawOrderResponse>("/portfolio/events/orders", body);
   } catch (err) {
     console.error(
       `[kalshi] order rejected: ${(err as Error).message} | body=${JSON.stringify(body)}`,
@@ -178,7 +177,7 @@ export async function placeLimitOrder(
     ((raw as Record<string, unknown>)["order_id"] as string) ??
     "unknown";
   console.log(
-    `[kalshi] order ok ${side} ${count}@${cents}c ${outcomeSide} ${ticker} → ${orderId}`,
+    `[kalshi] order ok ${side} ${body.count}@${body.price} ${outcomeSide} ${ticker} → ${orderId}`,
   );
   return { orderId, paper: false };
 }
