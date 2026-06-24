@@ -153,12 +153,15 @@ export async function placeLimitOrder(
   // V2 resting limit order. time_in_force "good_till_canceled" rests the order in
   // the book (vs fill_or_kill/immediate_or_cancel which never rest). Price is a
   // fixed-point dollar string; count is contracts.
+  // Kalshi trades in whole-cent ticks — snap to the nearest cent (sub-cent
+  // prices like 0.0750 are rejected as invalid_price).
+  const priceCents = Math.min(99, Math.max(1, Math.round(price * 100)));
   const body = {
     ticker,
     // V2: side is the book side — bid (buy) / ask (sell); outcome_side picks yes/no.
     side: side === "BUY" ? "bid" : "ask",
     outcome_side: outcomeSide,
-    price: price.toFixed(4),
+    price: (priceCents / 100).toFixed(4),
     count: Math.max(1, Math.round(size)).toFixed(2),
     time_in_force: "good_till_canceled",
     self_trade_prevention_type: "taker_at_cross",
