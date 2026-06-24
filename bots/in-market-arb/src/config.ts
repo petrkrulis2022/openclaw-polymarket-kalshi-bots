@@ -19,12 +19,32 @@ function signatureTypeFromEnv(): SignatureTypeV2 {
   }
 }
 
-const VENUE = process.env["VENUE"] === "kalshi" ? "kalshi" : "polymarket";
+const VENUE = (() => {
+  const v = process.env["VENUE"];
+  return v === "kalshi" || v === "limitless" ? v : "polymarket";
+})();
 
 export const config = {
-  venue: VENUE as "polymarket" | "kalshi",
+  venue: VENUE as "polymarket" | "kalshi" | "limitless",
+  // New venues ship dry-run by default; live orders require DRY_RUN=false.
+  dryRun: (process.env["DRY_RUN"] ?? "true") !== "false",
   port: parseInt(process.env["PORT"] ?? "3005", 10),
   botId: parseInt(process.env["BOT_ID"] ?? "4", 10),
+  // Limitless backend (CLOB on Base; only required when VENUE=limitless).
+  limitless: {
+    apiBase: process.env["LIMITLESS_API_BASE"] ?? "https://api.limitless.exchange",
+    apiToken: process.env["LIMITLESS_API_TOKEN"] ?? "",
+    apiSecret: process.env["LIMITLESS_API_SECRET"] ?? "",
+    baseRpcUrl: process.env["BASE_RPC_URL"] ?? "https://mainnet.base.org",
+    signerKey: process.env["BOT_SIGNER_KEY"] ?? "",
+    walletAddress:
+      process.env["LIMITLESS_WALLET_ADDRESS"] ??
+      process.env["POLYMARKET_WALLET_ADDRESS"] ??
+      "",
+    // Fee model: fee = feeRate × price × (1 − price) per share (same shape as
+    // Polymarket). Conservative default until confirmed from market data.
+    feeRate: parseFloat(process.env["LIMITLESS_FEE_RATE"] ?? "0.02"),
+  } as const,
   // Kalshi backend (only required when VENUE=kalshi; kept optional so the
   // Polymarket path never needs KALSHI_* env). Validated lazily by the adapter.
   kalshi: {
