@@ -155,7 +155,8 @@ export async function placeLimitOrder(
   // fixed-point dollar string; count is contracts.
   const body = {
     ticker,
-    action: side === "BUY" ? "buy" : "sell",
+    // V2: side is the book side — bid (buy) / ask (sell); outcome_side picks yes/no.
+    side: side === "BUY" ? "bid" : "ask",
     outcome_side: outcomeSide,
     price: price.toFixed(4),
     count: Math.max(1, Math.round(size)).toFixed(2),
