@@ -185,6 +185,16 @@ const BOT_DEFS = [
     portOffset: 9,
     entrypoint: "scripts/tennis-bot.ts",
   },
+  // Kalshi venue variants — same code/folder as the Polymarket bot, run with
+  // VENUE=kalshi as a separate process (own port/inventory). Added one per bot
+  // as the venue port lands.
+  {
+    name: "in-market-arb-kalshi",
+    folder: "in-market-arb",
+    botId: 12,
+    portOffset: 10,
+    entrypoint: "src/index.ts",
+  },
 ] as const;
 
 const WATCHLIST_BOTS = new Set([
@@ -1240,14 +1250,17 @@ router.post(
             ...(getBotTradeAmountEnv(user, bot.name)
               ? { MAX_POSITION_USD: getBotTradeAmountEnv(user, bot.name) }
               : {}),
-            ...(bot.name === "kalshi-arb"
+            ...(bot.name === "kalshi-arb" || bot.name.endsWith("-kalshi")
               ? {
                   KALSHI_API_KEY_ID: user.kalshi_api_key_id ?? "",
                   KALSHI_PRIVATE_KEY_PEM: user.kalshi_private_key_pem ?? "",
                   KALSHI_HOST: "https://external-api.kalshi.com/trade-api/v2",
-                  DRY_RUN: "true",
                 }
               : {}),
+            // kalshi-arb runs paper-only until its write path is validated.
+            ...(bot.name === "kalshi-arb" ? { DRY_RUN: "true" } : {}),
+            // Venue variants run the shared bot code against Kalshi.
+            ...(bot.name.endsWith("-kalshi") ? { VENUE: "kalshi" } : {}),
           },
         };
       });
