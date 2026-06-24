@@ -127,6 +127,7 @@ export async function getCollateralBalance(): Promise<number> {
     const raw = await kalshiGet<{ balance?: { available?: string | number } }>(
       "/portfolio/balance",
     );
+    console.log("[kalshi-debug] balance raw:", JSON.stringify(raw).slice(0, 300));
     const avail = raw.balance?.available;
     if (avail === undefined) return 0;
     const n = typeof avail === "string" ? parseFloat(avail) : avail;
@@ -335,6 +336,16 @@ export async function listMarkets(): Promise<GammaMarket[]> {
       const raw = await kalshiGet<{ markets?: RawMarket[]; cursor?: string }>(
         `/markets?${qs}`,
       );
+      if (page === 0 && (raw.markets?.length ?? 0) > 0) {
+        console.log(
+          "[kalshi-debug] market keys:",
+          Object.keys(raw.markets![0]!).join(","),
+        );
+        console.log(
+          "[kalshi-debug] market sample:",
+          JSON.stringify(raw.markets![0]).slice(0, 600),
+        );
+      }
       for (const m of raw.markets ?? []) {
         const ticker = m.ticker ?? "";
         if (!ticker || seen.has(ticker)) continue;
