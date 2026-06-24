@@ -10,7 +10,7 @@
 
 import express, { type Request, type Response } from "express";
 import { config } from "./config.js";
-import { scanActiveMarkets } from "./scanner.js";
+import { scanActiveMarkets, type BinaryMarket } from "./scanner.js";
 import {
   computeArbSignal,
   computeNegRiskArbSignal,
@@ -30,7 +30,14 @@ import {
   updatePair,
 } from "./inventory.js";
 import { reportMetrics, buildSnapshot, getLastSnapshot } from "./metrics.js";
-import { cancelOrder, getCollateralBalance, getOpenOrders } from "./clob.js";
+import {
+  cancelOrder,
+  getCollateralBalance,
+  getOpenOrders,
+  VENUE,
+} from "./venue/index.js";
+import { listBinaryMarkets as listKalshiBinary } from "./venue/kalshi.js";
+import { executeKalshiArbPair } from "./executor-kalshi.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 import { logActivity, getActivity } from "./activity.js";
 
@@ -67,7 +74,85 @@ async function fetchAllocatedEquity(): Promise<number> {
 
 // ── Main scan cycle ───────────────────────────────────────────────────────────
 
+// ── Kalshi scan cycle (binary only — no neg-risk, no merge) ──────────────────
+
+let kalshiMarketsCache: BinaryMarket[] = [];
+let kalshiMarketsAt = 0;
+let kalshiScanCursor = 0;
+const KALSHI_MARKET_CACHE_MS = 55_000;
+
+async function runKalshiScanCycle(): Promise<void> {
+  const now = Date.now();
+  if (now - kalshiMarketsAt > KALSHI_MARKET_CACHE_MS || kalshiMarketsCache.length === 0) {
+    kalshiMarketsCache = await listKalshiBinary();
+    kalshiMarketsAt = now;
+  }
+
+  const all = kalshiMarketsCache.filter((m) => !activeMarkets.has(m.id));
+  // Rotate a window across the full market list so every market is covered over time.
+  const N = config.maxConcurrentMarkets;
+  const window: BinaryMarket[] = [];
+  for (let i = 0; i < Math.min(N, all.length); i++) {
+    window.push(all[(kalshiScanCursor + i) % all.length]!);
+  }
+  kalshiScanCursor = all.length > 0 ? (kalshiScanCursor + N) % all.length : 0;
+
+  const signals: ArbSignal[] = [];
+  await Promise.allSettled(
+    window.map(async (m) => {
+      const signal = await computeArbSignal(
+        m.id,
+        m.conditionId,
+        m.question,
+        m.yesTokenId,
+        m.noTokenId,
+        m.feeRate,
+      );
+      if (signal) signals.push(signal);
+    }),
+  );
+
+  lastScanSignals = signals;
+  lastScanAt = new Date().toISOString();
+  logActivity("scan_complete", {
+    binaryMarkets: kalshiMarketsCache.length,
+    negRiskGroups: 0,
+    signals: signals.length,
+  });
+
+  if (signals.length === 0) {
+    console.log("[arb] No profitable Kalshi signals this cycle");
+    return;
+  }
+
+  signals.sort((a, b) => b.expectedProfitUsd - a.expectedProfitUsd);
+  for (const signal of signals) {
+    if (activeMarkets.has(signal.marketId)) continue;
+    activeMarkets.add(signal.marketId);
+    console.log(
+      `[arb] Kalshi binary signal: ${signal.marketQuestion} | spread=${signal.netSpread.toFixed(4)} ` +
+        `profit=$${signal.expectedProfitUsd.toFixed(4)}`,
+    );
+    logActivity("signal_found", {
+      kind: "binary",
+      venue: "kalshi",
+      market: signal.marketQuestion,
+      spread: signal.netSpread,
+      profitUsd: signal.expectedProfitUsd,
+    });
+    await executeKalshiArbPair(signal).catch((err) => {
+      console.error("[arb] executeKalshiArbPair error:", (err as Error).message);
+      activeMarkets.delete(signal.marketId);
+    });
+    setTimeout(
+      () => activeMarkets.delete(signal.marketId),
+      config.pairTimeoutMs + 1_000,
+    );
+  }
+}
+
 async function runScanCycle(): Promise<void> {
+  if (VENUE === "kalshi") return runKalshiScanCycle();
   const { binary, negRisk } = await scanActiveMarkets();
   const signals: AnySignal[] = [];
 
@@ -245,7 +330,7 @@ async function reconcilePairs(): Promise<void> {
 async function scheduleScan(): Promise<void> {
   try {
     await runScanCycle();
-    await reconcilePairs();
+    if (VENUE !== "kalshi") await reconcilePairs();
   } catch (err) {
     console.error("[arb] Scan error:", (err as Error).message);
     logActivity("scan_error", { message: (err as Error).message }, "error");

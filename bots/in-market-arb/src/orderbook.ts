@@ -9,7 +9,7 @@
  * feeRate is per-market from Gamma API; see config.defaultFeeRate for fallback.
  */
 
-import { getOrderBook } from "./clob.js";
+import { getOrderBook } from "./venue/index.js";
 import { config } from "./config.js";
 import type { NegRiskGroup } from "./scanner.js";
 
