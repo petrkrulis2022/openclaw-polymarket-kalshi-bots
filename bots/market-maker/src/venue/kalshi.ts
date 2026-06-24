@@ -150,19 +150,23 @@ export async function placeLimitOrder(
   _marketQuestion: string,
 ): Promise<OrderResult> {
   const { ticker, side: outcomeSide } = parseRef(ref);
-  const body = {
+  // Standard resting limit order (cents). The /portfolio/events/orders V2 path
+  // requires a kill-style time_in_force; for a market-maker we want a GTC order
+  // that rests — omitting expiration_ts here means Good-Till-Cancelled.
+  const cents = Math.max(1, Math.min(99, Math.round(price * 100)));
+  const count = Math.max(1, Math.round(size));
+  const body: Record<string, unknown> = {
     ticker,
-    action: side === "BUY" ? "buy" : "sell",
-    outcome_side: outcomeSide,
-    price: price.toFixed(4),
-    count: Math.max(1, Math.round(size)).toFixed(2),
-    // No time_in_force → the order rests (GTC) until filled or cancelled.
-    self_trade_prevention_type: "taker_at_cross",
     client_order_id: `mm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    action: side === "BUY" ? "buy" : "sell",
+    side: outcomeSide,
+    count,
+    type: "limit",
+    [outcomeSide === "yes" ? "yes_price" : "no_price"]: cents,
   };
   let raw: RawOrderResponse;
   try {
-    raw = await kalshiPost<RawOrderResponse>("/portfolio/events/orders", body);
+    raw = await kalshiPost<RawOrderResponse>("/portfolio/orders", body);
   } catch (err) {
     console.error(
       `[kalshi] order rejected: ${(err as Error).message} | body=${JSON.stringify(body)}`,
@@ -173,7 +177,9 @@ export async function placeLimitOrder(
     raw.order?.order_id ??
     ((raw as Record<string, unknown>)["order_id"] as string) ??
     "unknown";
-  console.log(`[kalshi] order ok ${side} ${body.count}@${body.price} ${ticker} → ${orderId}`);
+  console.log(
+    `[kalshi] order ok ${side} ${count}@${cents}c ${outcomeSide} ${ticker} → ${orderId}`,
+  );
   return { orderId, paper: false };
 }
 
