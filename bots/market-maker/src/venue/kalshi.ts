@@ -303,9 +303,26 @@ interface RawMarket {
   volume?: number;
   liquidity?: number;
   last_price?: number; // cents
+  yes_bid?: number; // cents
+  yes_ask?: number; // cents
 }
 
-const EXCLUDED_CATEGORIES = new Set(["crypto", "cryptocurrency"]);
+const EXCLUDED_CATEGORIES = new Set([
+  "crypto",
+  "cryptocurrency",
+  "sports",
+  "soccer",
+  "football",
+  "basketball",
+  "baseball",
+  "hockey",
+  "tennis",
+]);
+
+// Multi-game/parlay event tickers have no clean two-sided binary book to quote.
+function isParlayTicker(ticker: string): boolean {
+  return /^KXMVE|MULTIGAME|CROSSCATEGORY/i.test(ticker);
+}
 
 export async function listMarkets(): Promise<GammaMarket[]> {
   const out: GammaMarket[] = [];
@@ -321,12 +338,18 @@ export async function listMarkets(): Promise<GammaMarket[]> {
       for (const m of raw.markets ?? []) {
         const ticker = m.ticker ?? "";
         if (!ticker || seen.has(ticker)) continue;
+        if (isParlayTicker(ticker)) continue;
         const category = (m.category ?? "").toLowerCase().trim();
         if (EXCLUDED_CATEGORIES.has(category)) continue;
         const endDate = m.close_time ?? "";
         const endMs = new Date(endDate).getTime();
         if (!Number.isFinite(endMs) || endMs < cutoff48hMs) continue;
-        const yesPrice = (m.last_price ?? 50) / 100;
+        // Require an actual two-sided book (from the market summary) — the quoter
+        // can't make a market on a one-sided/empty book.
+        const yesBidC = m.yes_bid ?? 0;
+        const yesAskC = m.yes_ask ?? 0;
+        if (!(yesBidC > 0 && yesAskC > 0 && yesAskC > yesBidC)) continue;
+        const yesPrice = (yesBidC + yesAskC) / 2 / 100;
         if (yesPrice > 0.9 || yesPrice < 0.1) continue;
         seen.add(ticker);
         const vol = m.volume_24h ?? m.volume ?? 0;
