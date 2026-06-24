@@ -11,7 +11,7 @@
  * inventory-skew controls stay blind and the bot degrades into buy-and-hold.
  */
 import fs from "fs";
-import { fetchRawTrades } from "./clob.js";
+import { fetchRawTrades } from "./venue/index.js";
 import { recordFill } from "./inventory.js";
 import { recordAttribution } from "./attribution.js";
 import { logActivity } from "./activity.js";

@@ -23,9 +23,19 @@ function signatureTypeFromEnv(): SignatureTypeV2 {
   }
 }
 
+const VENUE = process.env["VENUE"] === "kalshi" ? "kalshi" : "polymarket";
+
 export const config = {
+  venue: VENUE as "polymarket" | "kalshi",
   port: parseInt(process.env["PORT"] ?? "3003", 10),
   botId: parseInt(process.env["BOT_ID"] ?? "1", 10),
+  // Kalshi backend (only required when VENUE=kalshi). Validated lazily by the adapter.
+  kalshi: {
+    apiKeyId: process.env["KALSHI_API_KEY_ID"] ?? "",
+    privateKeyPem: (process.env["KALSHI_PRIVATE_KEY_PEM"] ?? "").replace(/\\n/g, "\n"),
+    host: process.env["KALSHI_HOST"] ?? "https://external-api.kalshi.com/trade-api/v2",
+    feeRate: parseFloat(process.env["KALSHI_FEE_RATE"] ?? "0.07"),
+  } as const,
   // Live mode: BOT_SIGNER_KEY must be set and PAPER_TRADING must not be "true".
   // The bot EOA signs on behalf of funderAddress (Polymarket proxy wallet) using
   // GNOSIS_SAFE signature type. API creds are auto-derived from the private key.
@@ -52,7 +62,9 @@ export const config = {
   // In proxy/Safe/1271 mode the tokens live in the proxy wallet and a direct
   // EOA merge reverts, so we skip it and recycle inventory through the book
   // (and capture the locked spread at oracle resolution instead).
-  canMergeOnchain: signatureTypeFromEnv() === SignatureTypeV2.EOA,
+  // Kalshi nets YES+NO automatically and has no on-chain CTF merge.
+  canMergeOnchain:
+    VENUE !== "kalshi" && signatureTypeFromEnv() === SignatureTypeV2.EOA,
 
   quoting: {
     // halfWidth: how far each side is from mid, e.g. 0.03 = 3 cent spread on each side
@@ -69,7 +81,9 @@ export const config = {
     maxInventorySkew: 0.6, // cancel/re-quote if one side > 60%
     // Quote inside Polymarket liquidity-rewards bands (the actual edge for
     // small MMs). Set REWARDS_MODE=false to fall back to naked spread capture.
-    rewardsMode: (process.env["REWARDS_MODE"] ?? "true") === "true",
+    // Polymarket liquidity-rewards bands don't exist on Kalshi → naked spread only.
+    rewardsMode:
+      VENUE !== "kalshi" && (process.env["REWARDS_MODE"] ?? "true") === "true",
     reQuoteThreshold: 0.005, // 0.5% mid move triggers re-quote
     orderStalenessThreshold: 0.01, // 1% off market triggers re-quote
   },

@@ -65,6 +65,19 @@ export async function getActiveMarkets(): Promise<GammaMarket[]> {
     return cachedMarkets.slice(0, params.numMarkets);
   }
 
+  // Kalshi venue: discover via the Kalshi adapter (already GammaMarket-shaped).
+  if (config.venue === "kalshi") {
+    try {
+      const { listMarkets } = await import("./venue/kalshi.js");
+      cachedMarkets = await listMarkets();
+      lastFetch = now;
+      console.log(`[markets] (kalshi) ${cachedMarkets.length} tradable markets`);
+    } catch (err) {
+      console.error("[markets] kalshi listMarkets error:", (err as Error).message);
+    }
+    return cachedMarkets.slice(0, params.numMarkets);
+  }
+
   try {
     const url = `${config.polymarket.gammaHost}/markets?active=true&closed=false&limit=200&order=volume24hr&ascending=false`;
     const res = await fetch(url, {

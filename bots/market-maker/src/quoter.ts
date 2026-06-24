@@ -6,7 +6,7 @@ import {
   placeLimitOrder,
   cancelOrder,
   getOpenOrders,
-} from "./clob.js";
+} from "./venue/index.js";
 import {
   getNetSkew,
   recordFill,

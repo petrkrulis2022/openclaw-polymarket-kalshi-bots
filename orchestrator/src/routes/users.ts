@@ -195,6 +195,13 @@ const BOT_DEFS = [
     portOffset: 10,
     entrypoint: "src/index.ts",
   },
+  {
+    name: "market-maker-kalshi",
+    folder: "market-maker",
+    botId: 13,
+    portOffset: 11,
+    entrypoint: "src/index.ts",
+  },
 ] as const;
 
 const WATCHLIST_BOTS = new Set([
