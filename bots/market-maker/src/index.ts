@@ -58,9 +58,15 @@ async function fetchTreasuryEquity(): Promise<number> {
 }
 
 async function fetchAllocatedEquity(): Promise<number> {
-  // The WDK treasury tracks the Polymarket deposit wallet — irrelevant on Kalshi,
-  // where equity is the Kalshi account balance.
-  if (config.venue !== "kalshi") {
+  // The Kalshi balance is separate from the Polymarket bots' deposit wallet and
+  // shared only by the few Kalshi bots — use it directly, not ÷ all enabled bots
+  // (and skip the WDK treasury, which tracks the Polymarket wallet).
+  if (config.venue === "kalshi") {
+    const kalshiBal = await getCollateralBalance();
+    console.log(`[init] Kalshi balance: $${kalshiBal.toFixed(4)}`);
+    return kalshiBal;
+  }
+  {
     const treasuryBalance = await fetchTreasuryEquity();
     if (treasuryBalance > 0) return treasuryBalance;
   }

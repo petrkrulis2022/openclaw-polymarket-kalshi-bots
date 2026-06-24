@@ -316,7 +316,7 @@ function isParlayTicker(ticker: string): boolean {
 export async function listMarkets(): Promise<GammaMarket[]> {
   const out: GammaMarket[] = [];
   const seen = new Set<string>();
-  const cutoff48hMs = Date.now() + 48 * 60 * 60 * 1000;
+  const minEndMs = Date.now() + 2 * 60 * 60 * 1000; // skip near-resolution markets
   try {
     let cursor: string | undefined;
     for (let page = 0; page < 5; page++) {
@@ -333,13 +333,16 @@ export async function listMarkets(): Promise<GammaMarket[]> {
         if (/,\s*(yes|no)\s/i.test(rawTitle)) continue;
         const endDate = m.close_time ?? "";
         const endMs = new Date(endDate).getTime();
-        if (!Number.isFinite(endMs) || endMs < cutoff48hMs) continue;
-        // Require a real two-sided summary book (dollar-string fields).
+        if (Number.isFinite(endMs) && endMs < minEndMs) continue;
+        // Permissive: keep the market and let the quoter's live getOrderBook check
+        // decide if it's two-sided. Use the summary book / last price only to set a
+        // price hint and skip extreme markets.
         const yesBid = parseFloat(m.yes_bid_dollars ?? "0");
         const yesAsk = parseFloat(m.yes_ask_dollars ?? "0");
-        if (!(yesBid > 0 && yesAsk > 0 && yesAsk > yesBid)) continue;
-        const yesPrice = (yesBid + yesAsk) / 2;
-        if (yesPrice > 0.9 || yesPrice < 0.1) continue;
+        const last = parseFloat(m.last_price_dollars ?? "0");
+        const px = yesBid > 0 && yesAsk > 0 ? (yesBid + yesAsk) / 2 : last;
+        if (px > 0 && (px > 0.95 || px < 0.05)) continue;
+        const yesPrice = px > 0 ? px : 0.5;
         seen.add(ticker);
         const vol =
           typeof m.volume_24h_fp === "string"
@@ -371,8 +374,11 @@ export async function listMarkets(): Promise<GammaMarket[]> {
       cursor = raw.cursor;
       if (!cursor || (raw.markets ?? []).length < 200) break;
     }
-    // Deepest book first — best candidates to quote.
-    out.sort((a, b) => b.liquidityNum - a.liquidityNum);
+    // Deepest book first (then most active) — best candidates to quote.
+    out.sort(
+      (a, b) =>
+        b.liquidityNum - a.liquidityNum || b.volume24hr - a.volume24hr,
+    );
   } catch (err) {
     console.error("[kalshi] listMarkets error:", (err as Error).message);
   }
