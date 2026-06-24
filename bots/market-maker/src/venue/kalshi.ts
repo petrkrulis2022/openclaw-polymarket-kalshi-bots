@@ -313,88 +313,92 @@ function isParlayTicker(ticker: string): boolean {
   return /^KXMVE|MULTIGAME|CROSSCATEGORY/i.test(ticker);
 }
 
+// The generic /markets feed is 100% auto-generated multivariate parlays, so we
+// target liquid single-binary series instead. Tune via KALSHI_MM_SERIES (CSV).
+const DEFAULT_MM_SERIES = [
+  // Economics — liquid, long-dated binaries
+  "KXFED", "KXU3", "KXCPIYOY", "KXCOREPCEYOY", "KXGDP", "KXPCEYOY",
+  // Daily high-temperature markets — among Kalshi's most liquid binaries
+  "KXHIGHNY", "KXHIGHCHI", "KXHIGHLAX", "KXHIGHMIA", "KXHIGHAUS",
+  "KXHIGHDEN", "KXHIGHPHIL", "KXHIGHSEA",
+];
+const MM_SERIES = (
+  process.env["KALSHI_MM_SERIES"]
+    ? process.env["KALSHI_MM_SERIES"].split(",")
+    : DEFAULT_MM_SERIES
+)
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function toGammaMarket(m: RawMarket, minEndMs: number): GammaMarket | null {
+  const ticker = m.ticker ?? "";
+  if (!ticker || m.mve_collection_ticker || isParlayTicker(ticker)) return null;
+  const endDate = m.close_time ?? "";
+  const endMs = new Date(endDate).getTime();
+  if (Number.isFinite(endMs) && endMs < minEndMs) return null;
+  const yesBid = parseFloat(m.yes_bid_dollars ?? "0");
+  const yesAsk = parseFloat(m.yes_ask_dollars ?? "0");
+  const last = parseFloat(m.last_price_dollars ?? "0");
+  const px = yesBid > 0 && yesAsk > 0 ? (yesBid + yesAsk) / 2 : last;
+  if (px > 0 && (px > 0.95 || px < 0.05)) return null;
+  const vol =
+    typeof m.volume_24h_fp === "string"
+      ? parseFloat(m.volume_24h_fp)
+      : (m.volume_24h_fp ?? 0);
+  return {
+    conditionId: ticker,
+    question: (m.title ?? m.event_ticker ?? m.yes_sub_title ?? ticker).trim(),
+    endDateIso: endDate,
+    volume24hr: vol,
+    volumeNum: vol,
+    liquidityNum: parseFloat(m.liquidity_dollars ?? "0"),
+    active: true,
+    closed: false,
+    clobTokenIds: JSON.stringify([makeRef(ticker, "yes"), makeRef(ticker, "no")]),
+    enableOrderBook: true,
+    yesTokenId: makeRef(ticker, "yes"),
+    noTokenId: makeRef(ticker, "no"),
+    yesPrice: px > 0 ? px : 0.5,
+    gammaBestBid: yesBid,
+    gammaBestAsk: yesAsk,
+    category: "",
+    gameStartTime: "",
+    rewardsMaxSpread: 0, // Kalshi has no Polymarket-style rewards band
+    rewardsMinSize: 0,
+  };
+}
+
 export async function listMarkets(): Promise<GammaMarket[]> {
   const out: GammaMarket[] = [];
   const seen = new Set<string>();
   const minEndMs = Date.now() + 2 * 60 * 60 * 1000; // skip near-resolution markets
-  try {
-    let cursor: string | undefined;
-    for (let page = 0; page < 5; page++) {
-      const qs = `status=open&limit=200${cursor ? `&cursor=${cursor}` : ""}`;
-      const raw = await kalshiGet<{ markets?: RawMarket[]; cursor?: string }>(
-        `/markets?${qs}`,
-      );
-      if (page === 0) {
-        const ms = raw.markets ?? [];
-        const mve = ms.filter((m) => m.mve_collection_ticker).length;
-        const nonMve = ms
-          .filter((m) => !m.mve_collection_ticker)
-          .slice(0, 4)
-          .map(
-            (m) =>
-              `${m.ticker}|bid=${m.yes_bid_dollars}|ask=${m.yes_ask_dollars}|close=${m.close_time}`,
-          );
-        console.log(
-          `[kalshi-debug] page0=${ms.length} mve=${mve} nonMveSamples=${JSON.stringify(nonMve)}`,
+  await Promise.allSettled(
+    MM_SERIES.map(async (series) => {
+      try {
+        const raw = await kalshiGet<{ markets?: RawMarket[] }>(
+          `/markets?status=open&limit=100&series_ticker=${encodeURIComponent(series)}`,
         );
+        const ms = raw.markets ?? [];
+        let kept = 0;
+        for (const m of ms) {
+          const gm = toGammaMarket(m, minEndMs);
+          if (!gm || seen.has(gm.conditionId)) continue;
+          seen.add(gm.conditionId);
+          out.push(gm);
+          kept++;
+        }
+        if (ms.length > 0)
+          console.log(`[kalshi] series ${series}: ${ms.length} open, ${kept} quotable`);
+      } catch {
+        /* series may not exist on this host — ignore */
       }
-      for (const m of raw.markets ?? []) {
-        const ticker = m.ticker ?? "";
-        if (!ticker || seen.has(ticker)) continue;
-        // Skip multivariate/parlay markets — no clean two-sided binary book.
-        if (m.mve_collection_ticker || isParlayTicker(ticker)) continue;
-        const rawTitle = m.title ?? m.event_ticker ?? m.yes_sub_title ?? ticker;
-        if (/,\s*(yes|no)\s/i.test(rawTitle)) continue;
-        const endDate = m.close_time ?? "";
-        const endMs = new Date(endDate).getTime();
-        if (Number.isFinite(endMs) && endMs < minEndMs) continue;
-        // Permissive: keep the market and let the quoter's live getOrderBook check
-        // decide if it's two-sided. Use the summary book / last price only to set a
-        // price hint and skip extreme markets.
-        const yesBid = parseFloat(m.yes_bid_dollars ?? "0");
-        const yesAsk = parseFloat(m.yes_ask_dollars ?? "0");
-        const last = parseFloat(m.last_price_dollars ?? "0");
-        const px = yesBid > 0 && yesAsk > 0 ? (yesBid + yesAsk) / 2 : last;
-        if (px > 0 && (px > 0.95 || px < 0.05)) continue;
-        const yesPrice = px > 0 ? px : 0.5;
-        seen.add(ticker);
-        const vol =
-          typeof m.volume_24h_fp === "string"
-            ? parseFloat(m.volume_24h_fp)
-            : (m.volume_24h_fp ?? 0);
-        const liq = parseFloat(m.liquidity_dollars ?? "0");
-        out.push({
-          conditionId: ticker,
-          question: rawTitle.trim(),
-          endDateIso: endDate,
-          volume24hr: vol,
-          volumeNum: vol,
-          liquidityNum: liq,
-          active: true,
-          closed: false,
-          clobTokenIds: JSON.stringify([makeRef(ticker, "yes"), makeRef(ticker, "no")]),
-          enableOrderBook: true,
-          yesTokenId: makeRef(ticker, "yes"),
-          noTokenId: makeRef(ticker, "no"),
-          yesPrice,
-          gammaBestBid: yesBid,
-          gammaBestAsk: yesAsk,
-          category: "",
-          gameStartTime: "",
-          rewardsMaxSpread: 0, // Kalshi has no Polymarket-style rewards band
-          rewardsMinSize: 0,
-        });
-      }
-      cursor = raw.cursor;
-      if (!cursor || (raw.markets ?? []).length < 200) break;
-    }
-    // Deepest book first (then most active) — best candidates to quote.
-    out.sort(
-      (a, b) =>
-        b.liquidityNum - a.liquidityNum || b.volume24hr - a.volume24hr,
-    );
-  } catch (err) {
-    console.error("[kalshi] listMarkets error:", (err as Error).message);
-  }
+    }),
+  );
+  out.sort(
+    (a, b) => b.liquidityNum - a.liquidityNum || b.volume24hr - a.volume24hr,
+  );
+  console.log(
+    `[kalshi] listMarkets: ${out.length} quotable binary markets across ${MM_SERIES.length} series`,
+  );
   return out;
 }
