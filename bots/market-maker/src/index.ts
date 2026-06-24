@@ -24,7 +24,7 @@ import {
   cancelOrder,
   placeLimitOrder,
   getOrderBook,
-} from "./clob.js";
+} from "./venue/index.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 import { logActivity, getActivity } from "./activity.js";
 import { loadFillsState, pollFills } from "./fills.js";
@@ -58,8 +58,12 @@ async function fetchTreasuryEquity(): Promise<number> {
 }
 
 async function fetchAllocatedEquity(): Promise<number> {
-  const treasuryBalance = await fetchTreasuryEquity();
-  if (treasuryBalance > 0) return treasuryBalance;
+  // The WDK treasury tracks the Polymarket deposit wallet — irrelevant on Kalshi,
+  // where equity is the Kalshi account balance.
+  if (config.venue !== "kalshi") {
+    const treasuryBalance = await fetchTreasuryEquity();
+    if (treasuryBalance > 0) return treasuryBalance;
+  }
   // Fall back to CLOB collateral balance (EOA mode).
   // Divide by BOT_COUNT so multiple user bots sharing one proxy wallet don't overcount.
   const botCount = parseInt(process.env["BOT_COUNT"] ?? "1", 10);

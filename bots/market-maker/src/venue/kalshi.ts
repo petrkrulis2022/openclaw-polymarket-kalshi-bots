@@ -339,23 +339,35 @@ export async function listMarkets(): Promise<GammaMarket[]> {
         const ticker = m.ticker ?? "";
         if (!ticker || seen.has(ticker)) continue;
         if (isParlayTicker(ticker)) continue;
+        const rawTitle = m.title ?? m.event_title ?? m.yes_sub_title ?? ticker;
+        // Parlay/multi-outcome markets arrive as comma-joined "yes X,yes Y"
+        // outcome lists with no clean two-sided book — skip regardless of ticker.
+        if (/,\s*(yes|no)\s/i.test(rawTitle)) continue;
         const category = (m.category ?? "").toLowerCase().trim();
         if (EXCLUDED_CATEGORIES.has(category)) continue;
         const endDate = m.close_time ?? "";
         const endMs = new Date(endDate).getTime();
         if (!Number.isFinite(endMs) || endMs < cutoff48hMs) continue;
-        // Require an actual two-sided book (from the market summary) — the quoter
-        // can't make a market on a one-sided/empty book.
-        const yesBidC = m.yes_bid ?? 0;
-        const yesAskC = m.yes_ask ?? 0;
-        if (!(yesBidC > 0 && yesAskC > 0 && yesAskC > yesBidC)) continue;
-        const yesPrice = (yesBidC + yesAskC) / 2 / 100;
+        // Soft two-sided check: only reject when the summary book is present and
+        // clearly one-sided. Kalshi often omits yes_bid/yes_ask from the list,
+        // so otherwise let the quoter's live getOrderBook check decide.
+        const yesBidC = m.yes_bid;
+        const yesAskC = m.yes_ask;
+        if (
+          yesBidC !== undefined &&
+          yesAskC !== undefined &&
+          !(yesBidC > 0 && yesAskC > 0 && yesAskC > yesBidC)
+        )
+          continue;
+        const midC =
+          yesBidC && yesAskC ? (yesBidC + yesAskC) / 2 : (m.last_price ?? 50);
+        const yesPrice = midC / 100;
         if (yesPrice > 0.9 || yesPrice < 0.1) continue;
         seen.add(ticker);
         const vol = m.volume_24h ?? m.volume ?? 0;
         out.push({
           conditionId: ticker,
-          question: (m.title ?? m.event_title ?? m.yes_sub_title ?? ticker).trim(),
+          question: rawTitle.trim(),
           endDateIso: endDate,
           volume24hr: vol,
           volumeNum: m.volume ?? vol,
