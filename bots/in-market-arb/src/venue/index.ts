@@ -12,11 +12,18 @@ import { config } from "../config.js";
 import * as poly from "../clob.js";
 import * as kalshi from "./kalshi.js";
 import * as limitless from "./limitless.js";
+import * as opinion from "./opinion.js";
 
 export const VENUE = config.venue;
 
 const backend =
-  VENUE === "kalshi" ? kalshi : VENUE === "limitless" ? limitless : poly;
+  VENUE === "kalshi"
+    ? kalshi
+    : VENUE === "limitless"
+      ? limitless
+      : VENUE === "opinion"
+        ? opinion
+        : poly;
 
 // Shared read/cancel primitives (identical signatures across venues).
 export const getOrderBook = backend.getOrderBook;

@@ -209,6 +209,13 @@ const BOT_DEFS = [
     portOffset: 12,
     entrypoint: "src/index.ts",
   },
+  {
+    name: "in-market-arb-opinion",
+    folder: "in-market-arb",
+    botId: 15,
+    portOffset: 13,
+    entrypoint: "src/index.ts",
+  },
 ] as const;
 
 const WATCHLIST_BOTS = new Set([
@@ -999,6 +1006,15 @@ async function ensureUserBotProcess(
             LIMITLESS_CTF_ADDRESS: process.env["LIMITLESS_CTF_ADDRESS"] ?? "",
           }
         : {}),
+      ...(bot.name.endsWith("-opinion")
+        ? {
+            VENUE: "opinion",
+            OPINION_API_KEY: process.env["OPINION_API_KEY"] ?? "",
+            OPINION_HOST: process.env["OPINION_HOST"] ?? "https://proxy.opinion.trade:8443",
+            BNB_RPC_URL: process.env["BNB_RPC_URL"] ?? "https://bsc-dataseed.binance.org",
+            OPINION_MULTISIG_ADDR: process.env["OPINION_MULTISIG_ADDR"] ?? "",
+          }
+        : {}),
     },
   };
 
@@ -1301,6 +1317,17 @@ router.post(
                   LIMITLESS_API_SECRET: process.env["LIMITLESS_API_SECRET"] ?? "",
                   BASE_RPC_URL: process.env["BASE_RPC_URL"] ?? "https://mainnet.base.org",
                   LIMITLESS_CTF_ADDRESS: process.env["LIMITLESS_CTF_ADDRESS"] ?? "",
+                }
+              : {}),
+            ...(bot.name.endsWith("-opinion")
+              ? {
+                  VENUE: "opinion",
+                  OPINION_API_KEY: process.env["OPINION_API_KEY"] ?? "",
+                  OPINION_HOST:
+                    process.env["OPINION_HOST"] ?? "https://proxy.opinion.trade:8443",
+                  BNB_RPC_URL:
+                    process.env["BNB_RPC_URL"] ?? "https://bsc-dataseed.binance.org",
+                  OPINION_MULTISIG_ADDR: process.env["OPINION_MULTISIG_ADDR"] ?? "",
                 }
               : {}),
           },

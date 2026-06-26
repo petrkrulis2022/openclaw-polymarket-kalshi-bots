@@ -40,6 +40,8 @@ import { listBinaryMarkets as listKalshiBinary } from "./venue/kalshi.js";
 import { executeKalshiArbPair } from "./executor-kalshi.js";
 import { listBinaryMarkets as listLimitlessBinary } from "./venue/limitless.js";
 import { executeLimitlessArbPair } from "./executor-limitless.js";
+import { listBinaryMarkets as listOpinionBinary } from "./venue/opinion.js";
+import { executeOpinionArbPair } from "./executor-opinion.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 import { logActivity, getActivity } from "./activity.js";
 
@@ -232,9 +234,89 @@ async function runLimitlessScanCycle(): Promise<void> {
   }
 }
 
+// ── Opinion scan cycle (binary single markets; SDK merge after entry) ────────
+
+let opinionMarketsCache: BinaryMarket[] = [];
+let opinionMarketsAt = 0;
+let opinionScanCursor = 0;
+const OPINION_MARKET_CACHE_MS = 55_000;
+
+async function runOpinionScanCycle(): Promise<void> {
+  const now = Date.now();
+  if (
+    now - opinionMarketsAt > OPINION_MARKET_CACHE_MS ||
+    opinionMarketsCache.length === 0
+  ) {
+    opinionMarketsCache = await listOpinionBinary();
+    opinionMarketsAt = now;
+  }
+
+  const all = opinionMarketsCache.filter((m) => !activeMarkets.has(m.id));
+  const N = config.maxConcurrentMarkets;
+  const window: BinaryMarket[] = [];
+  for (let i = 0; i < Math.min(N, all.length); i++) {
+    window.push(all[(opinionScanCursor + i) % all.length]!);
+  }
+  opinionScanCursor = all.length > 0 ? (opinionScanCursor + N) % all.length : 0;
+
+  const signals: ArbSignal[] = [];
+  await Promise.allSettled(
+    window.map(async (m) => {
+      const signal = await computeArbSignal(
+        m.id,
+        m.conditionId,
+        m.question,
+        m.yesTokenId,
+        m.noTokenId,
+        m.feeRate,
+      );
+      if (signal) signals.push(signal);
+    }),
+  );
+
+  lastScanSignals = signals;
+  lastScanAt = new Date().toISOString();
+  logActivity("scan_complete", {
+    binaryMarkets: opinionMarketsCache.length,
+    negRiskGroups: 0,
+    signals: signals.length,
+  });
+
+  if (signals.length === 0) {
+    console.log("[arb] No profitable Opinion signals this cycle");
+    return;
+  }
+
+  signals.sort((a, b) => b.expectedProfitUsd - a.expectedProfitUsd);
+  for (const signal of signals) {
+    if (activeMarkets.has(signal.marketId)) continue;
+    activeMarkets.add(signal.marketId);
+    console.log(
+      `[arb] Opinion binary signal: ${signal.marketQuestion} | spread=${signal.netSpread.toFixed(4)} ` +
+        `profit=$${signal.expectedProfitUsd.toFixed(4)}`,
+    );
+    logActivity("signal_found", {
+      kind: "binary",
+      venue: "opinion",
+      market: signal.marketQuestion,
+      spread: signal.netSpread,
+      profitUsd: signal.expectedProfitUsd,
+    });
+    await executeOpinionArbPair(signal).catch((err) => {
+      console.error("[arb] executeOpinionArbPair error:", (err as Error).message);
+      activeMarkets.delete(signal.marketId);
+    });
+    setTimeout(
+      () => activeMarkets.delete(signal.marketId),
+      config.pairTimeoutMs + 1_000,
+    );
+  }
+}
+
 async function runScanCycle(): Promise<void> {
   if (VENUE === "kalshi") return runKalshiScanCycle();
   if (VENUE === "limitless") return runLimitlessScanCycle();
+  if (VENUE === "opinion") return runOpinionScanCycle();
   const { binary, negRisk } = await scanActiveMarkets();
   const signals: AnySignal[] = [];
 

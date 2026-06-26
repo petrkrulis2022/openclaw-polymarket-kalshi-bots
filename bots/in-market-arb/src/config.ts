@@ -21,11 +21,11 @@ function signatureTypeFromEnv(): SignatureTypeV2 {
 
 const VENUE = (() => {
   const v = process.env["VENUE"];
-  return v === "kalshi" || v === "limitless" ? v : "polymarket";
+  return v === "kalshi" || v === "limitless" || v === "opinion" ? v : "polymarket";
 })();
 
 export const config = {
-  venue: VENUE as "polymarket" | "kalshi" | "limitless",
+  venue: VENUE as "polymarket" | "kalshi" | "limitless" | "opinion",
   port: parseInt(process.env["PORT"] ?? "3005", 10),
   botId: parseInt(process.env["BOT_ID"] ?? "4", 10),
   // Limitless backend (CLOB on Base; only required when VENUE=limitless).
@@ -46,6 +46,19 @@ export const config = {
     // recovery). Empty = merge skipped (positions held to resolution) until the
     // address is confirmed for Limitless on Base.
     ctfAddress: process.env["LIMITLESS_CTF_ADDRESS"] ?? "",
+  } as const,
+  // Opinion backend (CLOB on BNB Chain; only when VENUE=opinion). API is GATED —
+  // needs a key from Opinion Labs. Trades via a Gnosis Safe (multiSig).
+  opinion: {
+    host: process.env["OPINION_HOST"] ?? "https://proxy.opinion.trade:8443",
+    apiKey: process.env["OPINION_API_KEY"] ?? "",
+    rpcUrl: process.env["BNB_RPC_URL"] ?? "https://bsc-dataseed.binance.org",
+    signerKey: process.env["BOT_SIGNER_KEY"] ?? "",
+    multiSigAddress: process.env["OPINION_MULTISIG_ADDR"] ?? "",
+    chainId: parseInt(process.env["OPINION_CHAIN_ID"] ?? "56", 10),
+    feeRate: parseFloat(process.env["OPINION_FEE_RATE"] ?? "0.02"),
+    // Quote-token decimals (verify per market; 18 typical on BNB, 6 for USDT).
+    collateralDecimals: parseInt(process.env["OPINION_COLLATERAL_DECIMALS"] ?? "18", 10),
   } as const,
   // Kalshi backend (only required when VENUE=kalshi; kept optional so the
   // Polymarket path never needs KALSHI_* env). Validated lazily by the adapter.
