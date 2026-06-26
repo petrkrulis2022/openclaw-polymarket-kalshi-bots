@@ -35,7 +35,10 @@ export const config = {
     apiKey: process.env["LIMITLESS_API_KEY"] ?? "",
     apiSecret: process.env["LIMITLESS_API_SECRET"] ?? "",
     baseRpcUrl: process.env["BASE_RPC_URL"] ?? "https://mainnet.base.org",
-    signerKey: process.env["BOT_SIGNER_KEY"] ?? "",
+    // The signer MUST be the wallet the scoped API token was issued for (the
+    // wallet connected in the Limitless app), else orders are rejected. Override
+    // with LIMITLESS_SIGNER_KEY; falls back to the derived bot EOA.
+    signerKey: process.env["LIMITLESS_SIGNER_KEY"] ?? process.env["BOT_SIGNER_KEY"] ?? "",
     walletAddress:
       process.env["LIMITLESS_WALLET_ADDRESS"] ??
       process.env["POLYMARKET_WALLET_ADDRESS"] ??

@@ -1002,6 +1002,8 @@ async function ensureUserBotProcess(
             VENUE: "limitless",
             LIMITLESS_API_KEY: process.env["LIMITLESS_API_KEY"] ?? "",
             LIMITLESS_API_SECRET: process.env["LIMITLESS_API_SECRET"] ?? "",
+            LIMITLESS_SIGNER_KEY: process.env["LIMITLESS_SIGNER_KEY"] ?? "",
+            LIMITLESS_WALLET_ADDRESS: process.env["LIMITLESS_WALLET_ADDRESS"] ?? "",
             BASE_RPC_URL: process.env["BASE_RPC_URL"] ?? "https://mainnet.base.org",
             LIMITLESS_CTF_ADDRESS: process.env["LIMITLESS_CTF_ADDRESS"] ?? "",
           }
@@ -1315,6 +1317,8 @@ router.post(
                   VENUE: "limitless",
                   LIMITLESS_API_KEY: process.env["LIMITLESS_API_KEY"] ?? "",
                   LIMITLESS_API_SECRET: process.env["LIMITLESS_API_SECRET"] ?? "",
+                  LIMITLESS_SIGNER_KEY: process.env["LIMITLESS_SIGNER_KEY"] ?? "",
+                  LIMITLESS_WALLET_ADDRESS: process.env["LIMITLESS_WALLET_ADDRESS"] ?? "",
                   BASE_RPC_URL: process.env["BASE_RPC_URL"] ?? "https://mainnet.base.org",
                   LIMITLESS_CTF_ADDRESS: process.env["LIMITLESS_CTF_ADDRESS"] ?? "",
                 }
