@@ -31,7 +31,8 @@ export const config = {
   // Limitless backend (CLOB on Base; only required when VENUE=limitless).
   limitless: {
     apiBase: process.env["LIMITLESS_API_BASE"] ?? "https://api.limitless.exchange",
-    apiToken: process.env["LIMITLESS_API_TOKEN"] ?? "",
+    // Scoped API token: apiKey is the token id, apiSecret signs HMAC requests.
+    apiKey: process.env["LIMITLESS_API_KEY"] ?? "",
     apiSecret: process.env["LIMITLESS_API_SECRET"] ?? "",
     baseRpcUrl: process.env["BASE_RPC_URL"] ?? "https://mainnet.base.org",
     signerKey: process.env["BOT_SIGNER_KEY"] ?? "",

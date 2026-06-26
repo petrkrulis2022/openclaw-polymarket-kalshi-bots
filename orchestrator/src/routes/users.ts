@@ -1000,7 +1000,7 @@ async function ensureUserBotProcess(
       ...(bot.name.endsWith("-limitless")
         ? {
             VENUE: "limitless",
-            LIMITLESS_API_TOKEN: process.env["LIMITLESS_API_TOKEN"] ?? "",
+            LIMITLESS_API_KEY: process.env["LIMITLESS_API_KEY"] ?? "",
             LIMITLESS_API_SECRET: process.env["LIMITLESS_API_SECRET"] ?? "",
             BASE_RPC_URL: process.env["BASE_RPC_URL"] ?? "https://mainnet.base.org",
             LIMITLESS_CTF_ADDRESS: process.env["LIMITLESS_CTF_ADDRESS"] ?? "",
@@ -1313,7 +1313,7 @@ router.post(
             ...(bot.name.endsWith("-limitless")
               ? {
                   VENUE: "limitless",
-                  LIMITLESS_API_TOKEN: process.env["LIMITLESS_API_TOKEN"] ?? "",
+                  LIMITLESS_API_KEY: process.env["LIMITLESS_API_KEY"] ?? "",
                   LIMITLESS_API_SECRET: process.env["LIMITLESS_API_SECRET"] ?? "",
                   BASE_RPC_URL: process.env["BASE_RPC_URL"] ?? "https://mainnet.base.org",
                   LIMITLESS_CTF_ADDRESS: process.env["LIMITLESS_CTF_ADDRESS"] ?? "",

@@ -207,7 +207,11 @@ async function orderClient() {
   const wallet = new Wallet(normKey(config.limitless.signerKey), provider);
   const httpClient = new HttpClient({
     baseURL: config.limitless.apiBase,
-    apiKey: config.limitless.apiToken,
+    apiKey: config.limitless.apiKey,
+    hmacCredentials: {
+      tokenId: config.limitless.apiKey,
+      secret: config.limitless.apiSecret,
+    },
   });
   _oc = new OrderClient({ httpClient, wallet }) as unknown as NonNullable<typeof _oc>;
   return _oc;
