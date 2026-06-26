@@ -26,8 +26,6 @@ const VENUE = (() => {
 
 export const config = {
   venue: VENUE as "polymarket" | "kalshi" | "limitless",
-  // New venues ship dry-run by default; live orders require DRY_RUN=false.
-  dryRun: (process.env["DRY_RUN"] ?? "true") !== "false",
   port: parseInt(process.env["PORT"] ?? "3005", 10),
   botId: parseInt(process.env["BOT_ID"] ?? "4", 10),
   // Limitless backend (CLOB on Base; only required when VENUE=limitless).
@@ -44,6 +42,10 @@ export const config = {
     // Fee model: fee = feeRate × price × (1 − price) per share (same shape as
     // Polymarket). Conservative default until confirmed from market data.
     feeRate: parseFloat(process.env["LIMITLESS_FEE_RATE"] ?? "0.02"),
+    // Gnosis ConditionalTokens (CTF) on Base for mergePositions (capital
+    // recovery). Empty = merge skipped (positions held to resolution) until the
+    // address is confirmed for Limitless on Base.
+    ctfAddress: process.env["LIMITLESS_CTF_ADDRESS"] ?? "",
   } as const,
   // Kalshi backend (only required when VENUE=kalshi; kept optional so the
   // Polymarket path never needs KALSHI_* env). Validated lazily by the adapter.

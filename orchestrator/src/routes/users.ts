@@ -202,6 +202,13 @@ const BOT_DEFS = [
     portOffset: 11,
     entrypoint: "src/index.ts",
   },
+  {
+    name: "in-market-arb-limitless",
+    folder: "in-market-arb",
+    botId: 14,
+    portOffset: 12,
+    entrypoint: "src/index.ts",
+  },
 ] as const;
 
 const WATCHLIST_BOTS = new Set([
@@ -982,8 +989,16 @@ async function ensureUserBotProcess(
             KALSHI_HOST: "https://external-api.kalshi.com/trade-api/v2",
           }
         : {}),
-      ...(bot.name === "kalshi-arb" ? { DRY_RUN: "true" } : {}),
       ...(bot.name.endsWith("-kalshi") ? { VENUE: "kalshi" } : {}),
+      ...(bot.name.endsWith("-limitless")
+        ? {
+            VENUE: "limitless",
+            LIMITLESS_API_TOKEN: process.env["LIMITLESS_API_TOKEN"] ?? "",
+            LIMITLESS_API_SECRET: process.env["LIMITLESS_API_SECRET"] ?? "",
+            BASE_RPC_URL: process.env["BASE_RPC_URL"] ?? "https://mainnet.base.org",
+            LIMITLESS_CTF_ADDRESS: process.env["LIMITLESS_CTF_ADDRESS"] ?? "",
+          }
+        : {}),
     },
   };
 
@@ -1277,10 +1292,17 @@ router.post(
                   KALSHI_HOST: "https://external-api.kalshi.com/trade-api/v2",
                 }
               : {}),
-            // kalshi-arb runs paper-only until its write path is validated.
-            ...(bot.name === "kalshi-arb" ? { DRY_RUN: "true" } : {}),
-            // Venue variants run the shared bot code against Kalshi.
+            // Venue variants run the shared bot code against another exchange.
             ...(bot.name.endsWith("-kalshi") ? { VENUE: "kalshi" } : {}),
+            ...(bot.name.endsWith("-limitless")
+              ? {
+                  VENUE: "limitless",
+                  LIMITLESS_API_TOKEN: process.env["LIMITLESS_API_TOKEN"] ?? "",
+                  LIMITLESS_API_SECRET: process.env["LIMITLESS_API_SECRET"] ?? "",
+                  BASE_RPC_URL: process.env["BASE_RPC_URL"] ?? "https://mainnet.base.org",
+                  LIMITLESS_CTF_ADDRESS: process.env["LIMITLESS_CTF_ADDRESS"] ?? "",
+                }
+              : {}),
           },
         };
       });

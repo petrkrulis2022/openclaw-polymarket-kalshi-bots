@@ -38,6 +38,8 @@ import {
 } from "./venue/index.js";
 import { listBinaryMarkets as listKalshiBinary } from "./venue/kalshi.js";
 import { executeKalshiArbPair } from "./executor-kalshi.js";
+import { listBinaryMarkets as listLimitlessBinary } from "./venue/limitless.js";
+import { executeLimitlessArbPair } from "./executor-limitless.js";
 import { loadAnalysis, scheduleAnalysisRefresh } from "./analysis.js";
 import { logActivity, getActivity } from "./activity.js";
 
@@ -151,8 +153,88 @@ async function runKalshiScanCycle(): Promise<void> {
   }
 }
 
+// ── Limitless scan cycle (binary single markets; CTF merge after entry) ──────
+
+let limitlessMarketsCache: BinaryMarket[] = [];
+let limitlessMarketsAt = 0;
+let limitlessScanCursor = 0;
+const LIMITLESS_MARKET_CACHE_MS = 55_000;
+
+async function runLimitlessScanCycle(): Promise<void> {
+  const now = Date.now();
+  if (
+    now - limitlessMarketsAt > LIMITLESS_MARKET_CACHE_MS ||
+    limitlessMarketsCache.length === 0
+  ) {
+    limitlessMarketsCache = await listLimitlessBinary();
+    limitlessMarketsAt = now;
+  }
+
+  const all = limitlessMarketsCache.filter((m) => !activeMarkets.has(m.id));
+  const N = config.maxConcurrentMarkets;
+  const window: BinaryMarket[] = [];
+  for (let i = 0; i < Math.min(N, all.length); i++) {
+    window.push(all[(limitlessScanCursor + i) % all.length]!);
+  }
+  limitlessScanCursor = all.length > 0 ? (limitlessScanCursor + N) % all.length : 0;
+
+  const signals: ArbSignal[] = [];
+  await Promise.allSettled(
+    window.map(async (m) => {
+      const signal = await computeArbSignal(
+        m.id,
+        m.conditionId,
+        m.question,
+        m.yesTokenId,
+        m.noTokenId,
+        m.feeRate,
+      );
+      if (signal) signals.push(signal);
+    }),
+  );
+
+  lastScanSignals = signals;
+  lastScanAt = new Date().toISOString();
+  logActivity("scan_complete", {
+    binaryMarkets: limitlessMarketsCache.length,
+    negRiskGroups: 0,
+    signals: signals.length,
+  });
+
+  if (signals.length === 0) {
+    console.log("[arb] No profitable Limitless signals this cycle");
+    return;
+  }
+
+  signals.sort((a, b) => b.expectedProfitUsd - a.expectedProfitUsd);
+  for (const signal of signals) {
+    if (activeMarkets.has(signal.marketId)) continue;
+    activeMarkets.add(signal.marketId);
+    console.log(
+      `[arb] Limitless binary signal: ${signal.marketQuestion} | spread=${signal.netSpread.toFixed(4)} ` +
+        `profit=$${signal.expectedProfitUsd.toFixed(4)}`,
+    );
+    logActivity("signal_found", {
+      kind: "binary",
+      venue: "limitless",
+      market: signal.marketQuestion,
+      spread: signal.netSpread,
+      profitUsd: signal.expectedProfitUsd,
+    });
+    await executeLimitlessArbPair(signal).catch((err) => {
+      console.error("[arb] executeLimitlessArbPair error:", (err as Error).message);
+      activeMarkets.delete(signal.marketId);
+    });
+    setTimeout(
+      () => activeMarkets.delete(signal.marketId),
+      config.pairTimeoutMs + 1_000,
+    );
+  }
+}
+
 async function runScanCycle(): Promise<void> {
   if (VENUE === "kalshi") return runKalshiScanCycle();
+  if (VENUE === "limitless") return runLimitlessScanCycle();
   const { binary, negRisk } = await scanActiveMarkets();
   const signals: AnySignal[] = [];
 
@@ -330,7 +412,7 @@ async function reconcilePairs(): Promise<void> {
 async function scheduleScan(): Promise<void> {
   try {
     await runScanCycle();
-    if (VENUE !== "kalshi") await reconcilePairs();
+    if (VENUE === "polymarket") await reconcilePairs();
   } catch (err) {
     console.error("[arb] Scan error:", (err as Error).message);
     logActivity("scan_error", { message: (err as Error).message }, "error");
